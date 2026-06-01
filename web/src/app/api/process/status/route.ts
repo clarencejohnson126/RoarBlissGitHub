@@ -38,8 +38,8 @@ export async function GET(request: Request) {
     base.elapsed_s = elapsedS;
     base.message = `Processing — ${elapsedS}s elapsed (typical: ~5-7 min).`;
   } else if (job.status === "done") {
-    base.output_url = `/output/${sessionId}_full.mp3`;
-    base.preview_url = `/output/${sessionId}_preview.mp3`;
+    base.output_url = `/api/output/${sessionId}_full.mp3`;
+    base.preview_url = `/api/output/${sessionId}_preview.mp3`;
     base.message = "Personalized audio ready.";
   } else if (job.status === "failed") {
     base.error = job.error;

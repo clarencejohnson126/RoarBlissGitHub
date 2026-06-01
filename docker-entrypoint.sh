@@ -11,6 +11,13 @@ set -e
 #   /var/data/hf       — HuggingFace cache (HF_HOME) for the gated pyannote model
 mkdir -p /var/data/jobs /var/data/uploads /var/data/output /var/data/hf
 
+# Clear any stale worker lock left on the persistent disk by a previous container.
+# Each container runs exactly one worker (started below), so a lock file surviving on
+# /var/data from a prior boot is always stale — but its PID can collide with a live PID
+# in the new container, which would make the worker think a peer is running and refuse to
+# start (jobs then hang forever in 'queued'). Deleting it here is safe and correct.
+rm -f /var/data/jobs/worker.lock
+
 # Sanity check the symlinks are pointing where we expect
 ls -la /app/web/data /app/web/public/uploads /app/web/public/output
 

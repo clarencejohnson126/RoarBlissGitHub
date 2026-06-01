@@ -134,7 +134,7 @@ async function runOne() {
 
 async function sendDoneEmail(job, form) {
   if (!resend || !job.email) return;
-  const downloadUrl = `${process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"}/output/${job.id}_full.mp3`;
+  const downloadUrl = `${process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"}/api/output/${job.id}_full.mp3`;
   try {
     await resend.emails.send({
       from: process.env.RESEND_FROM_EMAIL || "Roar Bliss <onboarding@resend.dev>",

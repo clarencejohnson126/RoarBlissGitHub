@@ -165,7 +165,7 @@ export default function AudioVisualizer({ formData, sessionId }: AudioVisualizer
             audioRef.current.pause();
             
             // Trigger browser reload of new src
-            audioRef.current.src = `/output/${sessionId}_full.mp3`;
+            audioRef.current.src = `/api/output/${sessionId}_full.mp3`;
             audioRef.current.load();
             
             audioRef.current.oncanplay = () => {
@@ -478,10 +478,10 @@ export default function AudioVisualizer({ formData, sessionId }: AudioVisualizer
       </div>
 
       {/* Dynamic Local Audio Stem */}
-      <audio 
-        ref={audioRef} 
-        src={isLocked ? `/output/${sessionId}_preview.mp3` : `/output/${sessionId}_full.mp3`} 
-        preload="auto" 
+      <audio
+        ref={audioRef}
+        src={isLocked ? `/api/output/${sessionId}_preview.mp3` : `/api/output/${sessionId}_full.mp3`}
+        preload="auto"
       />
 
       {/* Custom Player HUD Panel */}
