@@ -39,8 +39,12 @@ _whisper_model = None
 def get_whisper():
     global _whisper_model
     if _whisper_model is None:
-        print("  loading Whisper medium model...")
-        _whisper_model = whisper.load_model("medium")
+        # WHISPER_MODEL is env-configurable so cloud containers can use a lighter model.
+        # "medium" (~5GB peak RAM) is great locally but OOMs on a 2-4GB cloud box;
+        # "base" (~1GB) is the cloud default and is plenty for English motivational speech.
+        model_name = os.environ.get("WHISPER_MODEL", "medium")
+        print(f"  loading Whisper '{model_name}' model...")
+        _whisper_model = whisper.load_model(model_name)
     return _whisper_model
 
 def _cache_path(audio_path: str, suffix: str) -> Path:

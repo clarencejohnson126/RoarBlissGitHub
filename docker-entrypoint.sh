@@ -8,7 +8,8 @@ set -e
 #   /var/data/jobs     — SQLite queue + worker.lock
 #   /var/data/uploads  — incoming user uploads
 #   /var/data/output   — generated MP3s (served by Next via /output/*)
-mkdir -p /var/data/jobs /var/data/uploads /var/data/output
+#   /var/data/hf       — HuggingFace cache (HF_HOME) for the gated pyannote model
+mkdir -p /var/data/jobs /var/data/uploads /var/data/output /var/data/hf
 
 # Sanity check the symlinks are pointing where we expect
 ls -la /app/web/data /app/web/public/uploads /app/web/public/output

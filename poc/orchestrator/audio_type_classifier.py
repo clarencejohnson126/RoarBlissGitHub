@@ -141,13 +141,8 @@ Output strictly as JSON: {"type": "X", "confidence": 0.0-1.0, "reasoning": "one 
 No prose outside the JSON object."""
 
 def llm_classify(f: dict) -> dict:
-    """Call Ollama (qwen2.5:7b) for classification using features + transcript."""
-    try:
-        import ollama
-    except ImportError:
-        import subprocess
-        subprocess.run(["pip", "install", "ollama"], check=True)
-        import ollama
+    """Classify audio type via the shared LLM (Claude Haiku in prod, Ollama fallback)."""
+    from llm import llm_chat
 
     user_msg = f"""Classify this audio:
 
@@ -171,15 +166,7 @@ Transcript (truncated to 2500 chars — look for voice/style changes indicating 
 
 Return your JSON classification now."""
 
-    response = ollama.chat(
-        model='qwen2.5:7b',
-        messages=[
-            {'role': 'system', 'content': LLM_SYSTEM_PROMPT},
-            {'role': 'user', 'content': user_msg},
-        ],
-        options={'temperature': 0.1, 'num_predict': 200},
-    )
-    raw = response['message']['content']
+    raw = llm_chat(LLM_SYSTEM_PROMPT, user_msg, max_tokens=200, temperature=0.1)
     # Extract JSON (LLM might wrap in markdown fences)
     import re
     m = re.search(r'\{[^{}]*"type"[^{}]*\}', raw, re.DOTALL)

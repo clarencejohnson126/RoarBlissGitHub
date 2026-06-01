@@ -100,7 +100,7 @@ def _join_whisper_with_diarization(whisper_segments: list, diar_turns: list) -> 
 def _llm_tag_emotions(speaker_id: str, segments: list, name_guess: str = None) -> list:
     """Send all of one speaker's segments to LLM, get back emotion tags.
     Returns list of emotion strings, parallel to input segments."""
-    import ollama
+    from llm import llm_chat
     palette_list = "\n".join(f"  - {e}" for e in EMOTION_PALETTE)
 
     seg_lines = []
@@ -131,12 +131,7 @@ Return JSON array of objects matching the input segment indices:
 
 No prose outside the JSON array."""
 
-    response = ollama.chat(
-        model='qwen2.5:7b',
-        messages=[{'role': 'user', 'content': user_msg}],
-        options={'temperature': 0.1, 'num_predict': 1500},
-    )
-    raw = response['message']['content']
+    raw = llm_chat("", user_msg, max_tokens=1500, temperature=0.1)
 
     import re
     m = re.search(r'\[.*\]', raw, re.DOTALL)
@@ -160,7 +155,7 @@ No prose outside the JSON array."""
 def _guess_speaker_name(segments: list) -> str:
     """Try to guess the speaker's name from their transcript content.
     Returns short label like 'Theon', 'narrator', or 'unknown'."""
-    import ollama
+    from llm import llm_chat
     sample = "\n".join(f'- "{s["text"]}"' for s in segments[:8])
     user_msg = f"""Here are 8 transcript segments spoken by one consistent speaker:
 
@@ -171,12 +166,7 @@ Who is this speaker? If they refer to themselves by name OR if the segments are 
 Output JSON: {{"name": "..."}}. Examples: {{"name": "Theon Greyjoy"}}, {{"name": "Tony Robbins"}}, {{"name": "narrator"}}, {{"name": "unknown"}}.
 No prose outside the JSON."""
 
-    response = ollama.chat(
-        model='qwen2.5:7b',
-        messages=[{'role': 'user', 'content': user_msg}],
-        options={'temperature': 0.1, 'num_predict': 60},
-    )
-    raw = response['message']['content']
+    raw = llm_chat("", user_msg, max_tokens=60, temperature=0.1)
     import re
     m = re.search(r'\{[^{}]*"name"[^{}]*\}', raw, re.DOTALL)
     if not m:
@@ -237,8 +227,23 @@ def build_reference_library(audio_path: str, guess_names: bool = True, verbose: 
     transcript = json.loads(whisper_cache.read_text())
     whisper_segments = transcript["segments"]
 
-    # Load diarization (cached from Sprint 1)
-    diar = diarize(audio_path, verbose=verbose)
+    # Load diarization (cached from Sprint 1). If pyannote is unavailable (no HF token,
+    # gated model, or a backend error), degrade to a single-speaker assumption instead of
+    # crashing the whole pipeline — solo motivational speeches (the common case) need no
+    # real diarization, and multi-speaker quality just falls back to one reference set.
+    try:
+        diar = diarize(audio_path, verbose=verbose)
+    except Exception as ex:
+        if verbose:
+            print(f"    diarization unavailable ({type(ex).__name__}: {ex}); treating as single speaker")
+        total_end = max((s["end"] for s in whisper_segments), default=0.0)
+        diar = {
+            "speaker_count": 1,
+            "turn_count": len(whisper_segments),
+            "turns": [{"start": s["start"], "end": s["end"], "speaker": "SPEAKER_00"}
+                       for s in whisper_segments],
+            "speaker_durations_s": {"SPEAKER_00": round(total_end, 2)},
+        }
     if verbose:
         print(f"    {diar['speaker_count']} speakers detected, {diar['turn_count']} turns, {len(whisper_segments)} whisper segments")
 

@@ -63,8 +63,13 @@ def diarize(audio_path: str, verbose: bool = True) -> dict:
 
     pipeline = _get_pipeline()
 
-    # pyannote 4.x has a known bug with MP3 inputs (sample count mismatch on chunks).
-    # Always pre-convert to 16kHz mono WAV via ffmpeg for stable diarization.
+    # Pre-convert to 16kHz mono WAV via ffmpeg (pyannote 4.x mishandles MP3 chunking),
+    # then hand pyannote an IN-MEMORY waveform dict instead of a file path. This is
+    # deliberate: torchaudio 2.8 delegates file loading to torchcodec, whose AudioDecoder
+    # fails to initialise against the container's ffmpeg ("name 'AudioDecoder' is not
+    # defined"). Loading the WAV ourselves with soundfile sidesteps torchcodec entirely.
+    import soundfile as sf
+    import torch
     with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
         tmp_path = tmp.name
     try:
@@ -73,7 +78,9 @@ def diarize(audio_path: str, verbose: bool = True) -> dict:
              "-ar", "16000", "-ac", "1", "-c:a", "pcm_s16le", tmp_path],
             check=True
         )
-        output = pipeline(tmp_path)
+        wav, sr = sf.read(tmp_path, dtype="float32", always_2d=True)  # (frames, channels)
+        waveform = torch.from_numpy(wav.T).contiguous()               # (channel, time)
+        output = pipeline({"waveform": waveform, "sample_rate": sr})
     finally:
         if os.path.exists(tmp_path):
             os.unlink(tmp_path)

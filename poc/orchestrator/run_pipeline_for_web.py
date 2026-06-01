@@ -62,10 +62,15 @@ def run_demucs(input_audio: Path, out_root: Path, log_path: Path) -> tuple[Path,
 
     cache_dir.mkdir(parents=True, exist_ok=True)
     log_line(log_path, "STEM SPLITTER", "Running Demucs separation (this takes ~3-5 minutes)...")
-    # Run Demucs
+    # Run Demucs with the SAME interpreter that's running this script.
+    # (The old code hardcoded poc/venv/bin/python, which doesn't exist inside the
+    #  Docker container where deps are installed system-wide — that broke every
+    #  cloud job at the stem-splitting step.) Prefer a local venv if present (dev Mac),
+    #  otherwise fall back to the current interpreter (container / system python).
     venv_python = Path(__file__).parent.parent / "venv" / "bin" / "python"
+    demucs_python = str(venv_python) if venv_python.exists() else sys.executable
     cmd = [
-        str(venv_python), "-m", "demucs",
+        demucs_python, "-m", "demucs",
         "--two-stems=vocals",
         "--out", str(cache_dir),
         str(input_audio),

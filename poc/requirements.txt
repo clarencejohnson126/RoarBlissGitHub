@@ -1,33 +1,36 @@
-# Roar Bliss orchestrator dependencies — minimal set for Docker builds
-# Pinned to versions known to work together. CPU build of PyTorch is fine
-# for our scale (Demucs and Whisper run fast enough on CPU on Render's
-# Standard plan; TTS happens on Replicate GPU).
+# Roar Bliss orchestrator dependencies — minimal set for Docker builds.
+# Versions chosen to be MUTUALLY CONSISTENT (the previous pin set was not: pyannote 4.0.4
+# requires torch>=2.8 while torch was pinned to 2.5.1, which made the image unbuildable).
+# This mirrors the proven local env (pyannote 4.0.4 + torch 2.x + demucs 4 + whisper).
 
 # ── Audio processing core ──────────────────────────────────────────────
 pydub==0.25.1
-librosa==0.10.2
+librosa==0.11.0
 numpy<2.3
 soundfile==0.13.1
 audioread==3.0.1
 scipy>=1.11
 
-# ── PyTorch (CPU build for Demucs / Whisper / pyannote) ────────────────
+# ── PyTorch (CPU build) ────────────────────────────────────────────────
+# --extra-index-url makes pip prefer the small "+cpu" wheels on amd64 (Render) while
+# still resolving the CPU-only PyPI wheels on arm64 (local Apple-Silicon Docker test).
+# torch>=2.8 is REQUIRED by pyannote.audio 4.0.4; torchaudio is locked in lockstep.
 --extra-index-url https://download.pytorch.org/whl/cpu
-torch==2.5.1
-torchaudio==2.5.1
+torch==2.8.0
+torchaudio==2.8.0
 
 # ── Source separation ──────────────────────────────────────────────────
 demucs==4.0.1
 
-# ── Transcription ──────────────────────────────────────────────────────
-openai-whisper==20240930
+# ── Transcription (sdist — see Dockerfile's setuptools<81 build constraint) ─────────────
+openai-whisper==20250625
 
-# ── Speaker diarization ────────────────────────────────────────────────
+# ── Speaker diarization (4.x API; diarization.py depends on it; needs torch>=2.8) ───────
 pyannote.audio==4.0.4
 
 # ── LLM clients ────────────────────────────────────────────────────────
-anthropic==0.75.0      # Claude Haiku 4.5 — planner stages
-ollama==0.6.2          # only used if local Ollama is reachable (skipped in cloud)
+anthropic==0.75.0      # Claude Haiku 4.5 — planner / classifier / emotion-tagger stages
+ollama==0.6.2          # only used as a local-dev fallback when ANTHROPIC_API_KEY is unset
 
 # ── HTTP + utilities ───────────────────────────────────────────────────
 requests==2.32.3

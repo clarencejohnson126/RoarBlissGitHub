@@ -17,7 +17,10 @@ services:
   - type: web
     name: roar-bliss
     runtime: docker
-    plan: standard           # 2GB RAM, needed for Demucs + Whisper concurrent load
+    # 4GB RAM. Demucs (~2GB) and Whisper+pyannote (~2-3GB) push past the 2GB Standard
+    # plan and OOM-kill the job mid-run — that was a core reason cloud runs failed.
+    # To drop back to Standard ($25) later, offload Demucs to Replicate (see README).
+    plan: pro                # 4GB RAM
     region: frankfurt        # closest to Mannheim
     branch: main
     dockerfilePath: ./Dockerfile
@@ -40,6 +43,8 @@ services:
         sync: false
       - key: TTS_PROVIDER
         value: replicate
+      - key: WHISPER_MODEL
+        value: base
       - key: REPLICATE_API_TOKEN
         sync: false
       - key: NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY

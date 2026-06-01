@@ -22,36 +22,10 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Optional
 
-# LLM abstraction: prefer Claude Haiku 4.5 when ANTHROPIC_API_KEY is set,
-# fall back to local Ollama qwen2.5:7b.
-def _llm_chat(system: str, user: str, max_tokens: int = 2000, temperature: float = 0.2) -> str:
-    """Call Claude Haiku 4.5 if API key is set, else fall back to Ollama qwen2.5:7b."""
-    api_key = os.environ.get("ANTHROPIC_API_KEY")
-    if api_key:
-        import anthropic
-        client = anthropic.Anthropic(api_key=api_key)
-        resp = client.messages.create(
-            model="claude-haiku-4-5",
-            max_tokens=max_tokens,
-            temperature=temperature,
-            system=system,
-            messages=[{"role": "user", "content": user}],
-        )
-        return resp.content[0].text
-    else:
-        import ollama
-        messages = []
-        if system:
-            messages.append({'role': 'system', 'content': system})
-        messages.append({'role': 'user', 'content': user})
-        response = ollama.chat(
-            model='qwen2.5:7b',
-            messages=messages,
-            options={'temperature': temperature, 'num_predict': max_tokens},
-        )
-        return response['message']['content']
-
+# LLM abstraction lives in llm.py (Claude Haiku 4.5 in prod, Ollama fallback for dev).
+# Kept as a module-level alias so existing call sites (_llm_chat(...)) stay unchanged.
 sys.path.insert(0, str(Path(__file__).parent))
+from llm import llm_chat as _llm_chat
 from feature_extractor import extract_features, _cache_path
 from audio_type_classifier import classify_audio, TYPE_PROFILES
 from reference_library_builder import build_reference_library, EMOTION_PALETTE

@@ -40,6 +40,8 @@ node_modules/
 
 # Demos and source audios (too big to ship, regeneratable)
 *.mp3
+# ...except the one preloaded demo speech the default UI flow needs:
+!I CAN DO THIS - Powerful Motivational Speech.mp3
 
 # Secrets — these go via Render env vars, never into the image
 .env

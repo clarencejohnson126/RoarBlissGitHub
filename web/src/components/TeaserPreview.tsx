@@ -75,7 +75,9 @@ export default function TeaserPreview({ formData, onComplete }: TeaserPreviewPro
               // Calculate progress based on steps
               const totalLines = logsData.logs.length;
               const hasSuccess = logsData.logs.some((line: string) => line.includes("[SUCCESS]"));
-              const hasError = logsData.logs.some((line: string) => line.includes("[error]"));
+              // Pipeline emits "[ERROR]" (uppercase); the API route emits "[error]".
+              // Match both so real failures surface instead of spinning forever at 92%.
+              const hasError = logsData.logs.some((line: string) => /\[error\]/i.test(line));
 
               if (hasError) {
                 setIsFailed(true);
