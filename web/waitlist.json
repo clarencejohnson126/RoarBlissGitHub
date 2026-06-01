@@ -1,0 +1,20 @@
+[
+  {
+    "id": "usr_1779392708438",
+    "email": "test_warrior@gmail.com",
+    "name": "Clarence",
+    "battlefield": "Next.js Dev",
+    "struggle": "Time crunch and compilation errors",
+    "champion": "Eric Thomas",
+    "timestamp": "2026-05-21T19:45:08.438Z"
+  },
+  {
+    "id": "usr_1779394077965",
+    "email": "clarencejohnson@hotmail.de",
+    "name": "Clarence",
+    "battlefield": "Pushing Physical Limits",
+    "struggle": "Late-night coding sessions and doubts",
+    "champion": "Eric Thomas",
+    "timestamp": "2026-05-21T20:07:57.965Z"
+  }
+]

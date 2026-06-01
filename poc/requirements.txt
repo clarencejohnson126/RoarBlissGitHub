@@ -1,0 +1,32 @@
+# Roar Bliss POC - Dependencies
+# Install with: pip install -r requirements.txt
+
+# Audio Separation
+demucs==4.0.1
+torch>=2.0.0
+torchaudio>=2.0.0
+
+# Transcription
+openai-whisper==20231117
+
+# Audio Analysis
+librosa==0.10.1
+madmom==0.16.1
+scipy>=1.10.0
+numpy>=1.24.0
+
+# LLM (Local)
+ollama==0.1.7
+
+# Voice Cloning (Chatterbox)
+# Note: Install from source if pip package not available
+# pip install git+https://github.com/resemble-ai/chatterbox.git
+chatterbox-tts>=0.1.0
+
+# Audio Processing
+pydub==0.25.1
+soundfile==0.12.1
+
+# Utilities
+tqdm==4.66.1
+python-dotenv==1.0.0

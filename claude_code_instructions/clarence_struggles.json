@@ -1,0 +1,76 @@
+{
+  "speaker_ref_windows": {
+    "Catelyn Stark": {
+      "start": 10.64,
+      "end": 16.08,
+      "text": "If father never talked about her, you came back a year later with another woman's son."
+    },
+    "Ned Stark": {
+      "start": 70.62,
+      "end": 73.14,
+      "text": "It's done, your grace. Targaryen's gone."
+    },
+    "Robert Baratheon": {
+      "start": 53.56,
+      "end": 57.56,
+      "text": "She belongs with me."
+    },
+    "Ramsay Bolton": {
+      "start": 201.02,
+      "end": 204.96,
+      "text": "That one's yours, Snow. I keep hearing stories about you. Bastard."
+    },
+    "Ser Jorah Mormont": {
+      "start": 90.26,
+      "end": 92.92,
+      "text": "When your brother Regard led his army at a battle to the frighten,"
+    },
+    "Daenerys Targaryen": {
+      "start": 106.04,
+      "end": 107.36,
+      "text": "Regard fought no bleem."
+    },
+    "Bran Stark": {
+      "start": 209.46,
+      "end": 211.32,
+      "text": "He's the heir to the Iron Throne."
+    }
+  },
+  "surgical_swaps": [
+    {"seg_id": 0, "target_phrase": "Robert Baratheon", "replacement": "Clarence Johnson", "speaker": "Catelyn Stark", "desc": "Catelyn Stark speaks Clarence Johnson"},
+    {"seg_id": 9, "target_phrase": "Robert", "replacement": "Clarence", "speaker": "Ned Stark", "desc": "Robert Baratheon/Ned Stark speaks Clarence"},
+    {"seg_id": 22, "target_phrase": "Regard", "replacement": "Clarence", "speaker": "Ser Jorah Mormont", "desc": "Jorah Mormont speaks Clarence"},
+    {"seg_id": 25, "target_phrase": "Regard", "replacement": "Clarence", "speaker": "Daenerys Targaryen", "desc": "Daenerys speaks Clarence"},
+    {"seg_id": 27, "target_phrase": "Regard", "replacement": "Clarence", "speaker": "Daenerys Targaryen", "desc": "Daenerys speaks Clarence 2"},
+    {"seg_id": 29, "target_phrase": "Regard", "replacement": "Clarence", "speaker": "Daenerys Targaryen", "desc": "Daenerys speaks Clarence 3"},
+    {"seg_id": 59, "target_phrase": "Snow", "replacement": "Clarence", "speaker": "Ramsay Bolton", "desc": "Ramsay Bolton speaks Clarence"},
+    {"seg_id": 61, "target_phrase": "bastard", "replacement": "King", "speaker": "Ramsay Bolton", "desc": "Ramsay Bolton speaks King"},
+    {"seg_id": 62, "target_phrase": "bastard", "replacement": "King", "speaker": "Bran Stark", "desc": "Bran Stark speaks King"}
+  ],
+  "struggle_overlays": [
+    {"insert_time": 16.20, "speaker": "Catelyn Stark", "text": "A child born in secret.", "desc": "Struggle 1 (Catelyn Stark) - Early Struggles (Peak Zone)"},
+    {"insert_time": 28.80, "speaker": "Robert Baratheon", "text": "They threw you in jail to break your spirit!", "desc": "Struggle 2 (Robert Baratheon) - Prison Jail"},
+    {"insert_time": 31.60, "speaker": "Ned Stark", "text": "Yet your spirit remained unbroken.", "desc": "Struggle 3 (Ned Stark) - Spirit Unbroken"},
+    {"insert_time": 42.40, "speaker": "Robert Baratheon", "text": "You fought the thugs on the bloody streets!", "desc": "Struggle 4 (Robert Baratheon) - Thugs/Streets"},
+    {"insert_time": 47.80, "speaker": "Robert Baratheon", "text": "You drew your steel and made them crawl!", "desc": "Struggle 5 (Robert Baratheon) - Made Them Crawl"},
+    {"insert_time": 58.00, "speaker": "Catelyn Stark", "text": "They whispered of your struggles in the dark.", "desc": "Struggle 6 (Catelyn Stark) - Whispered in Dark (True Peak Skipping)"},
+    {"insert_time": 64.20, "speaker": "Ned Stark", "text": "But a true leader never yields to fear.", "desc": "Struggle 7 (Ned Stark) - Leadership wisdom (True Peak Skipping)"},
+    {"insert_time": 75.60, "speaker": "Robert Baratheon", "text": "They plot in the shadows, hoping you fail!", "desc": "Struggle 8 (Robert Baratheon) - Shadows plot"},
+    {"insert_time": 80.00, "speaker": "Robert Baratheon", "text": "You crushed their armies at the Battle of Mannheim!", "desc": "Struggle 9 (Robert Baratheon) - Battle of Mannheim (True Peak Skipping)"},
+    {"insert_time": 86.50, "speaker": "Ned Stark", "text": "The scars of your battles run deep.", "desc": "Struggle 10 (Ned Stark) - Scars of Battle (True Peak Skipping)"},
+    {"insert_time": 112.70, "speaker": "Daenerys Targaryen", "text": "He died with noble honor.", "desc": "Struggle 11 (Daenerys Targaryen) - Noble Honor"},
+    {"insert_time": 117.20, "speaker": "Ser Jorah Mormont", "text": "But you rose from the ashes of defeat!", "desc": "Struggle 12 (Ser Jorah Mormont) - Rose from Ashes (Peak Zone)"},
+    {"insert_time": 131.00, "speaker": "Ned Stark", "text": "For a father would take a thousand knives to the heart...", "desc": "Struggle 13 (Ned Stark) - Father's knives"},
+    {"insert_time": 134.00, "speaker": "Ned Stark", "text": "...to keep Lean and Elanese safe.", "desc": "Struggle 14 (Ned Stark) - Lean & Elanese safe"},
+    {"insert_time": 151.20, "speaker": "Ser Jorah Mormont", "text": "You quit the greedy lords to build your own destiny.", "desc": "Struggle 15 (Ser Jorah Mormont) - Quit Greedy Lords"},
+    {"insert_time": 154.00, "speaker": "Ser Jorah Mormont", "text": "Fearless, you entered the wild entrepreneurship.", "desc": "Struggle 16 (Ser Jorah Mormont) - Wild Entrepreneurship"},
+    {"insert_time": 187.80, "speaker": "Daenerys Targaryen", "text": "You raised the banner of Rebelz A.I.!", "desc": "Struggle 17 (Daenerys Targaryen) - Rebelz A.I. Banner"},
+    {"insert_time": 194.00, "speaker": "Robert Baratheon", "text": "Show them your sovereign power!", "desc": "Struggle 18 (Robert Baratheon) - Sovereign Power"},
+    {"insert_time": 207.10, "speaker": "Ramsay Bolton", "text": "But you broke up with your crazy baby mama!", "desc": "Struggle 19 (Ramsay Bolton) - Broken Baby Mama"},
+    {"insert_time": 212.00, "speaker": "Ramsay Bolton", "text": "Screaming like a banshee in the dark night!", "desc": "Struggle 20 (Ramsay Bolton) - Banshee Scream (Peak Zone)"},
+    {"insert_time": 215.50, "speaker": "Ramsay Bolton", "text": "But you severed the ties!", "desc": "Struggle 21 (Ramsay Bolton) - Severed Ties"},
+    {"insert_time": 218.20, "speaker": "Bran Stark", "text": "House Rebelz shall stand for a thousand generations.", "desc": "Struggle 22 (Bran Stark) - House Rebelz Stand (True Peak Skipping)"},
+    {"insert_time": 228.00, "speaker": "Ned Stark", "text": "Rise, Clarence, and claim your crown.", "desc": "Struggle 23 (Ned Stark) - Rise and Claim Crown (Peak Zone)"},
+    {"insert_time": 231.20, "speaker": "Daenerys Targaryen", "text": "All hail Clarence, the King of Mannheim, now and forevermore!", "desc": "Struggle 24 (Daenerys Targaryen) - King of Mannheim (Peak Zone)"}
+  ]
+}

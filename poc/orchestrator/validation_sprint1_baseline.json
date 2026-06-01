@@ -1,0 +1,280 @@
+{
+  "total": 13,
+  "correct": 9,
+  "accuracy": 0.6923076923076923,
+  "per_type": {
+    "A": {
+      "correct": 2,
+      "total": 2
+    },
+    "B": {
+      "correct": 2,
+      "total": 4
+    },
+    "C": {
+      "correct": 5,
+      "total": 5
+    },
+    "D": {
+      "correct": 0,
+      "total": 2
+    },
+    "E": {
+      "correct": 0,
+      "total": 0
+    },
+    "F": {
+      "correct": 0,
+      "total": 0
+    }
+  },
+  "results": [
+    {
+      "id": "A1_jocko_good",
+      "expected": "A",
+      "predicted": "A",
+      "confidence": 0.95,
+      "correct": true,
+      "reasoning": "Single consistent voice throughout with a monologue style, no significant music, and high speech_ratio.",
+      "features": {
+        "duration_s": 139.16,
+        "speech_ratio": 0.798,
+        "speaker_estimate": 1,
+        "avg_utterance_s": 7.4,
+        "music_dominance": 0.441,
+        "energy_burstiness": 1.048,
+        "tempo_bpm": 161.5,
+        "language": "en",
+        "transcript_excerpt": " one of my direct subordinates, one of my guys that worked for me, he would call me up or pull me aside with some major problem, some issue that was going on. And he'd say, but also we got this and th"
+      }
+    },
+    {
+      "id": "A2_trump_never_give_up",
+      "expected": "A",
+      "predicted": "A",
+      "confidence": 0.85,
+      "correct": true,
+      "reasoning": "Single voice throughout with consistent style and no other named speakers introduced.",
+      "features": {
+        "duration_s": 138.51,
+        "speech_ratio": 0.925,
+        "speaker_estimate": 3,
+        "avg_utterance_s": 4.93,
+        "music_dominance": 0.701,
+        "energy_burstiness": 0.544,
+        "tempo_bpm": 132.5,
+        "language": "en",
+        "transcript_excerpt": " Over the course of your life, you will find that things are not always fair. You will find that things happen to you that you do not deserve and that are not always warranted. But you have to put you"
+      }
+    },
+    {
+      "id": "B1_i_will_not_be_defeated",
+      "expected": "B",
+      "predicted": "A",
+      "confidence": 0.95,
+      "correct": false,
+      "reasoning": "Single voice throughout with consistent style and vocabulary, no significant music, high speech ratio.",
+      "features": {
+        "duration_s": 222.26,
+        "speech_ratio": 0.858,
+        "speaker_estimate": 2,
+        "avg_utterance_s": 4.77,
+        "music_dominance": 0.26,
+        "energy_burstiness": 0.58,
+        "tempo_bpm": 110.0,
+        "language": "en",
+        "transcript_excerpt": " I would love to tell you that on the road to success everything is gonna work out. It's not it's gonna be a dogfight On the road to success I lost five odds to cancer It's a dogfight my wife three ye"
+      }
+    },
+    {
+      "id": "B2_i_can_do_this",
+      "expected": "B",
+      "predicted": "B",
+      "confidence": 0.85,
+      "correct": true,
+      "reasoning": "Multiple voices are detected with music present (music_dominance = 0.373 > 0.25), indicating a compilation format.",
+      "features": {
+        "duration_s": 267.49,
+        "speech_ratio": 0.877,
+        "speaker_estimate": 2,
+        "avg_utterance_s": 4.26,
+        "music_dominance": 0.373,
+        "energy_burstiness": 0.52,
+        "tempo_bpm": 123.0,
+        "language": "en",
+        "transcript_excerpt": " You can write everything down if you want to be brave enough to write every one of your goals down But I'm gonna tell you so life's gonna hit you in your mouth And you gotta do me a huge favor your w"
+      }
+    },
+    {
+      "id": "B3_push_through_dirt",
+      "expected": "B",
+      "predicted": "A",
+      "confidence": 0.95,
+      "correct": false,
+      "reasoning": "Single consistent voice throughout with a continuous speech style, no other named speakers introduced.",
+      "features": {
+        "duration_s": 276.89,
+        "speech_ratio": 0.899,
+        "speaker_estimate": 1,
+        "avg_utterance_s": 3.28,
+        "music_dominance": 0.129,
+        "energy_burstiness": 0.607,
+        "tempo_bpm": 108.2,
+        "language": "en",
+        "transcript_excerpt": " In order to develop and to change and to grow, stress is necessary. So you got to be willing to go get it every day. There's a story my father told me all the time. He said every morning on the plain"
+      }
+    },
+    {
+      "id": "B4_when_it_breaks_you",
+      "expected": "B",
+      "predicted": "B",
+      "confidence": 0.85,
+      "correct": true,
+      "reasoning": "[OVERRIDE: LLM said A but features show 3 speakers + music_dom 0.50 \u2192 B compilation. LLM reason: Single voice throughout with consistent style and vocabulary, no significant music.]",
+      "features": {
+        "duration_s": 244.09,
+        "speech_ratio": 0.841,
+        "speaker_estimate": 3,
+        "avg_utterance_s": 4.89,
+        "music_dominance": 0.499,
+        "energy_burstiness": 0.486,
+        "tempo_bpm": 126.0,
+        "language": "en",
+        "transcript_excerpt": " I need you to recycle your pain Because what you're going to discover as you're going towards your dream as you're going towards your goal They're gonna be so many people that come up against you so "
+      }
+    },
+    {
+      "id": "C1_theon_home",
+      "expected": "C",
+      "predicted": "C",
+      "confidence": 1.0,
+      "correct": true,
+      "reasoning": "The transcript contains proper names from Game of Thrones (Greyjoy, Theon, Stark) and recognizable show-specific phrases, indicating a cinematic tribute.",
+      "features": {
+        "duration_s": 341.4,
+        "speech_ratio": 0.888,
+        "speaker_estimate": 3,
+        "avg_utterance_s": 1.87,
+        "music_dominance": 0.234,
+        "energy_burstiness": 0.786,
+        "tempo_bpm": 132.5,
+        "language": "en",
+        "transcript_excerpt": " The Iron Islands. Sigil or Kraken? Words we do not say. Lords? The Greyjoys. Famed for their skills at archery, navigation and lovemaking. And failed rebellions. Are they? They're the Greyjoy. We've "
+      }
+    },
+    {
+      "id": "C2_jon_targaryen_wolf",
+      "expected": "C",
+      "predicted": "C",
+      "confidence": 1.0,
+      "correct": true,
+      "reasoning": "The transcript contains proper names from Game of Thrones (Robert Baratheon, Liana, Rhaegar Targaryen) and recognizable show-specific phrases, indicating it is a Cinematic tribute.",
+      "features": {
+        "duration_s": 236.45,
+        "speech_ratio": 0.74,
+        "speaker_estimate": 3,
+        "avg_utterance_s": 2.78,
+        "music_dominance": 1.0,
+        "energy_burstiness": 0.577,
+        "tempo_bpm": 156.2,
+        "language": "en",
+        "transcript_excerpt": " 17 years ago you rode off with Robert Baratheon. You hired Liana. Father never talked about her. You came back a year later with another woman's son. What was she like? You want to know the horrible "
+      }
+    },
+    {
+      "id": "C3_jon_king_in_the_north",
+      "expected": "C",
+      "predicted": "C",
+      "confidence": 1.0,
+      "correct": true,
+      "reasoning": "The transcript contains proper names from Game of Thrones (Jon Snow, Ned Stark) and recognizable show-specific phrases ('Winter is here'), indicating it's a Cinematic tribute.",
+      "features": {
+        "duration_s": 187.78,
+        "speech_ratio": 0.703,
+        "speaker_estimate": 3,
+        "avg_utterance_s": 2.54,
+        "music_dominance": 1.0,
+        "energy_burstiness": 0.893,
+        "tempo_bpm": 120.2,
+        "language": "en",
+        "transcript_excerpt": " Kill the boy, Jon Snow. And let the man be born. The Targaryen, alone in the world... ...is a terrible thing. I never met my mother. My father wouldn't even tell me her name. Promise me, Ned. You mig"
+      }
+    },
+    {
+      "id": "C4_jaime_family",
+      "expected": "C",
+      "predicted": "C",
+      "confidence": 1.0,
+      "correct": true,
+      "reasoning": "Transcript contains proper names from Game of Thrones (Jamie Lannister, Arys Targaryen) and recognizable show-specific phrases, indicating a cinematic tribute.",
+      "features": {
+        "duration_s": 363.09,
+        "speech_ratio": 0.708,
+        "speaker_estimate": 2,
+        "avg_utterance_s": 2.79,
+        "music_dominance": 1.0,
+        "energy_burstiness": 0.687,
+        "tempo_bpm": 117.5,
+        "language": "en",
+        "transcript_excerpt": " Sir Jamie Lannister. Someone forgot to write down all your great deeds. There's still time. That's Jamie Lannister. Is there? For a forty year old knight. Sir Jamie Lannister knighted and named to th"
+      }
+    },
+    {
+      "id": "C5_targaryen_wolf_soundtrack",
+      "expected": "C",
+      "predicted": "C",
+      "confidence": 1.0,
+      "correct": true,
+      "reasoning": "The transcript contains proper names from Game of Thrones (Robert Baratheon, Liana, Rhaegar Targaryen) and recognizable show-specific phrases, indicating it is a Cinematic tribute.",
+      "features": {
+        "duration_s": 236.45,
+        "speech_ratio": 0.74,
+        "speaker_estimate": 3,
+        "avg_utterance_s": 2.78,
+        "music_dominance": 1.0,
+        "energy_burstiness": 0.577,
+        "tempo_bpm": 156.2,
+        "language": "en",
+        "transcript_excerpt": " 17 years ago you rode off with Robert Baratheon. You hired Liana. Father never talked about her. You came back a year later with another woman's son. What was she like? You want to know the horrible "
+      }
+    },
+    {
+      "id": "D1_tony_soprano_good_guy",
+      "expected": "D",
+      "predicted": "A",
+      "confidence": 0.85,
+      "correct": false,
+      "reasoning": "Single voice throughout with consistent Tony Robbins style and vocabulary.",
+      "features": {
+        "duration_s": 421.75,
+        "speech_ratio": 0.841,
+        "speaker_estimate": 3,
+        "avg_utterance_s": 1.98,
+        "music_dominance": 0.566,
+        "energy_burstiness": 0.678,
+        "tempo_bpm": 123.0,
+        "language": "en",
+        "transcript_excerpt": " Tony Tony Tony Tony Tony Tony Tony Tony Tony Tony Hey Tony This is Tony Tony Tony Tony Tony Tony what are you doing? Tony Hello Tony Am I that horrible? Really? Who am I? Who am I? Am I bored? Am I r"
+      }
+    },
+    {
+      "id": "D2_jon_daenerys_ending",
+      "expected": "D",
+      "predicted": "A",
+      "confidence": 0.95,
+      "correct": false,
+      "reasoning": "Single consistent persona throughout with high speech_ratio and no other named speakers introduced.",
+      "features": {
+        "duration_s": 181.81,
+        "speech_ratio": 0.996,
+        "speaker_estimate": 2,
+        "avg_utterance_s": 6.46,
+        "music_dominance": 0.307,
+        "energy_burstiness": 1.551,
+        "tempo_bpm": 184.6,
+        "language": "en",
+        "transcript_excerpt": " I'm sorry. I'm so sorry. I wish I could take it back. I wish we'd never gone. I don't. If we hadn't gone, I wouldn't have seen. You have to see it to know. Now I know. The dragons are my children. Th"
+      }
+    }
+  ]
+}

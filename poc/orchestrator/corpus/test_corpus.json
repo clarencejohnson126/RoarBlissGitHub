@@ -1,0 +1,97 @@
+{
+  "description": "Sprint 1 test corpus for the Audio-Type Classifier. Each entry has a ground-truth type label (A-F) for validation. Types are defined in project_audio_type_taxonomy memory.",
+  "type_definitions": {
+    "A": "Solo monologue (one speaker, continuous speech, light/no music)",
+    "B": "Compilation w/ epic music (multi-speaker cuts, heavy orchestral)",
+    "C": "Cinematic tribute (character clips + dominating music + SFX)",
+    "D": "Podcast / dialogue (conversational, 1-2 speakers, little music)",
+    "E": "Spiritual / religious (calm, reflective, ambient music)",
+    "F": "Sports / pre-game (high-energy, short punchy, crowd noise)"
+  },
+  "audios": [
+    {
+      "id": "A1_jocko_good",
+      "path": "/Users/clarence/Music/Music/Media.localized/Music/Jocko Podcast/Unknown Album/Jocko Willink _GOOD_ (Official).mp3",
+      "expected_type": "A",
+      "notes": "Jocko's famous 'Good' speech. Solo monologue, calm-then-intense delivery."
+    },
+    {
+      "id": "A2_trump_never_give_up",
+      "path": "/Users/clarence/Downloads/got/must-watch-president-trump-never-give-up-put-your-head-down-and-fight-fight-fight.mp3",
+      "expected_type": "A",
+      "notes": "Trump speech excerpt. Solo speaker."
+    },
+    {
+      "id": "B1_i_will_not_be_defeated",
+      "path": "/Users/clarence/Downloads/got/i-will-not-be-defeated-powerful-motivational-speech.mp3",
+      "expected_type": "B",
+      "notes": "Standard YouTube motivational compilation w/ epic music."
+    },
+    {
+      "id": "B2_i_can_do_this",
+      "path": "/Users/clarence/Downloads/got/i-can-do-this-powerful-motivational-speech.mp3",
+      "expected_type": "B",
+      "notes": "Same channel style as B1. Multiple speakers + epic score."
+    },
+    {
+      "id": "B3_push_through_dirt",
+      "path": "/Users/clarence/Downloads/got/push-through-the-dirt-powerful-motivational-speech.mp3",
+      "expected_type": "B",
+      "notes": "Multi-speaker compilation."
+    },
+    {
+      "id": "B4_when_it_breaks_you",
+      "path": "/Users/clarence/Downloads/got/when-it-breaks-you-powerful-motivational-speech.mp3",
+      "expected_type": "B",
+      "notes": "Compilation."
+    },
+    {
+      "id": "C1_theon_home",
+      "path": "/Users/clarence/Downloads/got/got-theon-greyjoy-home.mp3",
+      "expected_type": "C",
+      "notes": "GoT character tribute for Theon."
+    },
+    {
+      "id": "C2_jon_targaryen_wolf",
+      "path": "/Users/clarence/Downloads/got/got-jon-snow-the-targaryen-wolf.mp3",
+      "expected_type": "C",
+      "notes": "Jon Snow tribute."
+    },
+    {
+      "id": "C3_jon_king_in_the_north",
+      "path": "/Users/clarence/Downloads/got/got-jon-snow-king-in-the-north.mp3",
+      "expected_type": "C",
+      "notes": "Jon Snow King in the North scene tribute."
+    },
+    {
+      "id": "C4_jaime_family",
+      "path": "/Users/clarence/Downloads/got/got-jaime-lannister-family.mp3",
+      "expected_type": "C",
+      "notes": "Jaime Lannister tribute."
+    },
+    {
+      "id": "C5_targaryen_wolf_soundtrack",
+      "path": "/Users/clarence/Desktop/Roar Bliss App/The Targaryen Wolf (Original Soundtrack) Game of Thrones.mp3",
+      "expected_type": "C",
+      "notes": "Original soundtrack for GoT (background music for many tributes). Borderline C (mostly music, some dialogue layered)."
+    },
+    {
+      "id": "D1_tony_soprano_good_guy",
+      "path": "/Users/clarence/Downloads/🎵 Audio/Tony Soprano  A Good Guy.mp3",
+      "expected_type": "D",
+      "notes": "Sopranos dialogue scene. Conversational, no music."
+    },
+    {
+      "id": "D2_jon_daenerys_ending",
+      "path": "/Users/clarence/Downloads/got/game-of-thrones-7x06-jon-and-daenerys-ending-scene.mp3",
+      "expected_type": "D",
+      "notes": "Dialogue scene between two characters, some ambient music."
+    }
+  ],
+  "gaps": {
+    "E": "Need 2-3 spiritual/religious audios (Joel Osteen, Steven Furtick, etc.)",
+    "F": "Need 2-3 sports/pre-game speeches (Inky Johnson, locker-room montages)",
+    "A_extra": "Could use 1 more Type A solo monologue (Tony Robbins, Goggins, Hormozi)",
+    "D_extra": "Could use 1-2 real podcast clips (Chris Williamson, Lex Fridman, Joe Rogan)"
+  }
+}

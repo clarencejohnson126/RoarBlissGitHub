@@ -1,35 +1,73 @@
-# Environment variables
-.env
-.env.local
-.env.*.local
-
-# Dependencies
-node_modules
-.pnp
-.pnp.js
-
-# Testing
-coverage
-
-# Production
-dist
-build
-
-# Misc
+# macOS
 .DS_Store
-*.pem
-.idea
-.vscode
+**/.DS_Store
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+poc/venv/
+poc/.venv/
+
+# Audio caches / generated outputs (heavy, regenerable)
+poc/output*/
+poc/separated/
+poc/scratch/
+poc/orchestrator/cache/
+poc/orchestrator/outputs/
+
+# Web build / deps
+web/node_modules/
+web/.next/
+web/.npm-local/
+web/out/
+web/public/uploads/
+web/public/output/
+web/data/
+web/tsconfig.tsbuildinfo
+node_modules/
+dist/
+build/
+coverage/
+.netlify
+.next/
+
+# Working / generated wav files (regenerable)
+poc/vocals_old.wav
+poc/*.wav
+
+# Old demo outputs (regenerable)
+rebelzai_personalized_*.mp3
+
+# Editor / IDE
+.antigravitycli/
+.vscode/
+.idea/
 *.suo
 *.ntvs*
 *.njsproj
 *.sln
 *.sw?
+*.pem
 
-# Debug
+# Logs
+*.log
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
+!**/SPRINT_*_REPORT.md
 
-# Local Netlify folder
-.netlify
+# Secrets (NEVER COMMIT)
+.env
+.env.*
+!.env.example
+
+# Local notebooks / scratch
+*.ipynb_checkpoints/
+
+# Excalidraw logs / wordpress logs
+excalidraw.log
+wordpress-mcp.log
