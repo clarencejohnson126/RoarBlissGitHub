@@ -28,8 +28,9 @@ from pydub.silence import detect_leading_silence
 sys.path.insert(0, str(Path(__file__).parent))
 from personalization_planner import generate_personalization
 from reference_library_builder import build_reference_library
+from tts import synthesize_clone as tts_synthesize_clone, current_provider_label
 
-QWEN_URL = "http://127.0.0.1:7860/api/v1/base/clone"
+QWEN_URL = "http://127.0.0.1:7860/api/v1/base/clone"  # legacy, retained for backwards compat
 
 # Synthesizer constants (mirroring v6)
 MAX_VOCAL_SILENCE_MS = 3000
@@ -140,41 +141,12 @@ def resolve_reference_clip(ref_library: dict, speaker_id: str, emotion: str,
     return None, None
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Qwen3-TTS synthesis with v6's retry+sanity wrapper
+# TTS synthesis — delegates to the provider chosen via TTS_PROVIDER env var
+# (qwen3_mlx for local Mac, replicate for cloud F5-TTS). See tts.py.
 # ──────────────────────────────────────────────────────────────────────────────
 def synthesize_clone(text: str, ref_path: Path, ref_text: str, slot_ms: int,
                       cache_dir: Path) -> AudioSegment:
-    """v6-style synth with retry+sanity (max 3 attempts; sane = clone ≤ 3× slot)."""
-    sane_max_ms = max(slot_ms * 3, 20_000)
-    base_key = hashlib.md5(f"v4ortc_{ref_path.name}_{text}".encode()).hexdigest()
-    primary_cache = cache_dir / f"clone_{base_key}.wav"
-    if primary_cache.exists():
-        cached = AudioSegment.from_wav(str(primary_cache))
-        if len(cached) <= sane_max_ms:
-            return cached
-        os.unlink(primary_cache)
-    with open(ref_path, "rb") as f:
-        ref_b64 = base64.b64encode(f.read()).decode()
-    text_variants = [text, text + " ", " " + text]
-    for attempt, txt_v in enumerate(text_variants, 1):
-        payload = {"text": txt_v, "language":"English",
-                     "ref_audio_base64": ref_b64, "ref_text": ref_text,
-                     "x_vector_only_mode": False, "speed": 1.0, "response_format":"base64"}
-        try:
-            r = requests.post(QWEN_URL, json=payload, timeout=90 if attempt == 1 else 60)
-            r.raise_for_status()
-            clone = AudioSegment.from_wav(io.BytesIO(base64.b64decode(r.json()["audio"])))
-            clone = trim_silence(clone)
-            if len(clone) <= sane_max_ms:
-                clone.export(str(primary_cache), format="wav")
-                if attempt > 1:
-                    print(f"    [retry {attempt} succeeded]")
-                return clone
-            else:
-                print(f"    [attempt {attempt}: clone {len(clone)}ms > sane {sane_max_ms}ms — retry]")
-        except Exception as ex:
-            print(f"    [attempt {attempt}: {type(ex).__name__}: {str(ex)[:80]}]")
-    raise RuntimeError(f"Qwen3 failed sanity after 3 attempts for: {text!r}")
+    return tts_synthesize_clone(text, ref_path, ref_text, slot_ms, cache_dir)
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Main entrypoint
@@ -219,7 +191,7 @@ def auto_synthesize(audio_path: str, user_context: str,
     if verbose: log(f"canvas: {len(canvas)/1000:.2f}s @ {canvas.frame_rate}Hz", "ok")
 
     # ── Stage C: per-slot synthesis ───────────────────────────────────────
-    if verbose: log(f"Stage C: synthesize {len(overrides)} clones via Qwen3-TTS...", "step")
+    if verbose: log(f"Stage C: synthesize {len(overrides)} clones via TTS provider '{current_provider_label()}'...", "step")
     audit_slots = []
     for ov in overrides:
         sid, spk, emo = ov["id"], ov["speaker"], ov["emotion"]
