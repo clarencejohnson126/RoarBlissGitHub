@@ -1,0 +1,58 @@
+# Render Blueprint for Roar Bliss
+#
+# How to use: in the Render dashboard, click "New +" → "Blueprint" and point
+# at this repo. Render reads this file and provisions everything automatically.
+#
+# What it provisions:
+#   - 1 Web Service running our Dockerfile (Next.js + worker + Python pipeline)
+#   - 1 Persistent Disk for the SQLite queue + generated audio outputs
+#
+# Why a single combined service (not separate web + worker):
+#   - Single shared SQLite DB without remote db dependency
+#   - Demucs + Whisper + pyannote are heavy to load; doing it once per container
+#     is cheaper than two containers each loading them
+#   - Simpler ops for beta; split when MRR justifies
+
+services:
+  - type: web
+    name: roar-bliss
+    runtime: docker
+    plan: standard           # 2GB RAM, needed for Demucs + Whisper concurrent load
+    region: frankfurt        # closest to Mannheim
+    branch: main
+    dockerfilePath: ./Dockerfile
+    autoDeploy: true
+    healthCheckPath: /
+    disk:
+      name: roar-bliss-data
+      mountPath: /var/data   # Dockerfile symlinks /app/web/data and outputs here
+      sizeGB: 10
+    envVars:
+      # ── These are set via the Render dashboard (or `render env` CLI) ──
+      # We DON'T put real values in this file because it's committed to git.
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: HF_TOKEN
+        sync: false
+      - key: RESEND_API_KEY
+        sync: false
+      - key: RESEND_FROM_EMAIL
+        sync: false
+      - key: TTS_PROVIDER
+        value: replicate
+      - key: REPLICATE_API_TOKEN
+        sync: false
+      - key: NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY
+        sync: false
+      - key: STRIPE_SECRET_KEY
+        sync: false
+      - key: NEXT_PUBLIC_SUPABASE_URL
+        sync: false
+      - key: NEXT_PUBLIC_SUPABASE_ANON_KEY
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: NEXT_PUBLIC_APP_URL
+        sync: false
+      - key: NODE_VERSION
+        value: "20"

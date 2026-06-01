@@ -1,32 +1,33 @@
-# Roar Bliss POC - Dependencies
-# Install with: pip install -r requirements.txt
+# Roar Bliss orchestrator dependencies — minimal set for Docker builds
+# Pinned to versions known to work together. CPU build of PyTorch is fine
+# for our scale (Demucs and Whisper run fast enough on CPU on Render's
+# Standard plan; TTS happens on Replicate GPU).
 
-# Audio Separation
-demucs==4.0.1
-torch>=2.0.0
-torchaudio>=2.0.0
-
-# Transcription
-openai-whisper==20231117
-
-# Audio Analysis
-librosa==0.10.1
-madmom==0.16.1
-scipy>=1.10.0
-numpy>=1.24.0
-
-# LLM (Local)
-ollama==0.1.7
-
-# Voice Cloning (Chatterbox)
-# Note: Install from source if pip package not available
-# pip install git+https://github.com/resemble-ai/chatterbox.git
-chatterbox-tts>=0.1.0
-
-# Audio Processing
+# ── Audio processing core ──────────────────────────────────────────────
 pydub==0.25.1
-soundfile==0.12.1
+librosa==0.10.2
+numpy<2.3
+soundfile==0.13.1
+audioread==3.0.1
+scipy>=1.11
 
-# Utilities
-tqdm==4.66.1
-python-dotenv==1.0.0
+# ── PyTorch (CPU build for Demucs / Whisper / pyannote) ────────────────
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch==2.5.1
+torchaudio==2.5.1
+
+# ── Source separation ──────────────────────────────────────────────────
+demucs==4.0.1
+
+# ── Transcription ──────────────────────────────────────────────────────
+openai-whisper==20240930
+
+# ── Speaker diarization ────────────────────────────────────────────────
+pyannote.audio==4.0.4
+
+# ── LLM clients ────────────────────────────────────────────────────────
+anthropic==0.75.0      # Claude Haiku 4.5 — planner stages
+ollama==0.6.2          # only used if local Ollama is reachable (skipped in cloud)
+
+# ── HTTP + utilities ───────────────────────────────────────────────────
+requests==2.32.3

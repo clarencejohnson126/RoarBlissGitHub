@@ -1,0 +1,63 @@
+# Don't ship anything heavy or secret into the Docker image
+.git
+.gitignore
+.DS_Store
+**/.DS_Store
+
+# Heavy local caches (regenerable at runtime)
+poc/venv/
+poc/.venv/
+poc/output*/
+poc/separated/
+poc/scratch/
+poc/orchestrator/cache/
+poc/orchestrator/outputs/
+poc/test_audio/
+
+# Old POC scripts we don't ship to production
+poc/poc_*.py
+poc/01_*.py
+poc/02_*.py
+poc/03_*.py
+poc/04_*.py
+poc/05_*.py
+poc/create_test_audio.py
+poc/verify_*.py
+poc/run_all_tests.py
+poc/vocals_old.wav
+poc/*.wav
+
+# Web deps & build artifacts (we'll rebuild inside the container)
+web/node_modules/
+web/.next/
+web/.npm-local/
+web/out/
+web/public/uploads/
+web/public/output/
+web/data/
+web/tsconfig.tsbuildinfo
+node_modules/
+
+# Demos and source audios (too big to ship, regeneratable)
+*.mp3
+
+# Secrets — these go via Render env vars, never into the image
+.env
+.env.*
+!.env.example
+
+# Editor / IDE
+.antigravitycli/
+.vscode/
+.idea/
+
+# Misc
+*.log
+excalidraw.log
+wordpress-mcp.log
+RESUME_PROMPT.md
+ROAR-BLISS-STRATEGY.md
+TECHNICAL-SPECIFICATION.md
+RENDER_DEPLOYMENT.md
+*.ipynb_checkpoints/
+claude_code_instructions/
