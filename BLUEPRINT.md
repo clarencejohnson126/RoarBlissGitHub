@@ -16,27 +16,31 @@ Two principles that decide everything else:
 (The local Mac + Docker + Cloudflare tunnel was only the $0 test bridge while we built the output
 engine. It is NOT production.)
 
-## Production architecture
+## Production architecture — LAUNCH on Render (already set up), optimize later
+We ship on **Render** with the single Docker container we already built and proved end-to-end
+(`Dockerfile` + `render.yaml`). No new platform. The container runs everything:
 ```
-User → Next.js (Vercel)            stateless UI + form + status API
-          │ enqueue job
-          ▼
-      Modal (serverless GPU)        the engine, Python-native, autoscale, scale-to-zero
-          │   per job on one warm GPU:
+User → Render Web Service (Docker)    Next.js UI/API + queue worker + the full Python pipeline
+          │   per job:
           │   Demucs · Whisper · pyannote · Planner(LLM) · TTS · ffmpeg mix
           ▼
-      Cloudflare R2 (or S3)         finished MP3 + 30s preview (R2 = $0 egress)
-          │
+      Render Persistent Disk           SQLite queue + finished MP3 + 30s preview (served via /api/output)
           ▼
-      Email/Webhook → user
+      Resend email → user
 ```
 - **LLM:** Anthropic. `WRITER_MODEL=claude-sonnet-4-6` writes the lines; Haiku does the mechanical
   calls (parse / classify / emotion-tag / shorten). `WRITER_MODEL=claude-opus-4-8` = optional
   "premium" tier. (Verified: Sonnet ≈ Opus quality here; Haiku is visibly rougher — not for paid.)
-- **TTS:** self-host the cloning model on the Modal GPU. NOT MLX (Mac-only), NOT Replicate-per-call.
-  Replicate was a stopgap; at scale our per-slot architecture (40–50 TTS calls/6-min job) makes
-  per-call pricing expensive, so we keep the model warm on our own GPU.
-- **Queue/retries/concurrency:** Modal provides them. The SQLite worker was for the single-box bridge.
+- **TTS for launch:** Replicate F5-TTS (`TTS_PROVIDER=replicate`) — proven, zero infra, runs from
+  inside the Render container (no GPU/MLX needed in the box).
+- **Plan:** Render **Pro 4GB (~$85/mo)** runs the full pipeline (measured peak ~2.5GB). It is
+  always-on, so the trade-off is a fixed monthly cost; recovered by ~25 paid tracks.
+
+### Future cost-optimizations (AFTER launch + revenue — NOT now, do not pivot early)
+- Drop to Render **Standard 2GB ($25/mo)** by offloading **Demucs** to Replicate + skipping pyannote
+  for single-speaker (frees the RAM). ~1–2h work.
+- Or move the pipeline to a **usage-based serverless-GPU** host (e.g. Modal) to kill idle cost and
+  self-host TTS cheaply. Only worth it once volume/idle-cost justifies it.
 
 ## Tiers
 - **Free:** up to **60s** per track. Cheapest config (cached sources, conditional QA). ~$0.02–0.04 each.
@@ -73,17 +77,20 @@ Sonnet costs visible quality for pennies of saving.
 - Safety nets in code: per-slot **pace** match, **exact-loudness** match (seamless), **peak**
   transformation (the chant becomes the user's), **no >20s gaps**, length control.
 
-## Go-live steps (ordered)
-1. **[DONE]** Output engine + cost split + tiers.
-2. **[OPEN — needs your Modal account]** Migrate the pipeline to a Modal app (wraps the existing
-   `poc/orchestrator` functions), host TTS on the Modal GPU, write outputs to R2.
-3. **[OPEN]** Point the Next.js app (Vercel) at Modal; outputs served from R2.
-4. **[OPEN]** Source-audio caching + single-speaker skip (cost polish).
-5. **[OPEN — Sprint 7]** Auth + Stripe billing → activates the paid tier and the `paid` flag.
-6. **Launch:** first paying users, monitoring, iterate on real uploads.
+## Go-live steps (ordered) — on Render, no new platform
+1. **[DONE]** Output engine + cost split + tiers + the Docker container (built + proven e2e).
+2. **[NEXT]** Deploy the Render Blueprint (`render.yaml` → Render **Pro 4GB**). Env vars: Anthropic,
+   HF_TOKEN, Replicate, Resend, `WRITER_MODEL=claude-sonnet-4-6`, `TTS_PROVIDER=replicate`. First
+   build ~10–15 min. (Render account already exists; redeploy via dashboard or the Render API key.)
+3. **[OPEN]** Verify the live flow on the Render URL: form → queue → worker → pipeline → MP3 → email.
+4. **[OPEN — Sprint 7]** Auth + Stripe → activates the paid tier + the `paid` flag (the 60s-free /
+   6-min-paid gate is already coded).
+5. **Launch:** first users; monitor; iterate on real uploads.
+6. **[LATER, post-revenue ONLY]** Cost optimizations — Standard $25 via Demucs offload + single-speaker
+   pyannote skip, or a usage-based serverless-GPU host; source-audio caching. Do NOT do these before launch.
 
-## What's needed from the founder to go live in the cloud
-- A **Modal** account (serverless GPU host) — the one gate to get off the laptop cheaply.
-- A **Cloudflare R2** (or S3) bucket for outputs.
-- (Later) Stripe + an auth provider for the paid tier.
+## What's needed from the founder to go live
+- The **Render** account is already set up (previous session, billing on file). Re-deploy the Blueprint
+  on **Pro 4GB** (dashboard, or I redeploy via the Render API key with your OK on the ~$85/mo).
+- (Later, Sprint 7) Stripe + an auth provider for the paid tier.
 Everything else is code we control.
