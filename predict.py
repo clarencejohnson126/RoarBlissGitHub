@@ -12,7 +12,7 @@ import subprocess
 import tempfile
 from pathlib import Path as _P
 
-from cog import BasePredictor, Input, Path
+from cog import BasePredictor, Input, Path, Secret
 
 # Make the orchestrator importable (it lives in poc/orchestrator).
 sys.path.insert(0, str(_P(__file__).parent / "poc" / "orchestrator"))
@@ -80,8 +80,28 @@ class Predictor(BasePredictor):
         location: str = Input(default="", description="Their home city"),
         champion: str = Input(default="", description="A figure they look up to (optional)"),
         paid: bool = Input(default=False, description="Paid unlocks up to 6 min; free is capped at 60s"),
+        anthropic_api_key: Secret = Input(default=None, description="Anthropic API key (Sonnet/Haiku planner)"),
+        hf_token: Secret = Input(default=None, description="HuggingFace token (pyannote diarization model)"),
+        replicate_api_token: Secret = Input(default=None, description="Replicate API token (F5-TTS voice cloning)"),
     ) -> Path:
         from auto_synthesizer import auto_synthesize
+
+        # Replicate has no model-level env vars, so the secrets arrive per-prediction as Cog Secrets
+        # (masked in logs). Promote them into the process env so the planner / pyannote / TTS read
+        # them exactly as they did from a .env locally.
+        for var, sec in (
+            ("ANTHROPIC_API_KEY", anthropic_api_key),
+            ("HF_TOKEN", hf_token),
+            ("REPLICATE_API_TOKEN", replicate_api_token),
+        ):
+            if sec is None:
+                continue
+            try:
+                val = sec.get_secret_value()
+            except AttributeError:
+                val = str(sec)
+            if val:
+                os.environ[var] = val
 
         work = _P(tempfile.mkdtemp())
         vocals, accomp = self._separate(_P(str(audio)), work)

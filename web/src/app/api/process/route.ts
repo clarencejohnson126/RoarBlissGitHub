@@ -43,6 +43,10 @@ export async function POST(request: Request) {
       location: (location as string) || "",
       champion: (champion as string) || "",
       paid: paid === true,
+      // Secrets travel as Cog Secret inputs (Replicate has no model-level env). Server-side env only.
+      anthropic_api_key: process.env.ANTHROPIC_API_KEY || "",
+      hf_token: process.env.HF_TOKEN || "",
+      replicate_api_token: process.env.REPLICATE_API_TOKEN || "",
     };
 
     // Replicate requires an https webhook. On https deployments we attach one so we can email the

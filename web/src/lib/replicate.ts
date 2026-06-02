@@ -23,6 +23,11 @@ export interface PredictionInput {
   location: string;
   champion: string;
   paid: boolean;
+  // Per-prediction secrets (Replicate has no model-level env vars). Server-side only; the model
+  // declares these as Cog Secret inputs, so Replicate masks them in logs.
+  anthropic_api_key?: string;
+  hf_token?: string;
+  replicate_api_token?: string;
 }
 
 export type PredictionStatus =
