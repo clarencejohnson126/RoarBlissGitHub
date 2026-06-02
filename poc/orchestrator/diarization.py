@@ -75,41 +75,57 @@ def diarize(audio_path: str, verbose: bool = True) -> dict:
     if verbose:
         print(f"  diarizing: {Path(audio_path).name} (this takes ~30-60s per audio)")
 
-    pipeline = _get_pipeline()
-
-    # Pre-convert to 16kHz mono WAV via ffmpeg (pyannote 4.x mishandles MP3 chunking),
-    # then hand pyannote an IN-MEMORY waveform dict instead of a file path. This is
-    # deliberate: torchaudio 2.8 delegates file loading to torchcodec, whose AudioDecoder
-    # fails to initialise against the container's ffmpeg ("name 'AudioDecoder' is not
-    # defined"). Loading the WAV ourselves with soundfile sidesteps torchcodec entirely.
-    import soundfile as sf
-    import torch
-    with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
-        tmp_path = tmp.name
     try:
-        subprocess.run(
-            ["ffmpeg", "-y", "-loglevel", "error", "-i", audio_path,
-             "-ar", "16000", "-ac", "1", "-c:a", "pcm_s16le", tmp_path],
-            check=True
-        )
-        wav, sr = sf.read(tmp_path, dtype="float32", always_2d=True)  # (frames, channels)
-        waveform = torch.from_numpy(wav.T).contiguous()               # (channel, time)
-        output = pipeline({"waveform": waveform, "sample_rate": sr})
-    finally:
-        if os.path.exists(tmp_path):
-            os.unlink(tmp_path)
-    # pyannote 4.x returns DiarizeOutput; the Annotation is at .speaker_diarization
-    diarization = output.speaker_diarization if hasattr(output, 'speaker_diarization') else output
+        pipeline = _get_pipeline()
 
-    turns = []
-    speaker_durs = {}
-    for turn, _, speaker in diarization.itertracks(yield_label=True):
-        turns.append({
-            "start": round(turn.start, 2),
-            "end": round(turn.end, 2),
-            "speaker": speaker,
-        })
-        speaker_durs[speaker] = speaker_durs.get(speaker, 0.0) + (turn.end - turn.start)
+        # Pre-convert to 16kHz mono WAV via ffmpeg, then hand pyannote an IN-MEMORY waveform dict
+        # instead of a file path (sidesteps torchcodec's AudioDecoder, which fails against the
+        # container ffmpeg). We load the WAV ourselves with soundfile.
+        import soundfile as sf
+        import torch
+        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as tmp:
+            tmp_path = tmp.name
+        try:
+            subprocess.run(
+                ["ffmpeg", "-y", "-loglevel", "error", "-i", audio_path,
+                 "-ar", "16000", "-ac", "1", "-c:a", "pcm_s16le", tmp_path],
+                check=True
+            )
+            wav, sr = sf.read(tmp_path, dtype="float32", always_2d=True)  # (frames, channels)
+            waveform = torch.from_numpy(wav.T).contiguous()               # (channel, time)
+            output = pipeline({"waveform": waveform, "sample_rate": sr})
+        finally:
+            if os.path.exists(tmp_path):
+                os.unlink(tmp_path)
+        # pyannote 4.x returns DiarizeOutput; the Annotation is at .speaker_diarization
+        diarization = output.speaker_diarization if hasattr(output, 'speaker_diarization') else output
+
+        turns = []
+        speaker_durs = {}
+        for turn, _, speaker in diarization.itertracks(yield_label=True):
+            turns.append({
+                "start": round(turn.start, 2),
+                "end": round(turn.end, 2),
+                "speaker": speaker,
+            })
+            speaker_durs[speaker] = speaker_durs.get(speaker, 0.0) + (turn.end - turn.start)
+    except Exception as e:
+        # pyannote (or one of its many transitive deps) failed to import/load/run. For solo
+        # motivational audio this is harmless: treat the whole track as ONE speaker. The slot finder
+        # keys off energy/peaks, not speaker turns, so solo output quality is unaffected. This makes
+        # diarization a SOFT dependency — the pipeline never blocks on pyannote again.
+        try:
+            probe = subprocess.run(
+                ["ffprobe", "-v", "error", "-show_entries", "format=duration", "-of", "csv=p=0", audio_path],
+                capture_output=True, text=True,
+            )
+            dur = float(probe.stdout.strip())
+        except Exception:
+            dur = 0.0
+        if verbose:
+            print(f"  diarization unavailable ({type(e).__name__}) -> single-speaker fallback ({dur:.0f}s)")
+        turns = [{"start": 0.0, "end": round(dur, 2), "speaker": "SPEAKER_00"}]
+        speaker_durs = {"SPEAKER_00": dur}
 
     result = {
         "speaker_count": len(speaker_durs),

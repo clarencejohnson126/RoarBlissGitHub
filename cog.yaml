@@ -30,6 +30,7 @@ build:
     - "soundfile==0.13.1"
     - "audioread==3.0.1"
     - "scipy>=1.11"
+    - "matplotlib"
     - "torch==2.4.1"
     - "torchaudio==2.4.1"
     - "demucs==4.0.1"
