@@ -16,31 +16,30 @@ Two principles that decide everything else:
 (The local Mac + Docker + Cloudflare tunnel was only the $0 test bridge while we built the output
 engine. It is NOT production.)
 
-## Production architecture — LAUNCH on Render (already set up), optimize later
-We ship on **Render** with the single Docker container we already built and proved end-to-end
-(`Dockerfile` + `render.yaml`). No new platform. The container runs everything:
+## Production architecture — LOCKED (pay-per-use, $0 idle)
+The founder rejected any fixed monthly box for a pre-revenue app (rightly — you'd pay for idle).
+So hosting is **usage-based / scale-to-zero**, on the account we already have (**Replicate**):
 ```
-User → Render Web Service (Docker)    Next.js UI/API + queue worker + the full Python pipeline
-          │   per job:
-          │   Demucs · Whisper · pyannote · Planner(LLM) · TTS · ffmpeg mix
+User → Web shell (Cloudflare Pages / Vercel, free)    UI + form + status; calls the Replicate API
+          │ start prediction (audio + user story)
           ▼
-      Render Persistent Disk           SQLite queue + finished MP3 + 30s preview (served via /api/output)
+      Replicate Cog (GPU, scale-to-zero)              the WHOLE pipeline, one model, pay-per-run:
+          │   Demucs · Whisper · pyannote · Sonnet planner · TTS · ffmpeg mix   [cog.yaml + predict.py]
           ▼
-      Resend email → user
+      webhook → web shell → R2 (output) + Resend email → user
 ```
-- **LLM:** Anthropic. `WRITER_MODEL=claude-sonnet-4-6` writes the lines; Haiku does the mechanical
-  calls (parse / classify / emotion-tag / shorten). `WRITER_MODEL=claude-opus-4-8` = optional
-  "premium" tier. (Verified: Sonnet ≈ Opus quality here; Haiku is visibly rougher — not for paid.)
-- **TTS for launch:** Replicate F5-TTS (`TTS_PROVIDER=replicate`) — proven, zero infra, runs from
-  inside the Render container (no GPU/MLX needed in the box).
-- **Plan:** Render **Pro 4GB (~$85/mo)** runs the full pipeline (measured peak ~2.5GB). It is
-  always-on, so the trade-off is a fixed monthly cost; recovered by ~25 paid tracks.
+- **$0 when idle.** ~$0.10–0.20 GPU/run + LLM (~$0.05–0.10 Sonnet). Protect with a Replicate
+  **monthly budget cap** + a **per-user free limit** (1 free job / signed-up user, 60s).
+- **LLM:** `WRITER_MODEL=claude-sonnet-4-6` writes; Haiku does parse/classify/emotion-tag/shorten;
+  `claude-opus-4-8` = optional premium. (Verified: Sonnet ≈ Opus; Haiku visibly rougher — not paid.)
+- **TTS:** v1 = F5-TTS via Replicate API from inside the cog; optimize to F5 hosted in-cog later.
+- **Why not Render:** every Render plan is a FIXED $25–85/mo whether used or not, and a single box
+  would choke on a burst of users (serial). Usage-based wins for pre-revenue. (A fixed/reserved box
+  may win again only at sustained high volume — a post-revenue problem.)
 
-### Future cost-optimizations (AFTER launch + revenue — NOT now, do not pivot early)
-- Drop to Render **Standard 2GB ($25/mo)** by offloading **Demucs** to Replicate + skipping pyannote
-  for single-speaker (frees the RAM). ~1–2h work.
-- Or move the pipeline to a **usage-based serverless-GPU** host (e.g. Modal) to kill idle cost and
-  self-host TTS cheaply. Only worth it once volume/idle-cost justifies it.
+### Post-launch cost optimizations (NOT now)
+- Host F5-TTS inside the cog (kill the per-call F5 markup); bake pyannote weights at build.
+- Source-audio caching (content hash) → popular uploads skip Demucs/Whisper/pyannote (ML ≈ $0).
 
 ## Tiers
 - **Free:** up to **60s** per track. Cheapest config (cached sources, conditional QA). ~$0.02–0.04 each.
@@ -77,20 +76,20 @@ Sonnet costs visible quality for pennies of saving.
 - Safety nets in code: per-slot **pace** match, **exact-loudness** match (seamless), **peak**
   transformation (the chant becomes the user's), **no >20s gaps**, length control.
 
-## Go-live steps (ordered) — on Render, no new platform
-1. **[DONE]** Output engine + cost split + tiers + the Docker container (built + proven e2e).
-2. **[NEXT]** Deploy the Render Blueprint (`render.yaml` → Render **Pro 4GB**). Env vars: Anthropic,
-   HF_TOKEN, Replicate, Resend, `WRITER_MODEL=claude-sonnet-4-6`, `TTS_PROVIDER=replicate`. First
-   build ~10–15 min. (Render account already exists; redeploy via dashboard or the Render API key.)
-3. **[OPEN]** Verify the live flow on the Render URL: form → queue → worker → pipeline → MP3 → email.
-4. **[OPEN — Sprint 7]** Auth + Stripe → activates the paid tier + the `paid` flag (the 60s-free /
-   6-min-paid gate is already coded).
+## Go-live steps (ordered) — usage-based, no new platform
+1. **[DONE]** Output engine + cost split + tiers + the **Replicate Cog** (`cog.yaml` + `predict.py`).
+2. **[NEXT — needs Docker + your Replicate token]** `pip install cog && cog login && cog push
+   r8.im/<you>/roar-bliss`. Set secrets in the model settings (ANTHROPIC_API_KEY, HF_TOKEN,
+   REPLICATE_API_TOKEN). First build ~15–25 min. (See `COG_DEPLOY.md`.)
+3. **[OPEN]** Web shell on Cloudflare Pages / Vercel: form → start a Replicate prediction → webhook
+   on done → store MP3 (R2) → email. Set a Replicate **budget cap** + the per-user free limit.
+4. **[OPEN — Sprint 7]** Auth + Stripe → activates the paid tier + the `paid` input (free 60s /
+   paid 6-min gate already coded in the cog and `/api/process`).
 5. **Launch:** first users; monitor; iterate on real uploads.
-6. **[LATER, post-revenue ONLY]** Cost optimizations — Standard $25 via Demucs offload + single-speaker
-   pyannote skip, or a usage-based serverless-GPU host; source-audio caching. Do NOT do these before launch.
+6. **[LATER, post-revenue ONLY]** F5-TTS in-cog, bake pyannote, source-audio caching. Not before launch.
 
 ## What's needed from the founder to go live
-- The **Render** account is already set up (previous session, billing on file). Re-deploy the Blueprint
-  on **Pro 4GB** (dashboard, or I redeploy via the Render API key with your OK on the ~$85/mo).
+- **Replicate** account (already have it) — run `cog push` to deploy the pipeline. No new platform.
+- A free **Cloudflare Pages** (or Vercel) site for the web shell + an **R2** bucket for outputs.
 - (Later, Sprint 7) Stripe + an auth provider for the paid tier.
 Everything else is code we control.
