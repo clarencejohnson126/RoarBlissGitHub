@@ -11,10 +11,10 @@
 #   HF_TOKEN            - pyannote diarization model download
 #   REPLICATE_API_TOKEN - F5-TTS voice cloning (v1 calls Replicate's F5; later: host F5 in-cog)
 build:
-  # CPU build. torch 2.8 (required by pyannote 4.0.4) needs CUDA 12.6+, which Cog doesn't yet
-  # support — so we run the pipeline on CPU (proven to work; jobs are async/emailed anyway).
-  # GPU is a post-launch optimisation (custom base image or a newer Cog).
-  gpu: false
+  # GPU build. torch 2.4 + pyannote 3.3 run on a Cog-supported CUDA (unlike torch 2.8 / pyannote
+  # 4.0.4 which forced CUDA 12.6 → the earlier CPU fallback). GPU cuts the ML preprocessing
+  # (Demucs / Whisper / pyannote) ~5-15x — that's the dominant cost for longer tracks (~60-70%).
+  gpu: true
   python_version: "3.11"
   system_packages:
     - "ffmpeg"
@@ -27,18 +27,17 @@ build:
     - "soundfile==0.13.1"
     - "audioread==3.0.1"
     - "scipy>=1.11"
+    - "torch==2.4.1"
+    - "torchaudio==2.4.1"
+    - "demucs==4.0.1"
     - "anthropic==0.75.0"
     - "requests==2.32.3"
     - "setuptools<81"
   run:
-    # CPU-only torch FIRST. With gpu:false, a plain `torch==2.8.0` still resolves to the CUDA-bundled
-    # manylinux wheel (drags in ~3-4GB of nvidia-* libs that never run on a CPU box). The +cpu wheel
-    # from PyTorch's CPU index is far smaller → much faster cold start. demucs/pyannote below then see
-    # torch 2.8 already satisfied and won't pull the CUDA build.
-    - "pip install --no-cache-dir torch==2.8.0 torchaudio==2.8.0 --index-url https://download.pytorch.org/whl/cpu"
-    # demucs + pyannote.audio in run: (pyannote is a dotted namespace pkg that Cog's python_packages
-    # parser mangles to 'audio==4.0.4'; raw pip here is untouched by that parser).
-    - "pip install --no-cache-dir demucs==4.0.1 pyannote.audio==4.0.4"
+    # pyannote.audio is a dotted namespace pkg (Cog's python_packages parser mangles it to 'audio==…');
+    # install via raw pip. 3.3.x runs on torch 2.4 (GPU on a Cog-supported CUDA) and uses the same
+    # speaker-diarization-3.1 model the code already targets — diarization.py handles 3.x and 4.x output.
+    - "pip install --no-cache-dir pyannote.audio==3.3.2"
     # openai-whisper ships an sdist whose setup.py imports pkg_resources; build it against the
     # already-installed setuptools<81 (no isolated overlay that would pull setuptools>=81).
     - "pip install --no-cache-dir --no-build-isolation openai-whisper==20250625"
