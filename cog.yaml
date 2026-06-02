@@ -15,6 +15,9 @@ build:
   # 4.0.4 which forced CUDA 12.6 → the earlier CPU fallback). GPU cuts the ML preprocessing
   # (Demucs / Whisper / pyannote) ~5-15x — that's the dominant cost for longer tracks (~60-70%).
   gpu: true
+  # Cog can't infer the CUDA version for torch 2.4.1, so pin it. torch 2.4.1 ships cu121 wheels and
+  # Cog supports CUDA 12.1 → torch 2.4.1+cu121 on the GPU box.
+  cuda: "12.1"
   python_version: "3.11"
   system_packages:
     - "ffmpeg"
