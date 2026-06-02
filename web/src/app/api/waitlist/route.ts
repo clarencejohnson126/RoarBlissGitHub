@@ -62,8 +62,14 @@ export async function POST(request: Request) {
 
     waitlist.push(newEntry);
 
-    // Save back to local waitlist database
-    fs.writeFileSync(WAITLIST_FILE, JSON.stringify(waitlist, null, 2), "utf-8");
+    // Best-effort persistence. On serverless (Vercel) the filesystem is read-only, so a write here
+    // throws — we swallow it so the capture still succeeds for the user. (Durable waitlist storage
+    // moves to Resend/Supabase post-launch.)
+    try {
+      fs.writeFileSync(WAITLIST_FILE, JSON.stringify(waitlist, null, 2), "utf-8");
+    } catch (persistErr) {
+      console.warn("waitlist persist skipped (read-only fs):", (persistErr as Error).message);
+    }
 
     return NextResponse.json(
       { message: "Your spot has been successfully secured in the arena!" },

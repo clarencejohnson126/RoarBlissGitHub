@@ -23,8 +23,8 @@ export default function AudioVisualizer({ formData, sessionId }: AudioVisualizer
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
 
-  // Locked player waitlist states
-  const [isLocked, setIsLocked] = useState(true);
+  // The free track is already capped at 60s by the pipeline, so it plays in full (no preview lock).
+  const [isLocked, setIsLocked] = useState(false);
   const [showLockOverlay, setShowLockOverlay] = useState(false);
   const [email, setEmail] = useState("");
   const [waitlistStatus, setWaitlistStatus] = useState<{
@@ -165,7 +165,7 @@ export default function AudioVisualizer({ formData, sessionId }: AudioVisualizer
             audioRef.current.pause();
             
             // Trigger browser reload of new src
-            audioRef.current.src = `/api/output/${sessionId}_full.mp3`;
+            audioRef.current.src = `/api/audio?id=${sessionId}`;
             audioRef.current.load();
             
             audioRef.current.oncanplay = () => {
@@ -477,10 +477,11 @@ export default function AudioVisualizer({ formData, sessionId }: AudioVisualizer
         <canvas ref={canvasRef} className="canvas-visualizer" />
       </div>
 
-      {/* Dynamic Local Audio Stem */}
+      {/* Personalized track, streamed same-origin from the cloud model */}
       <audio
         ref={audioRef}
-        src={isLocked ? `/api/output/${sessionId}_preview.mp3` : `/api/output/${sessionId}_full.mp3`}
+        src={`/api/audio?id=${sessionId}`}
+        crossOrigin="anonymous"
         preload="auto"
       />
 

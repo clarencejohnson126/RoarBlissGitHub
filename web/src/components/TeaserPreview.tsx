@@ -13,127 +13,134 @@ interface TeaserPreviewProps {
     email?: string;
     file: File | null;
   };
-  onComplete: (sessionId: string) => void;
+  onComplete: (predictionId: string) => void;
 }
 
+const ts = () => new Date().toLocaleTimeString("en-GB", { hour12: false });
+
 export default function TeaserPreview({ formData, onComplete }: TeaserPreviewProps) {
-  const [logs, setLogs] = useState<string[]>(["[00:00:00] [ROAR BLISS CORE] Bootstrapping client controller..."]);
-  const [loadingProgress, setLoadingProgress] = useState(0);
+  const [logs, setLogs] = useState<string[]>([
+    `[${ts()}] [ROAR BLISS CORE] Bootstrapping cloud personalization run…`,
+  ]);
+  const [loadingProgress, setLoadingProgress] = useState(4);
   const [isFailed, setIsFailed] = useState(false);
-  const sessionStartedRef = useRef(false);
+  const startedRef = useRef(false);
 
   useEffect(() => {
-    if (sessionStartedRef.current) return;
-    sessionStartedRef.current = true;
+    if (startedRef.current) return;
+    startedRef.current = true;
 
-    let pollInterval: NodeJS.Timeout | null = null;
-    let fallbackTimer: NodeJS.Timeout | null = null;
+    let pollInterval: ReturnType<typeof setInterval> | null = null;
+    const startedAt = Date.now();
+    const ESTIMATE_S = 300; // ~5 min typical on the CPU pipeline; bar eases toward 92% over this
 
-    const startAudioProcessing = async () => {
+    const addLog = (line: string) =>
+      setLogs((prev) => [...prev, `[${ts()}] ${line}`]);
+
+    const run = async () => {
       try {
-        const bodyFormData = new FormData();
-        bodyFormData.append("name", formData.name);
-        bodyFormData.append("battlefield", formData.battlefield);
-        bodyFormData.append("struggle", formData.struggle);
-        bodyFormData.append("family", formData.family);
-        bodyFormData.append("location", formData.location);
-        bodyFormData.append("champion", formData.champion);
-        if (formData.email) {
-          bodyFormData.append("email", formData.email);
-        }
-
+        // 1) Upload the user's audio straight to durable storage (bypasses the 4.5 MB function limit).
+        let audioUrl = "";
         if (formData.file) {
-          bodyFormData.append("file", formData.file);
+          addLog(`[UPLOAD] Securing "${formData.file.name}" to the cloud…`);
+          const { upload } = await import("@vercel/blob/client");
+          const blob = await upload(
+            `uploads/${Date.now()}-${formData.file.name}`.replace(/\s+/g, "_"),
+            formData.file,
+            {
+              access: "public",
+              handleUploadUrl: "/api/blob-upload",
+              contentType: formData.file.type || "audio/mpeg",
+            },
+          );
+          audioUrl = blob.url;
+          addLog(`[UPLOAD] Source secured. Dispatching to the GPU cloud…`);
+        } else {
+          addLog(`[STEM SPLITTER] Using the preloaded motivational track…`);
         }
 
-        const response = await fetch("/api/process", {
+        // 2) Start the Replicate prediction (the whole pipeline).
+        const res = await fetch("/api/process", {
           method: "POST",
-          body: bodyFormData,
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            audioUrl,
+            name: formData.name,
+            battlefield: formData.battlefield,
+            struggle: formData.struggle,
+            family: formData.family,
+            location: formData.location,
+            champion: formData.champion,
+            email: formData.email || "",
+            paid: false,
+          }),
         });
-
-        if (!response.ok) {
-          throw new Error("API route rejected audio compilation initialization.");
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({}));
+          throw new Error(err.error || `Server rejected the run (${res.status}).`);
         }
+        const { id } = await res.json();
+        if (!id) throw new Error("No prediction id returned by the server.");
+        addLog(`[QUEUE] Run accepted (${id.slice(0, 8)}…). Watching the compiler:`);
 
-        const resData = await response.json();
-        const sessionId = resData.sessionId;
-
-        if (!sessionId) {
-          throw new Error("No Session ID returned by server.");
-        }
-
-        // Poll logs
+        // 3) Poll the live Replicate status + logs.
         pollInterval = setInterval(async () => {
           try {
-            const logsRes = await fetch(`/api/logs?sessionId=${sessionId}`);
-            if (!logsRes.ok) return;
-            const logsData = await logsRes.json();
-            
-            if (logsData.logs && logsData.logs.length > 0) {
-              setLogs(logsData.logs);
-              
-              // Calculate progress based on steps
-              const totalLines = logsData.logs.length;
-              const hasSuccess = logsData.logs.some((line: string) => line.includes("[SUCCESS]"));
-              // Pipeline emits "[ERROR]" (uppercase); the API route emits "[error]".
-              // Match both so real failures surface instead of spinning forever at 92%.
-              const hasError = logsData.logs.some((line: string) => /\[error\]/i.test(line));
+            const sres = await fetch(`/api/process/status?id=${id}`);
+            if (!sres.ok) return;
+            const s = await sres.json();
 
-              if (hasError) {
-                setIsFailed(true);
-                if (pollInterval) clearInterval(pollInterval);
-                return;
-              }
+            if (Array.isArray(s.logs) && s.logs.length) {
+              setLogs((prev) => {
+                const head = prev.slice(0, prev.findIndex((l) => l.includes("[QUEUE]")) + 1 || prev.length);
+                return [...head, ...s.logs.map((l: string) => `  ${l}`)];
+              });
+            }
 
-              if (hasSuccess) {
-                setLoadingProgress(100);
-                if (pollInterval) clearInterval(pollInterval);
-                
-                // Complete session after a short dramatic pause
-                setTimeout(() => {
-                  onComplete(sessionId);
-                }, 1200);
-              } else {
-                // Increment loading progress smoothly up to 92%
-                setLoadingProgress(Math.min(totalLines * 7.5, 92));
-              }
+            const elapsedS = (Date.now() - startedAt) / 1000;
+            setLoadingProgress(Math.min(92, 6 + (elapsedS / ESTIMATE_S) * 86));
+
+            if (s.status === "done") {
+              setLoadingProgress(100);
+              if (pollInterval) clearInterval(pollInterval);
+              setTimeout(() => onComplete(id), 900);
+            } else if (s.status === "failed") {
+              addLog(`[error] ${s.error || "Pipeline failed."}`);
+              setIsFailed(true);
+              if (pollInterval) clearInterval(pollInterval);
             }
           } catch (err) {
-            console.error("Error polling logs:", err);
+            console.error("status poll error:", err);
           }
-        }, 500);
-
+        }, 3000);
       } catch (error: unknown) {
-        console.error("Audio personalization process crashed:", error);
-        setLogs((prev) => [
-          ...prev,
-          `[error] Critical error during transmission: ${error instanceof Error ? error.message : String(error)}`,
-          `[error] Personalization aborted. Please check connection and try again.`
-        ]);
+        console.error("personalization crashed:", error);
+        addLog(`[error] ${error instanceof Error ? error.message : String(error)}`);
+        addLog(`[error] Run aborted. Please check your connection and try again.`);
         setIsFailed(true);
       }
     };
 
-    startAudioProcessing();
-
+    run();
     return () => {
       if (pollInterval) clearInterval(pollInterval);
-      if (fallbackTimer) clearTimeout(fallbackTimer);
     };
   }, [formData, onComplete]);
 
   return (
-    <div className="glass-card" style={{ border: isFailed ? "1px solid var(--color-crimson)" : "1px solid rgba(74, 222, 128, 0.2)" }}>
+    <div
+      className="glass-card"
+      style={{ border: isFailed ? "1px solid var(--color-crimson)" : "1px solid rgba(74, 222, 128, 0.2)" }}
+    >
       <h2 className="headline-md" style={{ marginBlockEnd: "1rem", display: "flex", alignItems: "center", gap: "0.5rem" }}>
-        <span 
-          className="text-highlight-gold" 
-          style={{ 
-            display: "inline-block", 
-            width: "10px", 
-            height: "10px", 
-            borderRadius: "50%", 
-            background: isFailed ? "var(--color-crimson)" : "#4ade80", 
-            boxShadow: isFailed ? "0 0 10px var(--color-crimson)" : "0 0 10px #4ade80" 
+        <span
+          style={{
+            display: "inline-block",
+            width: "10px",
+            height: "10px",
+            borderRadius: "50%",
+            background: isFailed ? "var(--color-crimson)" : "#4ade80",
+            boxShadow: isFailed ? "0 0 10px var(--color-crimson)" : "0 0 10px #4ade80",
           }}
         ></span>
         {isFailed ? (
@@ -143,17 +150,16 @@ export default function TeaserPreview({ formData, onComplete }: TeaserPreviewPro
         )}
       </h2>
       <p style={{ color: "var(--color-text-secondary)", fontSize: "0.85rem", marginBlockEnd: "1.5rem", lineHeight: "1.4" }}>
-        {isFailed 
-          ? "The local stem separation and speech alignment encountered a compilation crash. Check server.py status." 
-          : "Our GPU cluster is splitting stems, scanning tension valleys, cloning the Mentor's voice, and level-mixing the final track. Watch the compiler run:"
-        }
+        {isFailed
+          ? "The cloud run didn't complete. Check your connection or try again with different audio."
+          : "Our scale-to-zero GPU cloud is splitting stems, scanning tension valleys, cloning the speaker's voice, and level-mixing the final track. Watch the compiler run:"}
       </p>
 
       <div className="terminal-box" style={{ minHeight: "220px" }}>
         {logs.map((log, index) => {
           if (!log) return null;
-          const isError = log.includes("[error]") || log.includes("crash") || log.includes("failed");
-          const isSuccess = log.includes("[SUCCESS]");
+          const isError = /\[error\]/i.test(log) || /crash|failed/i.test(log);
+          const isSuccess = log.includes("ready") || log.includes("[QUEUE]");
           return (
             <div
               key={index}
@@ -164,17 +170,17 @@ export default function TeaserPreview({ formData, onComplete }: TeaserPreviewPro
             </div>
           );
         })}
-        <div 
-          className="terminal-loading-bar" 
-          style={{ 
+        <div
+          className="terminal-loading-bar"
+          style={{
             width: `${loadingProgress}%`,
-            background: isFailed ? "var(--color-crimson)" : "linear-gradient(to right, var(--color-crimson), var(--color-gold))"
+            background: isFailed ? "var(--color-crimson)" : "linear-gradient(to right, var(--color-crimson), var(--color-gold))",
           }}
         ></div>
       </div>
       <div style={{ marginBlockStart: "1.5rem", display: "flex", justifyContent: "space-between", alignItems: "center", fontSize: "0.8rem", color: "var(--color-text-muted)" }}>
-        <span>Engine: Antigravity Local AI Core</span>
-        <span>Allocated: Port 7860 Cloner</span>
+        <span>Engine: Replicate scale-to-zero cloud</span>
+        <span>Pipeline: Demucs · Whisper · pyannote · Sonnet · TTS</span>
       </div>
     </div>
   );
