@@ -76,17 +76,38 @@ Sonnet costs visible quality for pennies of saving.
 - Safety nets in code: per-slot **pace** match, **exact-loudness** match (seamless), **peak**
   transformation (the chant becomes the user's), **no >20s gaps**, length control.
 
+## LIVE (2026-06-02)
+- **Web shell:** https://roar-bliss.vercel.app (Vercel project `clarences-projects-143b15aa/roar-bliss`,
+  root dir = `web/`, deploy with `vercel deploy --prod --yes` from `web/`).
+- **Model:** `clarencejohnson126/roar-bliss` on Replicate (private, CPU, scale-to-zero), built+pushed
+  via GitHub Actions (`.github/workflows/deploy-cog.yml`). Predictions use the **version-based**
+  `/v1/predictions` endpoint (the `/models/.../predictions` shortcut is official-models-only → 404).
+- **Secrets:** Replicate has NO model-level env vars → the 3 pipeline secrets (ANTHROPIC_API_KEY,
+  HF_TOKEN, REPLICATE_API_TOKEN) are Cog **Secret inputs**, forwarded per-prediction from Vercel env.
+- **Storage:** Vercel **Blob** (`roar-bliss-audio` store) — browser uploads direct (bypasses the
+  4.5MB function-body limit); the webhook persists the output for a durable email link.
+
 ## Go-live steps (ordered) — usage-based, no new platform
 1. **[DONE]** Output engine + cost split + tiers + the **Replicate Cog** (`cog.yaml` + `predict.py`).
-2. **[NEXT — needs Docker + your Replicate token]** `pip install cog && cog login && cog push
-   r8.im/<you>/roar-bliss`. Set secrets in the model settings (ANTHROPIC_API_KEY, HF_TOKEN,
-   REPLICATE_API_TOKEN). First build ~15–25 min. (See `COG_DEPLOY.md`.)
-3. **[OPEN]** Web shell on Cloudflare Pages / Vercel: form → start a Replicate prediction → webhook
-   on done → store MP3 (R2) → email. Set a Replicate **budget cap** + the per-user free limit.
+2. **[DONE]** Cog built + pushed to Replicate via GitHub Actions (cloud build, no laptop). Secrets are
+   passed as Cog Secret inputs, not model env vars.
+3. **[DONE]** Web shell **live on Vercel**: form → version-based Replicate prediction → status proxy +
+   same-origin audio stream → webhook persists to Blob + Resend email. **TODO:** Replicate **budget cap**
+   + per-user free limit (needs auth, Sprint 7).
 4. **[OPEN — Sprint 7]** Auth + Stripe → activates the paid tier + the `paid` input (free 60s /
    paid 6-min gate already coded in the cog and `/api/process`).
 5. **Launch:** first users; monitor; iterate on real uploads.
-6. **[LATER, post-revenue ONLY]** F5-TTS in-cog, bake pyannote, source-audio caching. Not before launch.
+6. **[LATER, post-revenue ONLY]** F5-TTS in-cog, bake pyannote (kills the runtime HF_TOKEN need),
+   source-audio caching. Not before launch.
+
+### Deploy gotchas (learned the hard way 2026-06-02)
+- `vercel blob create-store` / other `vercel` commands run an **env pull** that **overwrites
+  `web/.env.local`** with only the project's vars — it wiped local ANTHROPIC_API_KEY/HF_TOKEN/Stripe/
+  Supabase. Back `.env.local` up before running `vercel` storage commands.
+- Hammering `api.replicate.com` from the laptop with `python-urllib` trips **Cloudflare error 1010**
+  (IP/signature ban). Test through the Vercel deployment instead (different IP), or use a real UA.
+- The Replicate **model must exist before the first `cog push`** (create via API/dashboard) or the
+  registry push fails with `unauthorized: authentication required`.
 
 ## What's needed from the founder to go live
 - **Replicate** account (already have it) — run `cog push` to deploy the pipeline. No new platform.
