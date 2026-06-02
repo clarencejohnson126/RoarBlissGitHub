@@ -33,11 +33,22 @@ def _get_pipeline():
                 "https://hf.co/pyannote/segmentation-3.0"
             )
         print("  loading pyannote diarization pipeline (one-time, ~30s)...")
+        import torch
         from pyannote.audio import Pipeline
-        _pipeline = Pipeline.from_pretrained(
-            "pyannote/speaker-diarization-3.1",
-            token=token,
-        )
+        # pyannote 3.x takes `use_auth_token`; 4.x renamed it to `token`. Support both.
+        try:
+            _pipeline = Pipeline.from_pretrained(
+                "pyannote/speaker-diarization-3.1", use_auth_token=token,
+            )
+        except TypeError:
+            _pipeline = Pipeline.from_pretrained(
+                "pyannote/speaker-diarization-3.1", token=token,
+            )
+        # Move the pipeline onto the GPU when present — otherwise diarization runs on CPU even on a
+        # GPU box and stays the bottleneck.
+        if torch.cuda.is_available():
+            _pipeline.to(torch.device("cuda"))
+            print("  pyannote pipeline -> CUDA")
     return _pipeline
 
 def _cache_path(audio_path: str) -> Path:
