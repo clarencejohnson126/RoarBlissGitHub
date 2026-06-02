@@ -26,6 +26,11 @@ function headers(extra: Record<string, string> = {}): Record<string, string> {
 // models only — it 404s here). We resolve the latest version and use the version-based endpoint.
 let cachedVersion: string | null = null;
 async function latestVersionId(): Promise<string> {
+  // Pin production to a known-good version: a new cog push (e.g. an optimization rebuild) creates a
+  // new "latest" version, but production keeps serving REPLICATE_MODEL_VERSION until we bump it after
+  // testing. Unset → follow the model's latest version automatically.
+  const pinned = process.env.REPLICATE_MODEL_VERSION;
+  if (pinned) return pinned;
   if (cachedVersion) return cachedVersion;
   const res = await fetch(`${API}/models/${MODEL}`, { headers: headers(), cache: "no-store" });
   if (!res.ok) {
