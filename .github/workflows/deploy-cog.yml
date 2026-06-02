@@ -1,0 +1,37 @@
+# Builds + pushes the Roar Bliss pipeline (the Replicate Cog) entirely in the cloud,
+# on a GitHub-hosted amd64 runner. Your laptop is never involved.
+#
+# One-time setup (GitHub repo → Settings → Secrets and variables → Actions):
+#   REPLICATE_API_TOKEN  = your Replicate token (already in web/.env.local)
+#   REPLICATE_USERNAME   = your Replicate username (the owner of the model)
+# Then: Actions tab → "Deploy Cog to Replicate" → Run workflow.
+
+name: Deploy Cog to Replicate
+
+on:
+  workflow_dispatch: {}   # manual button in the Actions tab
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest        # amd64 cloud runner — not your Mac
+    steps:
+      - uses: actions/checkout@v4
+
+      # The CUDA + torch + demucs + whisper + pyannote image is large; reclaim runner disk first.
+      - name: Free up disk space
+        uses: jlumbroso/free-disk-space@main
+        with:
+          tool-cache: true
+          android: true
+          dotnet: true
+          haskell: true
+          large-packages: true
+          swap-storage: true
+
+      - name: Install + authenticate Cog
+        uses: replicate/setup-cog@v2
+        with:
+          token: ${{ secrets.REPLICATE_API_TOKEN }}
+
+      - name: Build + push the model to Replicate (cloud build, ~20–35 min)
+        run: cog push "r8.im/${{ secrets.REPLICATE_USERNAME }}/roar-bliss"
