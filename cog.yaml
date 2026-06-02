@@ -11,8 +11,10 @@
 #   HF_TOKEN            - pyannote diarization model download
 #   REPLICATE_API_TOKEN - F5-TTS voice cloning (v1 calls Replicate's F5; later: host F5 in-cog)
 build:
-  gpu: true
-  cuda: "12.6"          # matches the torch 2.8.0 CUDA wheel (cu126)
+  # CPU build. torch 2.8 (required by pyannote 4.0.4) needs CUDA 12.6+, which Cog doesn't yet
+  # support — so we run the pipeline on CPU (proven to work; jobs are async/emailed anyway).
+  # GPU is a post-launch optimisation (custom base image or a newer Cog).
+  gpu: false
   python_version: "3.11"
   system_packages:
     - "ffmpeg"
