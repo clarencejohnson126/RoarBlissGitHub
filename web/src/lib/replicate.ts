@@ -14,6 +14,30 @@ function token(): string {
   return t;
 }
 
+function headers(extra: Record<string, string> = {}): Record<string, string> {
+  return {
+    Authorization: `Bearer ${token()}`,
+    "User-Agent": "roar-bliss/1.0 (+https://roar-bliss.vercel.app)",
+    ...extra,
+  };
+}
+
+// Private/user models can't use the /models/{owner}/{name}/predictions shortcut (that's for official
+// models only — it 404s here). We resolve the latest version and use the version-based endpoint.
+let cachedVersion: string | null = null;
+async function latestVersionId(): Promise<string> {
+  if (cachedVersion) return cachedVersion;
+  const res = await fetch(`${API}/models/${MODEL}`, { headers: headers(), cache: "no-store" });
+  if (!res.ok) {
+    throw new Error(`Replicate resolve version ${res.status}: ${(await res.text()).slice(0, 200)}`);
+  }
+  const d = (await res.json()) as { latest_version?: { id?: string } };
+  const id = d.latest_version?.id;
+  if (!id) throw new Error(`Model ${MODEL} has no pushed version yet.`);
+  cachedVersion = id;
+  return id;
+}
+
 export interface PredictionInput {
   audio: string; // a publicly fetchable URL (Vercel Blob upload, or the preloaded /public track)
   name: string;
@@ -51,17 +75,15 @@ export async function createPrediction(
   input: PredictionInput,
   webhook?: string,
 ): Promise<Prediction> {
-  const body: Record<string, unknown> = { input };
+  const version = await latestVersionId();
+  const body: Record<string, unknown> = { version, input };
   if (webhook) {
     body.webhook = webhook;
     body.webhook_events_filter = ["completed"];
   }
-  const res = await fetch(`${API}/models/${MODEL}/predictions`, {
+  const res = await fetch(`${API}/predictions`, {
     method: "POST",
-    headers: {
-      Authorization: `Bearer ${token()}`,
-      "Content-Type": "application/json",
-    },
+    headers: headers({ "Content-Type": "application/json" }),
     body: JSON.stringify(body),
     cache: "no-store",
   });
@@ -74,7 +96,7 @@ export async function createPrediction(
 
 export async function getPrediction(id: string): Promise<Prediction> {
   const res = await fetch(`${API}/predictions/${id}`, {
-    headers: { Authorization: `Bearer ${token()}` },
+    headers: headers(),
     cache: "no-store",
   });
   if (!res.ok) {
