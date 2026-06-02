@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useRef } from "react";
+import { supabaseBrowser } from "@/lib/supabase-browser";
 
 interface TeaserPreviewProps {
   formData: {
@@ -11,6 +12,7 @@ interface TeaserPreviewProps {
     struggle: string;
     champion: string;
     email?: string;
+    paid?: boolean;
     file: File | null;
   };
   onComplete: (predictionId: string) => void;
@@ -59,10 +61,16 @@ export default function TeaserPreview({ formData, onComplete }: TeaserPreviewPro
           addLog(`[STEM SPLITTER] Using the preloaded motivational track…`);
         }
 
-        // 2) Start the Replicate prediction (the whole pipeline).
+        // 2) Start the Replicate prediction (the whole pipeline). Attach the Supabase token so the
+        //    server can verify a paid (6-min) request and consume a credit.
+        const { data: sess } = await supabaseBrowser().auth.getSession();
+        const token = sess.session?.access_token;
+        const headers: Record<string, string> = { "Content-Type": "application/json" };
+        if (token) headers.Authorization = `Bearer ${token}`;
+
         const res = await fetch("/api/process", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
+          headers,
           body: JSON.stringify({
             audioUrl,
             name: formData.name,
@@ -72,11 +80,17 @@ export default function TeaserPreview({ formData, onComplete }: TeaserPreviewPro
             location: formData.location,
             champion: formData.champion,
             email: formData.email || "",
-            paid: false,
+            paid: formData.paid === true,
           }),
         });
         if (!res.ok) {
           const err = await res.json().catch(() => ({}));
+          if (res.status === 401 || res.status === 402) {
+            throw new Error(
+              (err.error || "Paid track needs sign-in + credits.") +
+                " — melde dich oben rechts an und kauf Credits, oder nimm den 6-Min-Haken raus für die kostenlose 60s-Version.",
+            );
+          }
           throw new Error(err.error || `Server rejected the run (${res.status}).`);
         }
         const { id } = await res.json();

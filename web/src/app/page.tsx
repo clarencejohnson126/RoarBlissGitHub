@@ -4,6 +4,7 @@ import React, { useState } from "react";
 import OnboardingForm from "@/components/OnboardingForm";
 import TeaserPreview from "@/components/TeaserPreview";
 import AudioVisualizer from "@/components/AudioVisualizer";
+import AccountPanel from "@/components/AccountPanel";
 
 interface OnboardingData {
   battlefield: string;
@@ -13,6 +14,7 @@ interface OnboardingData {
   struggle: string;
   champion: string;
   email: string;
+  paid: boolean;
   file: File | null;
 }
 
@@ -132,7 +134,8 @@ export default function Home() {
             ROAR BLISS
           </span>
         </div>
-        <div style={{ display: "flex", gap: "1rem" }}>
+        <div style={{ display: "flex", gap: "1rem", alignItems: "center" }}>
+          <AccountPanel />
           <a
             href="#arena"
             style={{

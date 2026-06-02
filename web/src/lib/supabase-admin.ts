@@ -1,0 +1,61 @@
+import { createClient, type User } from "@supabase/supabase-js";
+
+/**
+ * SERVER-ONLY Supabase helpers. Never import this from a client component — it uses the service_role
+ * key (full admin). The paid entitlement is stored in the user's `app_metadata.paid_credits` (no
+ * custom table / DDL needed); the Stripe webhook grants credits, /api/process consumes them.
+ */
+
+function url(): string {
+  const u = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  if (!u) throw new Error("NEXT_PUBLIC_SUPABASE_URL is not set");
+  return u;
+}
+
+/** Admin client (service_role) — bypasses RLS, can update user metadata. */
+export function supabaseAdmin() {
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!key) throw new Error("SUPABASE_SERVICE_ROLE_KEY is not set");
+  return createClient(url(), key, { auth: { persistSession: false, autoRefreshToken: false } });
+}
+
+/** Verify a user access token (from the Authorization header). Returns the user or null. */
+export async function verifyUser(accessToken: string | null | undefined): Promise<User | null> {
+  if (!accessToken) return null;
+  const anon = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+  if (!anon) return null;
+  const sb = createClient(url(), anon, { auth: { persistSession: false, autoRefreshToken: false } });
+  const { data, error } = await sb.auth.getUser(accessToken);
+  if (error || !data?.user) return null;
+  return data.user;
+}
+
+export function paidCredits(user: User | null): number {
+  return Number((user?.app_metadata as Record<string, unknown>)?.paid_credits ?? 0);
+}
+
+/** Add N paid credits to a user (called by the Stripe webhook after a successful TEST payment). */
+export async function grantCredits(userId: string, n: number): Promise<number> {
+  const admin = supabaseAdmin();
+  const { data, error } = await admin.auth.admin.getUserById(userId);
+  if (error || !data?.user) throw new Error(`grantCredits: user ${userId} not found`);
+  const cur = Number((data.user.app_metadata as Record<string, unknown>)?.paid_credits ?? 0);
+  const next = cur + n;
+  await admin.auth.admin.updateUserById(userId, {
+    app_metadata: { ...data.user.app_metadata, paid_credits: next },
+  });
+  return next;
+}
+
+/** Consume one paid credit. Returns true if a credit was available and spent. */
+export async function consumeCredit(userId: string): Promise<boolean> {
+  const admin = supabaseAdmin();
+  const { data, error } = await admin.auth.admin.getUserById(userId);
+  if (error || !data?.user) return false;
+  const cur = Number((data.user.app_metadata as Record<string, unknown>)?.paid_credits ?? 0);
+  if (cur <= 0) return false;
+  await admin.auth.admin.updateUserById(userId, {
+    app_metadata: { ...data.user.app_metadata, paid_credits: cur - 1 },
+  });
+  return true;
+}

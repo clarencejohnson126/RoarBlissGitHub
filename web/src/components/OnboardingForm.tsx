@@ -11,6 +11,7 @@ interface OnboardingFormProps {
     struggle: string;
     champion: string;
     email: string;
+    paid: boolean;
     file: File | null;
   }) => void;
 }
@@ -26,6 +27,7 @@ export default function OnboardingForm({ onComplete }: OnboardingFormProps) {
   const [struggle, setStruggle] = useState("Late-night coding sessions and doubts");
   const [champion, setChampion] = useState("Eric Thomas");
   const [email, setEmail] = useState("");
+  const [paid, setPaid] = useState(false);
 
   // Drag and Drop States
   const [isDragOver, setIsDragOver] = useState(false);
@@ -96,6 +98,7 @@ export default function OnboardingForm({ onComplete }: OnboardingFormProps) {
       struggle,
       champion,
       email,
+      paid,
       file: usePreloaded ? null : file,
     });
   };
@@ -411,6 +414,31 @@ export default function OnboardingForm({ onComplete }: OnboardingFormProps) {
               placeholder="you@example.com"
             />
           </div>
+
+          <label
+            style={{
+              display: "flex",
+              alignItems: "flex-start",
+              gap: "0.6rem",
+              cursor: "pointer",
+              padding: "0.75rem",
+              background: "rgba(255,215,0,0.04)",
+              border: "1px solid rgba(255,215,0,0.15)",
+              borderRadius: "8px",
+            }}
+          >
+            <input
+              type="checkbox"
+              checked={paid}
+              onChange={(e) => setPaid(e.target.checked)}
+              style={{ marginTop: "0.2rem", accentColor: "var(--color-gold)" }}
+            />
+            <span style={{ fontSize: "0.8rem", color: "var(--color-text-secondary)", lineHeight: 1.4 }}>
+              <strong style={{ color: "var(--color-gold)" }}>Bis zu 6 Minuten freischalten</strong>{" "}
+              (Paid · verbraucht 1 Credit). Benötigt Login + Guthaben oben rechts — ohne Haken läuft es
+              kostenlos bis 60s.
+            </span>
+          </label>
 
           <div style={{ display: "flex", gap: "1rem" }}>
             <button type="button" onClick={prevStep} className="btn-premium btn-secondary" style={{ flex: 1 }}>

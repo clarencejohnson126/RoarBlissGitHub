@@ -1,6 +1,8 @@
 import { NextResponse } from "next/server";
 import { createPrediction, type PredictionInput } from "@/lib/replicate";
 import { baseUrl } from "@/lib/base-url";
+import { verifyUser, paidCredits, consumeCredit } from "@/lib/supabase-admin";
+import { bearerToken } from "@/lib/stripe";
 
 /**
  * POST /api/process  — starts a cloud personalization run.
@@ -34,6 +36,32 @@ export async function POST(request: Request) {
         ? audioUrl
         : `${base}/preloaded.mp3`; // public fallback track (Replicate fetches it by URL)
 
+    // Paid (up to 6 min) requires a signed-in user with a credit; we consume one here. Free (≤60s)
+    // needs no auth. The cog hard-caps the window either way, so this is the billing gate, not the cap.
+    let paidGranted = false;
+    if (paid === true) {
+      const user = await verifyUser(bearerToken(request));
+      if (!user) {
+        return NextResponse.json(
+          { error: "Sign in and buy credits to unlock paid (6-min) tracks.", needsAuth: true },
+          { status: 401 },
+        );
+      }
+      if (paidCredits(user) <= 0) {
+        return NextResponse.json(
+          { error: "No credits left — buy a pack to unlock 6-min tracks.", needsPurchase: true },
+          { status: 402 },
+        );
+      }
+      if (!(await consumeCredit(user.id))) {
+        return NextResponse.json(
+          { error: "No credits left.", needsPurchase: true },
+          { status: 402 },
+        );
+      }
+      paidGranted = true;
+    }
+
     const input: PredictionInput = {
       audio,
       name: (name as string) || "Warrior",
@@ -42,7 +70,7 @@ export async function POST(request: Request) {
       family: (family as string) || "",
       location: (location as string) || "",
       champion: (champion as string) || "",
-      paid: paid === true,
+      paid: paidGranted,
       // Secrets travel as Cog Secret inputs (Replicate has no model-level env). Server-side env only.
       anthropic_api_key: process.env.ANTHROPIC_API_KEY || "",
       hf_token: process.env.HF_TOKEN || "",
