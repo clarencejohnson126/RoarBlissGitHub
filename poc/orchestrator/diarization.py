@@ -33,17 +33,20 @@ def _get_pipeline():
                 "https://hf.co/pyannote/segmentation-3.0"
             )
         print("  loading pyannote diarization pipeline (one-time, ~30s)...")
-        import torch
+        import torch, pyannote.audio
         from pyannote.audio import Pipeline
-        # pyannote 3.x takes `use_auth_token`; 4.x renamed it to `token`. Support both.
+        print(f"  pyannote.audio {pyannote.audio.__version__}")
+        # Do NOT pass a token kwarg — from_pretrained's signature differs across pyannote 3.x/4.x and
+        # both `token` and `use_auth_token` have raised TypeError. Authenticate via huggingface_hub
+        # instead (env + cached login); from_pretrained then picks the token up version-agnostically.
+        os.environ.setdefault("HUGGING_FACE_HUB_TOKEN", token)
+        os.environ.setdefault("HF_TOKEN", token)
         try:
-            _pipeline = Pipeline.from_pretrained(
-                "pyannote/speaker-diarization-3.1", use_auth_token=token,
-            )
-        except TypeError:
-            _pipeline = Pipeline.from_pretrained(
-                "pyannote/speaker-diarization-3.1", token=token,
-            )
+            from huggingface_hub import login
+            login(token=token, add_to_git_credential=False)
+        except Exception as e:
+            print("  hf login note:", e)
+        _pipeline = Pipeline.from_pretrained("pyannote/speaker-diarization-3.1")
         # Move the pipeline onto the GPU when present — otherwise diarization runs on CPU even on a
         # GPU box and stays the bottleneck.
         if torch.cuda.is_available():
