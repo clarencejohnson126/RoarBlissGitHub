@@ -34,4 +34,7 @@ jobs:
           token: ${{ secrets.REPLICATE_API_TOKEN }}
 
       - name: Build + push the model to Replicate (cloud build, ~20–35 min)
-        run: cog push "r8.im/${{ secrets.REPLICATE_USERNAME }}/roar-bliss"
+        run: |
+          USER="$(printf '%s' "${{ secrets.REPLICATE_USERNAME }}" | tr -d '[:space:]')"
+          echo "Pushing to r8.im/${USER}/roar-bliss"
+          cog push "r8.im/${USER}/roar-bliss"

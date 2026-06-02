@@ -12,7 +12,7 @@
 #   REPLICATE_API_TOKEN - F5-TTS voice cloning (v1 calls Replicate's F5; later: host F5 in-cog)
 build:
   gpu: true
-  cuda: "12.1"
+  cuda: "12.6"          # matches the torch 2.8.0 CUDA wheel (cu126)
   python_version: "3.11"
   system_packages:
     - "ffmpeg"
