@@ -107,7 +107,7 @@ def main():
     parser.add_argument("--champion", default="")
     parser.add_argument("--output-dir", required=True)
     parser.add_argument("--session-id", required=True)
-    parser.add_argument("--window-ms", type=int, default=180_000)
+    parser.add_argument("--window-ms", type=int, default=360_000)  # 6-min CAP (clamped to audio length)
     args = parser.parse_args()
 
     output_dir = Path(args.output_dir)
@@ -134,12 +134,26 @@ def main():
         per_session_out = output_dir / f"{args.session_id}_work"
         per_session_out.mkdir(exist_ok=True)
 
+        # Effective output length = the audio's real duration, capped at the 6-min max.
+        # (Previously hardcoded to 3 min, which cut longer tracks short.)
+        try:
+            probe = subprocess.run(
+                ["ffprobe", "-v", "error", "-show_entries", "format=duration",
+                 "-of", "csv=p=0", str(Path(args.input))],
+                capture_output=True, text=True)
+            audio_ms = int(float(probe.stdout.strip()) * 1000)
+        except Exception:
+            audio_ms = args.window_ms
+        effective_window = max(10_000, min(audio_ms, args.window_ms))
+        log_line(log_path, "ORCHESTRATOR",
+                  f"Output length {effective_window/1000:.0f}s (source {audio_ms/1000:.0f}s, cap {args.window_ms/1000:.0f}s).")
+
         result = auto_synthesize(
             audio_path=str(Path(args.input)),
             user_context=context,
             vocals_path=str(vocals_path),
             accomp_path=str(no_vocals_path),
-            window_ms=args.window_ms,
+            window_ms=effective_window,
             out_dir=per_session_out,
             verbose=False,  # we have our own log lines
         )

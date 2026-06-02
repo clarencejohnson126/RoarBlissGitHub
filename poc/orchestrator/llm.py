@@ -24,22 +24,22 @@ def llm_available() -> str:
     return "anthropic" if os.environ.get("ANTHROPIC_API_KEY") else "ollama"
 
 
-def llm_chat(system: str, user: str, max_tokens: int = 2000, temperature: float = 0.2) -> str:
-    """Single chat-completion call. Prefers Claude Haiku; falls back to local Ollama.
-
-    Returns the assistant's text. Raises only if BOTH backends are unavailable
-    (no API key AND no reachable Ollama)."""
+def llm_chat(system: str, user: str, max_tokens: int = 2000, temperature: float = 0.2,
+             model: str = None) -> str:
+    """Single chat-completion call. Prefers Claude (model overridable per call); falls back
+    to local Ollama. Returns the assistant's text. Raises only if BOTH backends are
+    unavailable (no API key AND no reachable Ollama)."""
     api_key = os.environ.get("ANTHROPIC_API_KEY")
     if api_key:
         import anthropic
         client = anthropic.Anthropic(api_key=api_key)
-        resp = client.messages.create(
-            model=ANTHROPIC_MODEL,
-            max_tokens=max_tokens,
-            temperature=temperature,
-            system=system or "",
-            messages=[{"role": "user", "content": user}],
-        )
+        chosen = model or ANTHROPIC_MODEL
+        kwargs = dict(model=chosen, max_tokens=max_tokens, system=system or "",
+                      messages=[{"role": "user", "content": user}])
+        # Newer models (e.g. Opus 4.8) deprecate the `temperature` param — only send it where supported.
+        if "opus-4-8" not in chosen:
+            kwargs["temperature"] = temperature
+        resp = client.messages.create(**kwargs)
         return resp.content[0].text
 
     # Fallback: local Ollama (dev only). Imported lazily so cloud builds don't need it.

@@ -37,6 +37,10 @@ MAX_VOCAL_SILENCE_MS = 3000
 MAX_VOCAL_SILENCE_SFX_MS = 5000
 SFX_DBFS_THRESHOLD = -22.0
 
+# Loudness: match the ORIGINAL slot's level EXACTLY — no boost, no floor. The cloned line must
+# sit at the same dB the original speaker did there, or the seam becomes audible (a clone that is
+# louder OR quieter than the surrounding original breaks the illusion). The music is never touched.
+
 def log(msg, level="info"):
     p = {"info":"  ", "ok":"✓ ", "err":"✗ ", "warn":"⚠ ", "step":"► "}.get(level, "")
     print(f"[{datetime.now().strftime('%H:%M:%S')}] {p}{msg}")
@@ -144,6 +148,20 @@ def resolve_reference_clip(ref_library: dict, speaker_id: str, emotion: str,
 # TTS synthesis — delegates to the provider chosen via TTS_PROVIDER env var
 # (qwen3_mlx for local Mac, replicate for cloud F5-TTS). See tts.py.
 # ──────────────────────────────────────────────────────────────────────────────
+def _shorten_line(text: str, max_words: int) -> str:
+    """Rewrite a spoken line to <= max_words while keeping a complete, in-tone phrase."""
+    try:
+        from llm import llm_chat
+        sysmsg = ("You compress a single spoken motivational line to fit a tight time budget. "
+                  "Keep it a COMPLETE, punchy phrase in the same tone and world. Never end on a "
+                  "function word. Return ONLY the shortened line as plain text, nothing else.")
+        out = llm_chat(sysmsg, f'Rewrite in AT MOST {max_words} words, same meaning and tone:\n"{text}"',
+                       max_tokens=40, temperature=0.2)
+        out = out.strip().strip('"').splitlines()[0].strip()
+        return out if out else " ".join(text.split()[:max_words])
+    except Exception:
+        return " ".join(text.split()[:max_words])
+
 def synthesize_clone(text: str, ref_path: Path, ref_text: str, slot_ms: int,
                       cache_dir: Path) -> AudioSegment:
     return tts_synthesize_clone(text, ref_path, ref_text, slot_ms, cache_dir)
@@ -216,6 +234,29 @@ def auto_synthesize(audio_path: str, user_context: str,
             audit_slots.append({"id": sid, "status": "synth_failed", "error": str(ex)})
             continue
 
+        # Synthesis-time length control: a clone that renders long for the slot would be
+        # time-compressed (fast/robotic). Instead rewrite the line SHORTER and re-synthesize
+        # until it fits at a natural pace.
+        sl_attempts = 0
+        while len(clone) / slot_ms > 1.15 and sl_attempts < 2:
+            sl_attempts += 1
+            cur_words = max(1, len(text.split()))
+            new_max = max(1, int(cur_words / (len(clone) / slot_ms) * 0.9))
+            if new_max >= cur_words:
+                break
+            shorter = _shorten_line(text, new_max)
+            if not shorter or shorter.lower() == text.lower():
+                break
+            try:
+                c2 = synthesize_clone(shorter, ref_path, ref_text, slot_ms, cache_dir)
+            except Exception:
+                break
+            log(f"  reshaped (too long): \"{text}\" -> \"{shorter}\" ({len(clone)}ms -> {len(c2)}ms)")
+            if len(c2) < len(clone):
+                clone, text = c2, shorter
+            else:
+                break
+
         raw_ms = len(clone)
         ratio = raw_ms / slot_ms
         log(f"  clone raw: {raw_ms}ms (ratio {ratio:.2f}x)")
@@ -242,12 +283,12 @@ def auto_synthesize(audio_path: str, user_context: str,
             decision = f"stretch-compress (ratio {ratio:.2f})"
         log(f"  fit: {decision}")
 
-        # Loudness match to slot dBFS
+        # Loudness match to slot dBFS, then lift above it so the voice cuts through the music.
         slot_db = measure_slot_dbfs(vocals, s_ms, e_ms)
-        if slot_db is not None and fitted.dBFS != float('-inf'):
-            gain = slot_db - fitted.dBFS
+        if fitted.dBFS != float('-inf') and slot_db is not None:
+            gain = slot_db - fitted.dBFS   # match the ORIGINAL slot loudness EXACTLY (seamless)
             fitted = fitted + gain
-            log(f"  loudness: slot {slot_db:.2f}dBFS, clone gain {gain:+.2f}dB → final {fitted.dBFS:.2f}dBFS")
+            log(f"  loudness: matched original {slot_db:.2f}dBFS (gain {gain:+.2f}dB)")
 
         # Place in canvas — silence the slot, overlay clone
         silence_block = AudioSegment.silent(duration=slot_ms, frame_rate=canvas.frame_rate)
@@ -273,7 +314,7 @@ def auto_synthesize(audio_path: str, user_context: str,
     canvas.export(str(pv_path), format="wav")
     if verbose: log(f"personalized vocals saved: {pv_path}", "ok")
 
-    # ── Stage E: mix vocals + accompaniment ──────────────────────────────
+    # ── Stage E: mix vocals + accompaniment (music left at full, constant volume) ──
     if verbose: log("Stage E: mix vocals + accompaniment via ffmpeg...", "step")
     accomp_trimmed = out_dir / "accompaniment_window.wav"
     accomp.export(str(accomp_trimmed), format="wav")

@@ -107,7 +107,9 @@ async function runOne() {
     "--champion", form.champion || "Eric Thomas",
     "--output-dir", OUTPUT_DIR,
     "--session-id", job.id,
-    "--window-ms", "180000",
+    // 6-minute CAP. The pipeline clamps this down to the audio's actual length, so the
+    // output is always as long as the source (capped at 6 min), never a fixed 3 min.
+    "--window-ms", "360000",
   ];
 
   await new Promise((resolve) => {

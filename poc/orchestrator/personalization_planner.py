@@ -35,9 +35,17 @@ CACHE_DIR = Path(__file__).parent / "cache"
 
 # Slot picking constants
 MIN_SLOT_DURATION_S = 0.5
-QWEN3_SYL_PER_SEC = 3.0          # empirical Qwen3-TTS speaking rate
+# Budget conservatively: lines should land at/under the slot so the clone fits naturally
+# (cut-to-fit) instead of being time-compressed (ratio>1.2), which sounds sped-up / "invented".
+QWEN3_SYL_PER_SEC = 2.4          # conservative TTS speaking rate -> shorter, better-fitting lines
 SYLLABLE_TOLERANCE = 0.30        # ±30% slack on syllable budget per slot
 NAME_DISTRIBUTION_MIN_GAP_S = 25.0  # min seconds between user-name mentions
+
+# The model that WRITES the personalized lines (the creative call). Sonnet by default — quality
+# lives in the prompt + safety nets, so Sonnet ~= Opus here at ~1/5 the cost. Flip to
+# claude-opus-4-8 via WRITER_MODEL for a "premium" tier. Mechanical calls stay on Haiku (the
+# llm_chat default), so we only pay for intelligence where it actually shapes the output.
+WRITER_MODEL = os.environ.get("WRITER_MODEL", "claude-sonnet-4-6")
 
 def _count_syllables(text: str) -> int:
     """Rough syllable count. Good enough for budgeting."""
@@ -96,9 +104,19 @@ No prose outside the JSON object."""
 # ──────────────────────────────────────────────────────────────────────────────
 # Stage 3: mine candidate slot windows
 # ──────────────────────────────────────────────────────────────────────────────
+def _norm_phrase(t: str) -> str:
+    return re.sub(r'[^a-z ]', '', t.lower()).strip()
+
 def find_candidate_slots(audio_path: str, ref_library: dict, window_ms: int = None) -> list:
     """Return all Whisper segments that are eligible to be replaced.
-    Each candidate is annotated with speaker, target syllable count, and surrounding context.
+    Each candidate is annotated with speaker, target syllable count, surrounding context,
+    and whether it is an ICONIC moment (a repeated chant/anthem or an emphatic exclamation).
+
+    Iconic moments are the emotional peaks (e.g. a crowd chanting "the king in the north!").
+    They usually fail the single-speaker dominance test (a crowd has no dominant speaker), so
+    they used to be silently dropped — leaving the most impactful part of the audio un-personalized.
+    We now re-admit them and assign the track's PRIMARY speaker so the personalized rallying cry
+    can be cloned in that voice. This is where the listener most wants to hear their own name.
     """
     whisper_cache = _cache_path(audio_path, "whisper.json")
     transcript = json.loads(whisper_cache.read_text())
@@ -106,8 +124,20 @@ def find_candidate_slots(audio_path: str, ref_library: dict, window_ms: int = No
     diar = diarize(audio_path, verbose=False)
 
     valid_speakers = set(ref_library["speakers"].keys())
+    # Primary speaker = the one with the most reference speech; used to voice crowd/anthem slots.
+    primary_speaker = max(
+        valid_speakers,
+        key=lambda s: ref_library["speakers"][s].get("total_speech_s", 0.0),
+        default=None,
+    )
+
+    # Detect anthem phrases: a short phrase repeated >=3 times across the audio (a chant).
+    from collections import Counter as _Counter
+    norm_counts = _Counter(_norm_phrase(s["text"]) for s in segments if _norm_phrase(s["text"]))
+    anthem_phrases = {p for p, c in norm_counts.items() if c >= 3 and 1 <= len(p.split()) <= 6}
 
     candidates = []
+    anthem_seen = 0
     for i, seg in enumerate(segments):
         s_start = seg["start"]
         s_end = seg["end"]
@@ -123,15 +153,27 @@ def find_candidate_slots(audio_path: str, ref_library: dict, window_ms: int = No
             o_end = min(s_end, turn["end"])
             if o_end > o_start:
                 speaker_overlap[turn["speaker"]] += (o_end - o_start)
-        if not speaker_overlap:
-            continue
-        dominant = max(speaker_overlap, key=speaker_overlap.get)
-        if dominant not in valid_speakers:
-            continue  # speaker has no reference library, can't synthesize
-        dominance = speaker_overlap[dominant] / duration
-        if dominance < 0.7:
-            continue
-        # Context before/after
+        dominant = max(speaker_overlap, key=speaker_overlap.get) if speaker_overlap else None
+        dominance = (speaker_overlap[dominant] / duration) if dominant else 0.0
+
+        ntext = _norm_phrase(seg["text"])
+        is_anthem = ntext in anthem_phrases
+        is_exclaim = seg["text"].strip().endswith("!") and duration <= 2.5
+
+        # Decide which reference voice powers this slot, and whether to admit it.
+        if dominant in valid_speakers and dominance >= 0.6:
+            speaker = dominant
+        elif is_anthem and primary_speaker is not None:
+            # Crowd/anthem peak: clone the track's primary voice for the personalized chant.
+            speaker = primary_speaker
+            # Don't replace EVERY repeat — take ~1 of every 3 so the cry lands as an anthem,
+            # not a wall of speech (and leave some original chant energy intact).
+            anthem_seen += 1
+            if anthem_seen % 3 != 1:
+                continue
+        else:
+            continue  # no usable reference voice for this slot
+
         ctx_before = segments[i-1]["text"].strip() if i > 0 else ""
         ctx_after  = segments[i+1]["text"].strip() if i < len(segments)-1 else ""
         candidates.append({
@@ -139,103 +181,214 @@ def find_candidate_slots(audio_path: str, ref_library: dict, window_ms: int = No
             "start_ms": int(s_start * 1000),
             "end_ms": int(s_end * 1000),
             "duration_s": round(duration, 2),
-            "speaker": dominant,
+            "speaker": speaker,
             "original_text": seg["text"].strip(),
-            "target_syllables": int(duration * QWEN3_SYL_PER_SEC),
+            # Match the ORIGINAL speaker's pace at THIS slot: budget to the original line's own
+            # syllable count (err ~10% short), bounded by a sane max rate. A slowly-spoken slot
+            # gets few syllables -> the clone speaks slowly too; a fast slot gets more.
+            "target_syllables": max(2, min(round(_count_syllables(seg["text"]) * 0.9),
+                                            int(duration * 3.6))),
             "ctx_before": ctx_before,
             "ctx_after": ctx_after,
-            "available_emotions": [r["emotion"] for r in ref_library["speakers"][dominant]["references"]],
+            "iconic": bool(is_anthem or is_exclaim),
+            "is_anthem": bool(is_anthem),
+            "available_emotions": [r["emotion"] for r in ref_library["speakers"][speaker]["references"]],
         })
     return candidates
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Stage 4: LLM picks slots + writes override text
 # ──────────────────────────────────────────────────────────────────────────────
-PLANNER_SYSTEM_PROMPT = """You are the personalization planner for Roar Bliss — a motivational audio app that overlays personalized speech onto uploaded motivational audios.
+PLANNER_SYSTEM_PROMPT = """You are the PERSONALIZATION PLANNER for Roar Bliss. You turn one stranger's real life into the emotional center of a piece of audio they uploaded — a film speech, a sermon, a pre-game roar, a rap, a war cry, an anime monologue, a founder's talk, a villain's soliloquy. You rewrite chosen moments of that audio so the original speaker's cloned voice now speaks the user's story, in the world that audio lives in. The music and the moments you do not touch stay exactly as they were. You run fully automatically, one shot, with no human editing after you. Your JSON is final.
 
-Your job: given candidate slot windows + a user's personalization brief, select which slots to override and write the replacement text for each, satisfying ALL of these rules:
+Your only output is strict JSON. Nothing else. ASCII characters only.
 
-**HARD RULES:**
+===========================================
+WHAT YOU RECEIVE EACH RUN
+===========================================
+- CANDIDATE SLOTS mined from the upload. Each slot has:
+    - cand_id (int) - the only id you may reference
+    - start (seconds from the audio's beginning)
+    - duration (seconds)
+    - target_words (int) - the MAXIMUM number of words your line for this slot may contain
+    - speaker_id - whose cloned voice speaks this slot
+    - scene_energy - a SHORT snippet of the ORIGINAL words. It is a THERMOMETER, NOT A SCRIPT. It tells you only the timing, pace, and emotional heat of that moment. Never quote it, translate it, paraphrase it, echo its sentence shape, or word-swap it. Example: if scene_energy is "and we shall fight on the shore," do NOT echo "fight" or "shore" - read it as "loud, defiant, surging" and write a fresh, defiant surge about the user.
+    - [PEAK] (optional tag) - an iconic moment: a chant, a climax, a proclamation, a repeated roar, a title drop.
+- A USER BRIEF + raw user context: their name, what they are building or fighting for, their real struggle, who they love, what they have sacrificed, what they fear, what victory looks like. Mine it for specifics (names, the wound, the goal). Treat it as raw material to translate, never to fabricate around.
 
-1. WORD BUDGET (the most important rule): each override text MUST land at the slot's `target≈N_words`, give or take 1 word. Voice synth runs ~3 syllables/second (~2 words/second). Going over the budget creates clipped audio. Going under creates dead silence. Write a COMPLETE phrase that hits the budget naturally; don't pad, don't squeeze.
+===========================================
+YOUR OUTPUT (STRICT)
+===========================================
+Return ONLY this JSON object - no prose, no markdown, no code fences:
 
-   Examples of correctly-sized phrases:
-   - 2 words: "Steven, rise." / "Choose now."
-   - 3 words: "He chose freedom." / "Steven owns this."
-   - 4 words: "His path is clear." / "He won't look back."
-   - 6 words: "Steven, you're at a crossroads." / "He chose AI over the past."
-   - 8 words: "He has the strength to walk this path alone."
+{"selected":[{"cand_id":<int>,"override_text":"<the new line>","theme":"<2-4 word tag>"}, ...]}
 
-2. NAME DISTRIBUTION: include the user's name in AT MOST ONE slot per ~25 seconds of timeline. For other slots referring to the user, alternate between: "him/he/his" (third-person narrative), "you" (direct address), no pronoun (general statement). The name should land as an EVENT, not background noise.
+- One entry per slot you choose to overwrite. Slots you do not select are simply omitted (they stay original).
+- cand_id MUST be an id that exists in the candidate list. Never invent ids. Never select the same cand_id twice.
+- override_text is the NEW spoken line for that slot. Single line only - no newlines inside the string. Plain spoken text only: no stage directions, no surrounding quotes, no emojis, no markdown, no ellipses, no bracketed notes. ASCII only.
+- theme is a short internal tag for the beat (e.g. "name forged", "the wound", "the vow", "the rise", "name chant", "heirs"). Not spoken. Keep it 2-4 words.
+- Order the array by start time, earliest first.
+- Never output anything outside the JSON. No explanation, no apology, no commentary. Always valid, parseable JSON.
 
-3. FIRST-10s RULE: at least ONE slot in the first 10 seconds MUST mention the user's name. This is the bond/retention moment.
+===========================================
+STEP 1 - READ THE WORLD (do this silently before writing)
+===========================================
+From the scene_energy snippets, the rhythm of the slots, and any genre signal, detect the SOURCE WORLD and lock its costume. Identify:
+- REGISTER & ERA: ancient/epic, scripture/sermon, street/rap, sports arena, military/war, mythic/anime, corporate/founder, villain-gothic, cinematic trailer, etc.
+- CADENCE: long rolling waves, or short hammer-blows. Match it.
+- LEXICON HARVEST (do this explicitly): pull 5-10 concrete nouns and verbs this world OWNS, and reuse THESE in your lines - not generic uplift. Examples of the world's own vocabulary:
+    - Epic / fantasy war: crown, oath, banner, house, blade, gate, throne, dawn, winter.
+    - Boxing / combat sports: ring, round, bell, corner, title, canvas, get up off the mat.
+    - Sermon / spiritual: calling, mountain, valley, promise, wilderness, dawn, chosen.
+    - Street / rap / come-up: block, grind, come-up, throne, day-ones, from nothing.
+    - Military / war speech: the line, the breach, the brothers beside you, the hill we take.
+    - Anime / shonen: the limit, the vow, surpassing yesterday's self, protecting everyone behind you.
+    - Founder / arena / literal-modern: build, ship, team, market (modern words allowed ONLY here).
+- If the world is ambiguous or unclassifiable, DEFAULT to elemental mythic language (fire, road, night, blood, name, dawn, war) - it is safe in every genre and never breaks immersion.
 
-4. CONTINUITY: when picking adjacent slots from the same speaker, write the override texts so they flow logically together (don't contradict each other, don't repeat the same phrase, do build a narrative arc).
+COSTUME RULE: every line you write must wear the SAME costume as the source. Translate the user's real modern life INTO this world's imagery - same meaning, new costume. A founder leaving a trade to build a company alone becomes, in an epic, a man who lays down an old blade to forge his own crown; rejections become sieges survived; his children become the heirs who carry his name.
+- Do NOT use out-of-world modern words that break the spell (app, startup, AI, download, brand, content, online, CEO, investors, customers, users, platform, dollars) UNLESS the source world is itself modern and literal. When in doubt, stay in-world.
+- NEVER name the source's own characters, places, or proper nouns. You build the user's OWN saga inside the same genre - not a cover of the source's plot.
+- Translate the user's facts faithfully. Never invent specific facts the user did not give - no invented city, no invented child's name, no contradiction of the brief.
 
-5. EMOTION MATCH: the override text's emotional tone should match the slot's "available_emotions" (the emotions the speaker's reference library can produce). A whispered slot needs intimate text; a defiant slot needs forceful text.
+===========================================
+STEP 2 - THE NON-NEGOTIABLE LAWS OF WRITING
+===========================================
 
-6. THEME COVERAGE: every theme from the user's brief must appear in at least ONE selected slot. Distribute themes across the arc.
+LAW 1 - ORIGINAL ONLY (safety-critical). Every line is NEW writing about the USER. Never quote, reproduce, transcribe, paraphrase, translate, continue, or word-swap the source. scene_energy is a timing/energy thermometer, never source text. If a line could exist in the original audio without the user, it is wrong - discard and rewrite from the user's life. When unsure whether a phrase is too close to the source, rewrite it further from the source.
 
-7. NO SNIPPETS IN PAUSES: only override the slots in the candidate list (these are detected speech windows). Don't invent new positions.
+LAW 2 - FIRST PERSON, THIS USER. The user is the "I" and the hero of this world. Every line is the user speaking as themselves. No third-person narration about other characters (the one exception: a PEAK chant where the world roars the user's name).
 
-**STORYLINE ARC** (apply when there are enough slots for narrative shape):
-- Beat 1 (0–15%): introduce the user, their crossroads
-- Beat 2 (15–35%): rejection of what's holding them back (old job, old self, fear)
-- Beat 3 (35–55%): identity claim — who they want to become
-- Beat 4 (55–75%): the struggle/breaking moment — fear, doubt, loss
-- Beat 5 (75–90%): the choice / the rise — committing to the new path
-- Beat 6 (90–100%): vow / resolution — moving forward
+LAW 3 - NAME & IDENTITY EARLY, AS A RECURRING MOTIF. Within the first ~10 seconds of the timeline, one early slot must state the user's FULL real name and FORGE an identity from the source world that fits them. The name is real; the costume around it is the world's. Make it land as a coronation, not an introduction. Pick a slot with enough target_words to land the full name cleanly; never split the name across slots.
+  Worked forgings (derive your own from the actual source - do not copy):
+    - Epic: "I am Clarence Johnson, first king of House Johnson."
+    - Sermon: "They call me Clarence Johnson - the one who would not turn back."
+    - Boxing: "Clarence Johnson. They will chant it before the final bell."
+  The House / title / fighter-name you mint here is a RECURRING MOTIF: reuse it in later lines and especially in the peaks, so the saga feels authored, not scattered.
 
-**DENSITY TARGET:** select approximately `target_slot_count` slots from the candidate pool. Spread them across the timeline (don't cluster).
+LAW 4 - TRANSFORM EVERY PEAK. Every [PEAK] slot MUST become something that represents the USER, and you must select every [PEAK]. A peak is the loudest, most valuable real estate in the audio - never waste it on generic narration, never leave it in the source's world, never skip it. Honor the peak's rhythm and length budget exactly - peaks are short, percussive, chantable. Match the source pulse: if it is three beats, give three beats. By peak type:
+    - CHANT peak: the user's name, House, or title chanted with the matched beat-count ("Johnson! Johnson! Johnson!" or "House Johnson stands! House Johnson stands!").
+    - CLIMAX / PROCLAMATION peak: the user's vow or defining declaration in first person ("This is the day House Johnson stops kneeling.").
+    - TITLE-DROP peak: the user's forged title or House, never the source's.
+  Reuse the identity forged in Law 3. If a peak's target_words is tiny, a name or two-word war cry is the correct, ideal payload - not laziness.
 
-**OUTPUT FORMAT:**
-Return ONLY this JSON object:
+LAW 5 - ONE RISING ARC. Across all chosen slots, in start-time order, build a single escalating story with a spine: identity forged -> the weight / the wound named -> the turn -> the climb -> the vow / triumph (loudest at the peaks near the end). Each line should feel like the next breath after the one before it, even though untouched original sits between them. Earlier lines set up later lines. Do not repeat the same idea twice; advance it.
 
-{
-  "selected": [
-    {"cand_id": <int>, "override_text": "<short replacement text>", "theme": "<one word from user themes>"},
-    ...
-  ]
-}
+===========================================
+STEP 3 - SEAMLESSNESS, DISTRIBUTION & FIT (YOUR HIGHEST PRIORITY - GET THESE EXACTLY RIGHT)
+===========================================
+These three rules decide whether the audio sounds magical or broken. Treat them as HARD CONSTRAINTS, not goals.
 
-No prose outside the JSON. The override_text should be plain ASCII; avoid em-dashes and quotation marks inside the text."""
+------------------
+A) FIT THE TIME - err SHORT, never long (HARD CONSTRAINT)
+------------------
+- For EVERY slot, your override_text word count MUST be <= target_words. This is a ceiling, not a target.
+- AIM for roughly 75-90% of target_words. A line at or under target is spoken at a natural pace. A line OVER target gets time-compressed and comes out fast, robotic, and obviously fake - this is the single worst failure. When unsure, cut a word.
+- If target_words is tiny (1-3), write a fragment or a single roared word/name - that is correct ("House Johnson." "Rise." "For my heirs.").
+- Every line must be a COMPLETE phrase that stands on its own and resolves. Never cut off mid-thought to save words; write a shorter complete thought instead.
+- NEVER end on a function word. Banned final words: the, a, an, his, her, their, my, your, our, to, of, and, but, or, for, nor, with, that, in, on, at, by, as, is. End on a noun, a name, a verb, or an image that lands.
+- SPECIFICITY IS THE MAGIC: use the user's real specifics translated into the world. "Two heirs who carry my name" beats "my family." Specific beats grand-but-empty.
+- NO CLICHE MUSH: no generic gym-poster filler ("never give up," "rise and grind"). Every line is about THIS person's THIS fight. No padding to reach the count.
+- Before finalizing each line, silently count its words and confirm: words <= target_words. If not, rewrite shorter. No exceptions.
+
+------------------
+B) DISTRIBUTION - never abandon the listener, never erase the source (HARD CONSTRAINT)
+------------------
+Define the TIMELINE SPAN as from the earliest candidate's start to the latest candidate's (start + duration).
+- Personalize AT LEAST ~50% of the span (sum of chosen slot durations >= ~half the span).
+- NO-GAP ALGORITHM: order all slots by start time and walk them. After each slot you select, the NEXT slot you select must begin within ~20 seconds of where the previous one ended. If the gap to your next pick would exceed ~20s, you MUST select an intervening candidate to bridge it - even a tiny one - so a stretch longer than ~20s of untouched original NEVER opens anywhere from your first pick to your last. The listener must never go 20s without hearing their own story.
+- Cover the span end to end: begin near the start (for the name, Law 3) and keep personalized beats landing all the way to the final peak. Do not cluster all picks in one half.
+- LEAVE THE SOURCE'S SOUL INTACT: do NOT overwrite everything. Untouched original between your lines carries the music and gravitas and keeps the source alive. Target roughly 50-70% of the span personalized. Overwriting ~100% is a failure as surely as leaving a 30s gap.
+- Always select EVERY [PEAK] (Law 4). Peaks count toward distribution and are covered no matter what.
+
+------------------
+C) SEAMLESS FLOW - shoulder to shoulder with the original (HARD CONSTRAINT)
+------------------
+- Your lines sit directly against untouched original on both sides. They must match its register, gravitas, lexicon, and cadence so the seam is invisible. A listener should not be able to tell where the original stops and your line begins.
+- Match each slot's scene_energy temperature: a quiet reflective moment gets a quiet line; a building moment builds; a peak roars. Never put a whisper where the audio screams, or a scream where it is still.
+- Honor the rising arc (Law 5): early lines are setup, late lines are payoff. Keep stance consistent (first person, present/forward-leaning). Do not resolve the whole story in the first line or you will have nowhere to climb. End each line on a beat the following original (or your next line) can continue from.
+
+===========================================
+STEP 4 - ROBUSTNESS (one-shot, no human in the loop - degrade gracefully, NEVER refuse)
+===========================================
+- The candidate list may be sparse, weird, noisy, low quality, malformed, or offensive-seeming. ALWAYS return valid JSON in the exact schema. Never refuse, never apologize, never explain.
+- Use only cand_ids that exist; never duplicate one. If scene_energy is empty or garbled, infer energy from duration and position (short = punch, long = flowing; near the end = climactic) and write accordingly.
+- If you cannot satisfy a soft target (e.g. too few candidates to reach 50%), select the best available to maximize coverage and ALWAYS take every [PEAK]. Keep the hard constraints you CAN keep: words <= target_words on every line, valid unique ids, valid JSON.
+- Thin or empty USER BRIEF: forge a universal, dignified identity from whatever you have (rising from nothing, protecting those you love, refusing to quit). With a name, forge a house from it. With NO name given, use an archetypal self ("the one who would not kneel") and SKIP the name-drop rule gracefully - never invent a fake real name, and never fabricate specific false facts (a city, a child's name) the user did not give.
+- Keep all content within the dignity of the genre - defiant, devotional, ferocious, triumphant as the world demands - but never hateful toward real groups.
+- If NO candidate is usable at all, return {"selected":[]}. An empty array is valid; invalid JSON is not.
+
+===========================================
+FINAL CHECK BEFORE YOU EMIT (run silently, then output ONLY the JSON)
+===========================================
+1. Every override_text word count <= its slot's target_words, aimed 75-90%, no line ends on a banned function word, every line a complete phrase, specific (no cliche mush).
+2. User's FULL name stated once, early, with a forged in-world identity that recurs as a motif later.
+3. Every [PEAK] selected and transformed into the user's name/house/title chant or vow, matched to the peak's beat.
+4. Slots sorted by start: first pick near the start, NO gap > ~20s anywhere (bridge any that would open), total personalized ~50-70% of the span, source still breathes.
+5. One rising arc, first person, every line in the source's costume and lexicon, zero quoting/echoing of scene_energy, no source character or place names.
+6. Output is ONLY the JSON object - valid, parseable, ASCII only, ids all real and unique, array ordered by start time.
+
+Emit the JSON now."""
 
 def llm_pick_slots(candidates: list, brief: dict, type_profile: dict,
-                   target_slot_count: int, window_ms: int) -> list:
-    """LLM picks which candidates to use and writes override text per slot."""
+                   target_slot_count: int, window_ms: int, protagonist: str = "",
+                   user_context: str = "", draft: list = None) -> list:
+    """LLM picks which candidates to use and writes original first-person override text per slot.
+    If `draft` is given, runs a self-review pass: critique the draft against every law and return
+    an improved full selection (the QA loop that lifts one-shot quality)."""
     # Build a compact candidate listing — give WORD budget (LLMs count words better
     # than syllables) plus a sample of complete phrases at that length
     cand_lines = []
     for c in candidates:
-        # ~1.5 syllables per English word in motivational speech
         word_budget = max(1, round(c['target_syllables'] / 1.5))
+        names_hero = bool(protagonist) and _substitute_protagonist(c['original_text'], protagonist, "X")[1]
+        tag = (" [PEAK]" if c.get("iconic") else "") + (" [IDENTITY]" if names_hero else "")
         cand_lines.append(
-            f"id={c['cand_id']:>3} t={c['start_ms']/1000:6.2f}s dur={c['duration_s']:.1f}s "
-            f"target≈{word_budget}_words spk={c['speaker']} orig=\"{c['original_text'][:80]}\""
+            f"cand_id={c['cand_id']:>3} start={c['start_ms']/1000:6.2f}s dur={c['duration_s']:.1f}s "
+            f"target_words={word_budget} spk={c['speaker']}{tag} scene_energy=\"{c['original_text'][:80]}\""
         )
     candidates_text = "\n".join(cand_lines)
 
+    # QA self-review: if a first-pass draft is supplied, ask the model to critique + improve it.
+    revision_block = ""
+    if draft:
+        by_id = {c['cand_id']: c for c in candidates}
+        dl = []
+        for d in draft:
+            cid = d.get('cand_id')
+            tw = (max(1, round(by_id[cid]['target_syllables'] / 1.5)) if cid in by_id else '?')
+            dl.append(f"  cand_id={cid} (max {tw}w): \"{d.get('override_text','')}\"")
+        revision_block = (
+            "\n\nSELF-REVIEW — improve this first-pass DRAFT. Return a COMPLETE new selection (not a diff)."
+            " Fix hard: any line whose word count exceeds its max (rewrite it SHORTER until it fits);"
+            " any skipped [PEAK]; a missing FULL name early; any gap over ~20s (add a bridging slot);"
+            " weak / cliche / generic lines (replace with sharp, specific, in-costume ones)."
+            " Judge intensity per beat: iconic beats stay TIGHT and rhythmic, quieter beats may run fuller."
+            " Keep the strong lines; fix the rest.\nDRAFT:\n" + "\n".join(dl))
+
+    # All rules live in PLANNER_SYSTEM_PROMPT; the user message just delivers this run's data.
     user_msg = f"""USER BRIEF:
-  name: {brief['name']}
-  themes: {brief['themes']}
-  emotional_state: {brief['emotional_state']}
-  specifics: {brief['specifics']}
-  tone_preference: {brief['tone_preference']}
+  name (state the FULL name once, early): {brief.get('name')}
+  building / fighting for: {brief.get('themes')}
+  emotional_state: {brief.get('emotional_state')}
+  specifics (translate into the source's world, never literal-modern unless source is modern): {brief.get('specifics')}
 
-AUDIO TYPE PROFILE:
-  label: {type_profile['label']}
-  density target: {type_profile['density']}
-  slot length preference: {type_profile['slot_pref']}
+RAW USER CONTEXT (their real life — translate it into the source's costume):
+{(user_context or '').strip()}
 
-TARGET: select ~{target_slot_count} slots from below (spread across timeline 0–{window_ms/1000:.0f}s).
-Most important constraint: each override_text MUST be a COMPLETE GRAMMATICAL PHRASE that fits the slot's syl_budget within ±20%. Short, punchy, complete. Never end on a function word ("the", "his", "to", etc.). Better to use 1 fewer slot than to ship a fragment.
+TIMELINE SPAN: 0 to {window_ms/1000:.0f}s. Aim ~{target_slot_count} slots, spread end to end, no gap over ~20s.
+You MUST select EVERY [IDENTITY] slot AND EVERY [PEAK] slot — non-negotiable, none skipped.
+[IDENTITY] = a slot where the source named its own hero; forge the USER's identity here (their FULL name, or "Lord of House <surname>"), never echo the source's name.
+[PEAK] = a climax/chant; transform it into the user's name, House, a forged TITLE built from their home city (e.g. "King of <their city>"), or a vow — matched to the chant's beat.
 
-CANDIDATES (each line is one available slot):
+CANDIDATE SLOTS:
 {candidates_text}
+{revision_block}
 
-Now pick {target_slot_count} slots and write override text per the rules. Output strict JSON only."""
+Emit the JSON now."""
 
-    raw = _llm_chat(system=PLANNER_SYSTEM_PROMPT, user=user_msg, max_tokens=4000, temperature=0.3)
+    raw = _llm_chat(system=PLANNER_SYSTEM_PROMPT, user=user_msg, max_tokens=6000, temperature=0.6,
+                     model=WRITER_MODEL)
 
     # Extract JSON
     m = re.search(r'\{[\s\S]*\}', raw)
@@ -498,6 +651,161 @@ def validate_and_repair(selected: list, candidates: list, ref_library: dict,
     return valid_slots
 
 # ──────────────────────────────────────────────────────────────────────────────
+# Identity substitution — make the listener BECOME the protagonist
+# ──────────────────────────────────────────────────────────────────────────────
+def _name_tokens(name: str) -> list:
+    bad = {"unknown", "narrator", "", "the", "lord", "king", "ser", "sir", "your", "grace"}
+    return [t for t in re.split(r'\s+', (name or "").strip()) if t and t.lower() not in bad and len(t) > 1]
+
+def _substitute_protagonist(text: str, protagonist: str, user_name: str):
+    """Replace the protagonist's name (and its common transcribed forms) with the user's name,
+    so an iconic line like 'My name is Jon Snow' becomes 'My name is Clarence Johnson'.
+    Returns (new_text, changed)."""
+    toks = _name_tokens(protagonist)
+    user_name = (user_name or "").strip()
+    if not toks or not user_name or user_name.lower() == "you":
+        return text, False
+    patterns = []
+    if len(toks) >= 2:
+        first, last = toks[0], toks[-1]
+        patterns.append(rf"\b{re.escape(first)}\s+{re.escape(last)}\b")     # Jon Snow
+        patterns.append(rf"\b[A-Za-z]+\s+{re.escape(last)}\b")              # John Snow / Lord Snow
+        patterns.append(rf"\b{re.escape(last)}\b")                          # Snow
+        patterns.append(rf"\b{re.escape(first)}\b")                         # Jon / John(no)
+    else:
+        patterns.append(rf"\b{re.escape(toks[0])}\b")
+    new, changed = text, False
+    for p in patterns:
+        new2, n = re.subn(p, user_name, new, flags=re.IGNORECASE)
+        if n:
+            new, changed = new2, True
+    new = re.sub(r'\s+', ' ', new).strip()
+    return new, changed
+
+def build_name_overrides(candidates: list, protagonist: str, user_name: str) -> list:
+    """Deterministic identity slots: every candidate line that names the protagonist becomes
+    the same line with the user's name — the core of 'you ARE the hero'."""
+    overrides = []
+    for c in candidates:
+        if c.get("is_anthem"):
+            continue
+        new, changed = _substitute_protagonist(c["original_text"], protagonist, user_name)
+        if not changed or len(new.split()) < 2:
+            continue
+        avail = c.get("available_emotions") or ["neutral-narrator"]
+        target = c["target_syllables"]
+        overrides.append({
+            "id": 0, "speaker": c["speaker"], "emotion": avail[0],
+            "start_ms": c["start_ms"], "end_ms": c["end_ms"], "text": new,
+            "theme": "identity", "original_text": c["original_text"],
+            "syllable_ratio": round(_count_syllables(new) / max(target, 1), 2),
+            "name_substituted": True,
+        })
+    return overrides
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Safety nets — guarantee peak transformation + no long un-personalized gaps
+# ──────────────────────────────────────────────────────────────────────────────
+MAX_GAP_MS = 22_000  # never leave a stretch longer than this with no personalized line
+
+def _inject_peak_chant(overrides, candidates, brief, user_name, verbose=False):
+    """Every iconic peak (a repeated chant/climax) must become a chant for the USER."""
+    anthem_cands = [c for c in candidates if c.get("is_anthem")]
+    if not anthem_cands:
+        return overrides
+    covered = {o["start_ms"] for o in overrides}
+    if any(c["start_ms"] in covered for c in anthem_cands):
+        return overrides  # the model already personalized the peak
+    first = user_name.split()[0].capitalize() if user_name and user_name.lower() != "you" else "Rise"
+    cries = [f"{first}!", f"{first}!", f"This is {first}!", f"{first}!", f"{first} rises!"]
+    for j, c in enumerate(anthem_cands[:5]):
+        target = c["target_syllables"]
+        text = cries[j % len(cries)]
+        if _count_syllables(text) > max(2, int(target * 1.5)):
+            text = f"{first}!"
+        avail = c.get("available_emotions") or ["neutral-narrator"]
+        emo = next((e for e in avail if "defiant" in e or "strong" in e or "excited" in e), avail[0])
+        overrides.append({
+            "id": 0, "speaker": c["speaker"], "emotion": emo,
+            "start_ms": c["start_ms"], "end_ms": c["end_ms"], "text": text,
+            "theme": "anthem", "original_text": c["original_text"],
+            "syllable_ratio": round(_count_syllables(text) / max(target, 1), 2),
+            "injected_anthem": True,
+        })
+    overrides.sort(key=lambda s: s["start_ms"])
+    if verbose: print(f"  transformed the iconic peak into a chant for the user")
+    return overrides
+
+def _fill_gaps(overrides, candidates, brief, user_name, win_ms, verbose=False):
+    """Never leave > MAX_GAP_MS of original with no personalized line — keep the user present."""
+    full = user_name if user_name and user_name.lower() != "you" else "I"
+    pool = [f"My name is {full}.", "I rise again.", "I will not break.",
+            "This is mine now.", "I move forward.", "I endure."]
+    used = {o["start_ms"] for o in overrides}
+    avail_c = sorted([c for c in candidates if c["start_ms"] not in used], key=lambda c: c["start_ms"])
+    guard = 0
+    while guard < 60:
+        guard += 1
+        ov = sorted(overrides, key=lambda s: s["start_ms"])
+        inserted = False
+        prev_end = 0
+        for o in ov + [{"start_ms": win_ms, "end_ms": win_ms}]:
+            if o["start_ms"] - prev_end > MAX_GAP_MS:
+                mid = prev_end + (o["start_ms"] - prev_end) // 2
+                cand = min((c for c in avail_c if prev_end < c["start_ms"] < o["start_ms"]),
+                           key=lambda c: abs(c["start_ms"] - mid), default=None)
+                if cand:
+                    target = cand["target_syllables"]
+                    text = next((p for p in pool if _count_syllables(p) <= max(2, int(target * 1.3))),
+                                f"My name is {full}.")
+                    em = (cand.get("available_emotions") or ["neutral-narrator"])[0]
+                    overrides.append({
+                        "id": 0, "speaker": cand["speaker"], "emotion": em,
+                        "start_ms": cand["start_ms"], "end_ms": cand["end_ms"], "text": text,
+                        "theme": "presence", "original_text": cand["original_text"],
+                        "syllable_ratio": round(_count_syllables(text) / max(target, 1), 2),
+                        "gap_filler": True,
+                    })
+                    avail_c.remove(cand)
+                    inserted = True
+                    break
+            prev_end = max(prev_end, o["end_ms"])
+        if not inserted:
+            break
+    overrides.sort(key=lambda s: s["start_ms"])
+    fillers = sum(1 for o in overrides if o.get("gap_filler"))
+    if verbose and fillers:
+        print(f"  filled {fillers} gap(s) so the user is never absent for >{MAX_GAP_MS//1000}s")
+    return overrides
+
+def _draft_needs_review(draft: list, candidates: list, target_slot_count: int) -> bool:
+    """Cheap deterministic gate: only pay for the 2nd (QA) LLM call when the draft actually has
+    fixable problems — under-coverage, an over-budget line, a function-word ending, or a dup."""
+    if not draft:
+        return False
+    by_id = {c['cand_id']: c for c in candidates}
+    if len(draft) < 0.8 * max(1, target_slot_count):
+        return True
+    seen = set()
+    for d in draft:
+        cid = d.get('cand_id')
+        txt = (d.get('override_text') or '').strip()
+        if not txt:
+            return True
+        words = txt.split()
+        if cid in by_id:
+            budget = max(1, round(by_id[cid]['target_syllables'] / 1.5))
+            if len(words) > budget + 1:
+                return True
+        if words and words[-1].lower().strip('.!?,;:\'"') in FUNCTION_WORDS:
+            return True
+        key = txt.lower().rstrip('.!?')
+        if key in seen:
+            return True
+        seen.add(key)
+    return False
+
+# ──────────────────────────────────────────────────────────────────────────────
 # Main entrypoint
 # ──────────────────────────────────────────────────────────────────────────────
 def generate_personalization(audio_path: str, user_context: str,
@@ -531,33 +839,56 @@ def generate_personalization(audio_path: str, user_context: str,
             print("  ⚠ No candidates found — speakers in segments don't have reference libraries.")
             return {"overrides": [], "brief": brief, "type": classification["type"]}
 
-    # Compute target slot count.
-    # User-stated minimum: at least 50% of the OUTPUT WINDOW timeline must be personalized speech.
-    # Per-type density is the FLOOR contribution — if it's lower than 50% of window, bump up.
-    total_speech_in_candidates_s = sum(c["duration_s"] for c in candidates)
-    avg_slot_s = total_speech_in_candidates_s / len(candidates) if candidates else 1.5
+    # ── The user becomes the hero of their OWN saga (Opus writes original lines) ──
+    primary = max(ref_library["speakers"],
+                   key=lambda s: ref_library["speakers"][s].get("total_speech_s", 0.0),
+                   default=None)
+    protagonist = ref_library["speakers"].get(primary, {}).get("name_guess", "") if primary else ""
+    user_name = brief.get("name") or "you"
     win_ms = window_ms if window_ms else int(max(c["end_ms"] for c in candidates))
     win_s = win_ms / 1000
 
-    # Two density targets: by type profile, and the user's 50%-of-audio floor
-    type_target_s = total_speech_in_candidates_s * type_profile["density"]
-    floor_target_s = win_s * 0.50  # 50% of total audio timeline
-    target_personalized_s = max(type_target_s, floor_target_s)
-    # But can't exceed available speech
-    target_personalized_s = min(target_personalized_s, total_speech_in_candidates_s)
+    # Density: personalize a clear majority of the spoken timeline so it is unmistakably the
+    # user's — but leave enough original that the source's vibe survives.
+    non_anthem = [c for c in candidates if not c.get("is_anthem")]
+    total_speech_s = sum(c["duration_s"] for c in non_anthem) or 1.0
+    avg_slot_s = total_speech_s / max(1, len(non_anthem))
+    target_personalized_s = min(total_speech_s, max(win_s * 0.55, total_speech_s * 0.62))
+    target_slot_count = max(8, int(target_personalized_s / max(avg_slot_s, 0.5)))
+    target_slot_count = min(target_slot_count, len(non_anthem))
 
-    target_slot_count = max(5, int(target_personalized_s / avg_slot_s))
-    target_slot_count = min(target_slot_count, len(candidates))
+    if verbose: print(f"\nStage 4: Opus drafts ~{target_slot_count} original first-person lines (hero {protagonist!r} -> {user_name!r})...")
+    draft = llm_pick_slots(non_anthem, brief, type_profile, target_slot_count, win_ms,
+                            protagonist=protagonist, user_context=user_context)
+    if verbose: print(f"  draft: {len(draft)} picks")
+    # QA self-review — but only when the draft actually needs it. A cheap deterministic check
+    # decides; clean drafts skip the 2nd (expensive) LLM call entirely, cutting cost.
+    selected = draft
+    if draft and _draft_needs_review(draft, non_anthem, target_slot_count):
+        if verbose: print("\nStage 4b: self-review (QA pass — draft flagged)...")
+        try:
+            revised = llm_pick_slots(non_anthem, brief, type_profile, target_slot_count, win_ms,
+                                      protagonist=protagonist, user_context=user_context, draft=draft)
+            if revised:
+                selected = revised
+        except Exception as ex:
+            if verbose: print(f"  QA pass skipped ({type(ex).__name__}); keeping draft")
+        if verbose: print(f"  after QA: {len(selected)} picks")
+    elif verbose:
+        print("  draft passed checks — QA skipped (cost saved)")
 
-    if verbose: print(f"\nStage 4: LLM picks ~{target_slot_count} slots + writes text...")
-    selected = llm_pick_slots(candidates, brief, type_profile, target_slot_count, win_ms)
-    if verbose: print(f"  LLM returned {len(selected)} slot picks")
-
-    if verbose: print("\nStage 5: validate + repair...")
     forbidden = _extract_source_character_names(audio_path)
-    if verbose: print(f"  source character names to filter from override text: {sorted(list(forbidden))[:10]}{'...' if len(forbidden)>10 else ''}")
     overrides = validate_and_repair(selected, candidates, ref_library, brief, type_profile,
-                                      forbidden_names=forbidden)
+                                     forbidden_names=forbidden)
+    overrides.sort(key=lambda s: s["start_ms"])
+
+    # Safety nets: transform the iconic peak into the user's chant, then guarantee no long gaps.
+    overrides = _inject_peak_chant(overrides, candidates, brief, user_name, verbose)
+    overrides = _fill_gaps(overrides, candidates, brief, user_name, win_ms, verbose)
+
+    for i, s in enumerate(overrides, 1):
+        s["id"] = i
+
     if verbose:
         print(f"  {len(overrides)} valid overrides after checks")
         syl_warnings = sum(1 for o in overrides if o.get("syllable_check"))
@@ -569,7 +900,7 @@ def generate_personalization(audio_path: str, user_context: str,
         "type": classification["type"],
         "type_label": classification["type_label"],
         "brief": brief,
-        "target_slot_count": target_slot_count,
+        "target_slot_count": len(overrides),
         "candidate_count": len(candidates),
         "overrides": overrides,
     }

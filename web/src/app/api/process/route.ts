@@ -5,7 +5,10 @@ import path from "path";
 import { enqueueJob } from "@/lib/queue";
 
 const MAX_FILE_BYTES = 100 * 1024 * 1024; // 100 MB
-const MAX_DURATION_S = 6 * 60;             // 6 minutes
+// Tiered duration cap: free up to 60s, paid up to 6 min. The `paid` flag is set by the
+// (future) auth/billing layer; until then it defaults to false → free tier.
+const FREE_MAX_DURATION_S = 60;
+const PAID_MAX_DURATION_S = 6 * 60;
 
 function probeDurationSeconds(filePath: string): number | null {
   // Use ffprobe (already installed) to get audio duration without loading the file
@@ -30,6 +33,8 @@ export async function POST(request: Request) {
     const location = formData.get("location") as string || "Mannheim, Germany";
     const champion = formData.get("champion") as string || "Eric Thomas";
     const email = formData.get("email") as string || "";  // optional, for Resend notification
+    const paid = formData.get("paid") === "true";  // set by billing layer; false = free tier
+    const maxDurationS = paid ? PAID_MAX_DURATION_S : FREE_MAX_DURATION_S;
     const file = formData.get("file") as File | null;
 
     // ── Upload caps (file size first — quick reject before we touch disk) ──
@@ -60,13 +65,14 @@ export async function POST(request: Request) {
       const buffer = Buffer.from(await file.arrayBuffer());
       fs.writeFileSync(inputFilePath, buffer);
 
-      // Duration cap check (need the file on disk first for ffprobe)
+      // Tiered duration cap (need the file on disk first for ffprobe)
       const duration = probeDurationSeconds(inputFilePath);
-      if (duration !== null && duration > MAX_DURATION_S) {
+      if (duration !== null && duration > maxDurationS) {
         fs.unlinkSync(inputFilePath);
-        return NextResponse.json({
-          error: `Audio is too long (${Math.round(duration)}s). Maximum allowed is ${MAX_DURATION_S}s (6 minutes).`,
-        }, { status: 413 });
+        const msg = paid
+          ? `Audio is too long (${Math.round(duration)}s). Maximum is ${PAID_MAX_DURATION_S}s (6 minutes).`
+          : `Free tracks are capped at ${FREE_MAX_DURATION_S}s. Your audio is ${Math.round(duration)}s — upgrade to personalize up to 6 minutes.`;
+        return NextResponse.json({ error: msg, upgradeRequired: !paid }, { status: 413 });
       }
       if (duration === null) {
         fs.unlinkSync(inputFilePath);
