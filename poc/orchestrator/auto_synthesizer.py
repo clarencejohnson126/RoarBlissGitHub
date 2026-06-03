@@ -130,18 +130,18 @@ def resolve_reference_clip(ref_library: dict, speaker_id: str, emotion: str,
         if not r:
             continue
         clips = r.get("clips") or [{"start": r["start"], "end": r["end"], "text": r["text"], "duration_s": r["duration_s"]}]
-        cache_file = cache_dir / f"ref_{speaker_id}_{r['emotion']}.wav"
-        concatenated, used = _build_concatenated_ref(clips, vocals_source)
-        concatenated.export(str(cache_file), format="wav")
-        # Quality gate: ref must be loud enough (not silence/breath only)
-        ref_seg = AudioSegment.from_wav(str(cache_file))
-        if ref_seg.dBFS < REF_MIN_DBFS:
-            log(f"  ref {speaker_id}/{r['emotion']} too quiet ({ref_seg.dBFS:.1f}dBFS); trying fallback", "warn")
-            continue
-        # ref_text must match ONLY the clips that actually made it into the audio (`used`), never the
-        # full `clips` list — a ref_text longer than ref_audio is exactly what makes F5 loop/garble.
-        ref_text = " ".join(c["text"].strip() for c in used).strip()
-        return cache_file, ref_text
+        # F5 clones best from ONE clean, CONTINUOUS clip + its EXACT transcript. Stitching several
+        # clips together (different context, hard joins) is what made the clone sound garbled and
+        # "backwards". Use the single longest clip that's loud enough, paired with its own transcript.
+        for clip in sorted(clips, key=lambda c: c.get("duration_s", 0.0), reverse=True):
+            seg = vocals_source[int(clip["start"] * 1000):int(clip["end"] * 1000)]
+            if len(seg) < 1200:          # too short to seed a clean voice clone
+                continue
+            if seg.dBFS < REF_MIN_DBFS:  # silence / breath only
+                continue
+            cache_file = cache_dir / f"ref_{speaker_id}_{r['emotion']}_{int(clip['start']*1000)}.wav"
+            seg.export(str(cache_file), format="wav")
+            return cache_file, clip["text"].strip()
 
     return None, None
 
@@ -239,10 +239,10 @@ def auto_synthesize(audio_path: str, user_context: str,
         # time-compressed (fast/robotic). Instead rewrite the line SHORTER and re-synthesize
         # until it fits at a natural pace.
         sl_attempts = 0
-        while len(clone) / slot_ms > 1.02 and sl_attempts < 3:
+        while len(clone) / slot_ms > 1.5 and sl_attempts < 2:
             sl_attempts += 1
             cur_words = max(1, len(text.split()))
-            new_max = max(1, int(cur_words / (len(clone) / slot_ms) * 0.85))
+            new_max = max(1, int(cur_words / (len(clone) / slot_ms) * 0.95))
             if new_max >= cur_words:
                 break
             shorter = _shorten_line(text, new_max)
@@ -267,14 +267,13 @@ def auto_synthesize(audio_path: str, user_context: str,
         # at F5's own deliberate rate. If it slightly overruns the slot we trim the TAIL (no speed-up);
         # if it underruns, the gap stays silent and the music carries it. Intelligible > perfectly
         # filled. The slot length is preserved, so the music underneath stays in sync (0 drift).
-        if raw_ms <= slot_ms:
-            fitted = clone
-            silence_after = slot_ms - raw_ms
-            decision = f"natural ({raw_ms}ms, +{silence_after}ms silence)"
-        else:
-            fitted = clone[:slot_ms]   # tail-trim, NOT compress
-            silence_after = 0
-            decision = f"natural-trim ({raw_ms}ms -> {slot_ms}ms, no speed-up)"
+        # Complete phrase at natural pace — no compression, no tail-trim. The clone plays in FULL; if
+        # it runs past the slot it just overwrites that much more of the FOLLOWING original vocal
+        # (we're replacing a whole sentence — that's intended). The music stem is separate, so timing
+        # stays in sync. A clone shorter than the slot leaves natural breathing silence after it.
+        fitted = clone
+        silence_after = max(0, slot_ms - raw_ms)
+        decision = f"natural-full ({raw_ms}ms)"
         log(f"  fit: {decision}")
 
         # Loudness match to slot dBFS — but NEVER push the clone into clipping. F5 output already
@@ -291,9 +290,13 @@ def auto_synthesize(audio_path: str, user_context: str,
             else:
                 log(f"  loudness: matched original {slot_db:.2f}dBFS (gain {gain:+.2f}dB)")
 
-        # Place in canvas — silence the slot, overlay clone
-        silence_block = AudioSegment.silent(duration=slot_ms, frame_rate=canvas.frame_rate)
-        canvas = canvas[:s_ms] + silence_block + canvas[e_ms:]
+        # Silence exactly the clone's length from the slot start (this may reach past the slot into
+        # the following original vocal, since we're replacing a whole sentence) and overlay the clone.
+        # Total canvas length is unchanged, so the separate music stem stays perfectly in sync.
+        place_ms = len(fitted)
+        canvas = (canvas[:s_ms]
+                  + AudioSegment.silent(duration=place_ms, frame_rate=canvas.frame_rate)
+                  + canvas[s_ms + place_ms:])
         canvas = canvas.overlay(fitted, position=s_ms)
 
         audit_slots.append({
