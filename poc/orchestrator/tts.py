@@ -98,20 +98,31 @@ def _replicate_headers():
     return {"Authorization": f"Bearer {token}", "Content-Type": "application/json"}
 
 
-def _replicate_upload_file(local_path: Path) -> str:
-    """Upload a local file to Replicate's transient file CDN. Returns a public URL
-    valid for ~24h. Used for reference audio (F5-TTS expects a URL, not bytes)."""
-    token = os.environ.get("REPLICATE_API_TOKEN")
+def _blob_upload_file(local_path: Path) -> str:
+    """Upload the reference WAV to Vercel Blob and return its PUBLIC url.
+
+    CRITICAL: F5-TTS runs as a separate Replicate prediction that fetches `ref_audio` over plain
+    HTTP with NO auth. Replicate's own /v1/files download URLs REQUIRE auth, so F5 silently receives
+    an empty reference and emits garbled, "drunk/backwards" speech. A public Blob URL fixes it
+    (verified: F5 is clean with Blob-hosted refs and garbled with Files-hosted refs)."""
+    token = os.environ.get("BLOB_READ_WRITE_TOKEN")
+    if not token:
+        raise RuntimeError("BLOB_READ_WRITE_TOKEN not set — needed to publicly host the F5 reference audio")
     with open(local_path, "rb") as f:
-        files = {"content": (local_path.name, f, "audio/wav")}
-        r = requests.post(
-            f"{REPLICATE_API}/files",
-            headers={"Authorization": f"Bearer {token}"},
-            files=files,
-            timeout=60,
-        )
+        data = f.read()
+    r = requests.put(
+        f"https://blob.vercel-storage.com/refs/{local_path.name}",
+        headers={
+            "Authorization": f"Bearer {token}",
+            "x-content-type": "audio/wav",
+            "x-add-random-suffix": "1",
+            "x-api-version": "7",
+        },
+        data=data,
+        timeout=60,
+    )
     r.raise_for_status()
-    return r.json()["urls"]["get"]
+    return r.json()["url"]
 
 
 def _replicate_model_latest_version() -> str:
@@ -136,8 +147,8 @@ def synthesize_replicate(text: str, ref_path: Path, ref_text: str, slot_ms: int,
             return cached
         os.unlink(cache_file)
 
-    # 1. Upload reference audio → get public URL
-    ref_url = _replicate_upload_file(ref_path)
+    # 1. Upload reference audio → get a PUBLIC url (F5 fetches it without auth; see _blob_upload_file)
+    ref_url = _blob_upload_file(ref_path)
 
     # 2. Create prediction
     version = _replicate_model_latest_version()

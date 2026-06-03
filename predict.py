@@ -83,6 +83,7 @@ class Predictor(BasePredictor):
         anthropic_api_key: Secret = Input(default=None, description="Anthropic API key (Sonnet/Haiku planner)"),
         hf_token: Secret = Input(default=None, description="HuggingFace token (pyannote diarization model)"),
         replicate_api_token: Secret = Input(default=None, description="Replicate API token (F5-TTS voice cloning)"),
+        blob_token: Secret = Input(default=None, description="Vercel Blob token (publicly hosts F5 reference audio)"),
     ) -> Path:
         from auto_synthesizer import auto_synthesize
 
@@ -93,6 +94,7 @@ class Predictor(BasePredictor):
             ("ANTHROPIC_API_KEY", anthropic_api_key),
             ("HF_TOKEN", hf_token),
             ("REPLICATE_API_TOKEN", replicate_api_token),
+            ("BLOB_READ_WRITE_TOKEN", blob_token),
         ):
             if sec is None:
                 continue

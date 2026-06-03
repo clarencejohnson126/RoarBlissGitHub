@@ -57,6 +57,7 @@ export interface PredictionInput {
   anthropic_api_key?: string;
   hf_token?: string;
   replicate_api_token?: string;
+  blob_token?: string;
 }
 
 export type PredictionStatus =
