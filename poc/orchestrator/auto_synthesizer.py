@@ -239,10 +239,10 @@ def auto_synthesize(audio_path: str, user_context: str,
         # time-compressed (fast/robotic). Instead rewrite the line SHORTER and re-synthesize
         # until it fits at a natural pace.
         sl_attempts = 0
-        while len(clone) / slot_ms > 1.15 and sl_attempts < 2:
+        while len(clone) / slot_ms > 1.02 and sl_attempts < 3:
             sl_attempts += 1
             cur_words = max(1, len(text.split()))
-            new_max = max(1, int(cur_words / (len(clone) / slot_ms) * 0.9))
+            new_max = max(1, int(cur_words / (len(clone) / slot_ms) * 0.85))
             if new_max >= cur_words:
                 break
             shorter = _shorten_line(text, new_max)
@@ -262,34 +262,34 @@ def auto_synthesize(audio_path: str, user_context: str,
         ratio = raw_ms / slot_ms
         log(f"  clone raw: {raw_ms}ms (ratio {ratio:.2f}x)")
 
-        # v6 Phase 4 fit logic
-        if abs(ratio - 1.0) <= 0.10:
-            fitted = time_stretch(clone, slot_ms)
-            silence_after = 0
-            decision = "exact-fit"
-        elif ratio < 0.90:
+        # NATURAL PACE — never time-compress/stretch the clone. Time-compression (squeezing a clone
+        # into a shorter slot) is exactly what made the voice sound fast and "drunk". The clone plays
+        # at F5's own deliberate rate. If it slightly overruns the slot we trim the TAIL (no speed-up);
+        # if it underruns, the gap stays silent and the music carries it. Intelligible > perfectly
+        # filled. The slot length is preserved, so the music underneath stays in sync (0 drift).
+        if raw_ms <= slot_ms:
+            fitted = clone
             silence_after = slot_ms - raw_ms
-            sfx = detect_sfx_cover(accomp, s_ms + raw_ms, e_ms)
-            cap = MAX_VOCAL_SILENCE_SFX_MS if sfx else MAX_VOCAL_SILENCE_MS
-            if silence_after <= cap:
-                fitted = clone
-                decision = f"cut-to-fit (silence {silence_after}ms, sfx={sfx})"
-            else:
-                fitted = time_stretch(clone, slot_ms)
-                silence_after = 0
-                decision = "stretch-fallback (silence > cap)"
+            decision = f"natural ({raw_ms}ms, +{silence_after}ms silence)"
         else:
-            fitted = time_stretch(clone, slot_ms)
+            fitted = clone[:slot_ms]   # tail-trim, NOT compress
             silence_after = 0
-            decision = f"stretch-compress (ratio {ratio:.2f})"
+            decision = f"natural-trim ({raw_ms}ms -> {slot_ms}ms, no speed-up)"
         log(f"  fit: {decision}")
 
-        # Loudness match to slot dBFS, then lift above it so the voice cuts through the music.
+        # Loudness match to slot dBFS — but NEVER push the clone into clipping. F5 output already
+        # peaks near 0 dBFS, so the +gain match can slam it past full scale into hard-clipping
+        # distortion. Apply the match, then pull the PEAK back just under full scale.
         slot_db = measure_slot_dbfs(vocals, s_ms, e_ms)
         if fitted.dBFS != float('-inf') and slot_db is not None:
-            gain = slot_db - fitted.dBFS   # match the ORIGINAL slot loudness EXACTLY (seamless)
+            gain = slot_db - fitted.dBFS   # match the ORIGINAL slot loudness (seamless)
             fitted = fitted + gain
-            log(f"  loudness: matched original {slot_db:.2f}dBFS (gain {gain:+.2f}dB)")
+            if fitted.max_dBFS > -1.0:      # would clip → trim the peak to -1 dBFS
+                anti = fitted.max_dBFS + 1.0
+                fitted = fitted - anti
+                log(f"  loudness: matched {slot_db:.2f}dBFS (gain {gain:+.2f}dB, -{anti:.2f}dB anti-clip)")
+            else:
+                log(f"  loudness: matched original {slot_db:.2f}dBFS (gain {gain:+.2f}dB)")
 
         # Place in canvas — silence the slot, overlay clone
         silence_block = AudioSegment.silent(duration=slot_ms, frame_rate=canvas.frame_rate)
