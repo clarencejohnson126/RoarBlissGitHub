@@ -149,7 +149,9 @@ class Predictor(BasePredictor):
             for t in diar.get("turns", []):
                 by_spk.setdefault(t["speaker"], []).append((t["start"], t["end"]))
             ranked = sorted(by_spk.items(), key=lambda kv: -sum(e - s for s, e in kv[1]))
-            ranked = [(s, segs) for s, segs in ranked if sum(e - st for st, e in segs) >= 2.0]
+            # keep speakers with >=1.5s total (segments are concatenated into the clone ref, so several
+            # short turns still add up to a usable reference — important for minor cinematic characters)
+            ranked = [(s, segs) for s, segs in ranked if sum(e - st for st, e in segs) >= 1.5]
             if ranked:
                 return ranked
         except Exception as e:
@@ -254,6 +256,7 @@ class Predictor(BasePredictor):
         elevenlabs_api_key: Secret = Input(default=None, description="ElevenLabs API key (premium voice cloning — used when set)"),
         mode: str = Input(default="personalize", choices=["personalize", "full_voice"], description="personalize = 50/50 original + snippets; full_voice = 100% generated speech in the cloned voice"),
         min_voices: int = Input(default=0, description="full_voice only: hint pyannote to find at least N distinct speakers to clone (0 = auto). Use for dense multi-character sources like a GoT montage."),
+        output_seconds: int = Input(default=0, description="full_voice only: cap the OUTPUT length (s) independent of source length — clone the voices from a longer source but render e.g. a 2-min piece. 0 = use the full window."),
     ) -> Path:
         from auto_synthesizer import auto_synthesize
 
@@ -287,10 +290,13 @@ class Predictor(BasePredictor):
         window_ms = max(10_000, min(_duration_ms(audio), cap))
 
         if mode == "full_voice":
+            # full_voice discovers + clones voices from the FULL separated vocals, but sizes the script
+            # and bed to out_window — so we can clone all 5+ characters from a 3-min montage yet render 2 min.
+            out_window = min(window_ms, output_seconds * 1000) if output_seconds and output_seconds > 0 else window_ms
             return self._full_voice(
                 vocals, accomp, str(audio),
                 _context_prompt(name, location, battlefield, struggle, family, champion),
-                window_ms, work, min_voices=min_voices,
+                out_window, work, min_voices=min_voices,
             )
 
         result = auto_synthesize(
