@@ -76,6 +76,8 @@ export async function POST(request: Request) {
       hf_token: process.env.HF_TOKEN || "",
       replicate_api_token: process.env.REPLICATE_API_TOKEN || "",
       blob_token: process.env.BLOB_READ_WRITE_TOKEN || "",
+      // When ELEVENLABS_API_KEY is configured, the cog auto-switches to ElevenLabs (better timbre).
+      elevenlabs_api_key: process.env.ELEVENLABS_API_KEY || "",
     };
 
     // Replicate requires an https webhook. On https deployments we attach one so we can email the

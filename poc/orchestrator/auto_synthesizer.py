@@ -195,8 +195,10 @@ def _shorten_line(text: str, max_words: int) -> str:
         return " ".join(text.split()[:max_words])
 
 def synthesize_clone(text: str, ref_path: Path, ref_text: str, slot_ms: int,
-                      cache_dir: Path) -> AudioSegment:
-    return tts_synthesize_clone(text, ref_path, ref_text, slot_ms, cache_dir)
+                      cache_dir: Path, voice_id: str = None) -> AudioSegment:
+    # Forward voice_id so the ElevenLabs path reuses the once-per-speaker clone (best timbre, and it
+    # avoids re-cloning — and hitting the account voice limit — on every slot). Other providers ignore it.
+    return tts_synthesize_clone(text, ref_path, ref_text, slot_ms, cache_dir, voice_id=voice_id)
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Main entrypoint
@@ -295,7 +297,7 @@ def auto_synthesize(audio_path: str, user_context: str,
             if not shorter or shorter.lower() == text.lower():
                 break
             try:
-                c2 = synthesize_clone(shorter, ref_path, ref_text, slot_ms, cache_dir)
+                c2 = synthesize_clone(shorter, ref_path, ref_text, slot_ms, cache_dir, voice_id=el_voices.get(spk))
             except Exception:
                 break
             log(f"  reshaped (too long): \"{text}\" -> \"{shorter}\" ({len(clone)}ms -> {len(c2)}ms)")
@@ -414,6 +416,13 @@ def auto_synthesize(audio_path: str, user_context: str,
     print(f"\n  Listen:          {final_path}")
     print(f"  Audit:           {audit_path}")
     print(f"  Elapsed:         {time.time() - t0:.1f}s")
+
+    # Hard guard against a SILENT regression: if we planned snippets but none synthesized, the mix is
+    # just the untouched original (0% personalized). Never let that masquerade as a finished file —
+    # fail loudly so the caller (predict.py) raises instead of returning a snippet-less track.
+    if len(overrides) > 0 and audit["slots_ok"] == 0:
+        return {"status": "all_slots_failed", "final_path": str(final_path),
+                "audit_path": str(audit_path), **audit, "elapsed_s": time.time() - t0}
 
     return {"status": "ok", "final_path": str(final_path), "audit_path": str(audit_path),
               **audit, "elapsed_s": time.time() - t0}

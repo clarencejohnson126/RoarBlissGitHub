@@ -91,7 +91,9 @@ class Predictor(BasePredictor):
                     audio_path).get("text", "")[:1500]
             except Exception as e:
                 print("style transcribe skipped:", e)
-            target_words = max(120, int(window_ms / 1000.0 / 60.0 * 150))   # ~150 words/min
+            # ElevenLabs (multilingual_v2, Tate-style clone) speaks ~205 wpm in practice, so size the
+            # script to the window at that rate — at 150 wpm a 2-min window came back as ~87s.
+            target_words = max(150, int(window_ms / 1000.0 / 60.0 * 205))
             sysmsg = ("You write a single, continuous, first-person motivational monologue the listener "
                       "could record as their own. MATCH the cadence, intensity and vocabulary of the "
                       "STYLE sample, but write ORIGINAL lines about the listener's real life — never copy "
@@ -99,7 +101,8 @@ class Predictor(BasePredictor):
             usr = (f"STYLE sample (match the delivery, do NOT reuse its words):\n\"\"\"\n{style}\n\"\"\"\n\n"
                    f"LISTENER:\n{user_context}\n\nWrite ~{target_words} words of a seamless, building, "
                    f"no-excuses monologue in the first person, using the listener's name + details, "
-                   f"ending on one decisive line.")
+                   f"ending on one decisive line. Sustain the intensity across the FULL length — do not "
+                   f"pad, repeat, or trail off; every line must earn its place.")
             model = os.environ.get("WRITER_MODEL", "claude-sonnet-4-6")
             script = llm_chat(sysmsg, usr, max_tokens=1500, temperature=0.7, model=model).strip()
             print(f"full_voice script: {len(script.split())} words")
