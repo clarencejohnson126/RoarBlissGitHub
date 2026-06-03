@@ -70,7 +70,7 @@ class Predictor(BasePredictor):
         vocals = next(out.rglob("vocals.wav"))
         return vocals, vocals.parent / "no_vocals.wav"
 
-    def _full_voice(self, vocals, accomp, audio_path, user_context, window_ms, work):
+    def _full_voice(self, vocals, accomp, audio_path, user_context, window_ms, work, min_voices=0):
         """100%-generated mode — adaptive. Diarize the source, clone EVERY distinct voice, write a
         COMPLETE new script (the listener's saga, original lines, never the source's words) and speak it
         100% in the cloned voice(s) over the source's own clean music+SFX bed. Solo source -> a one-voice
@@ -80,9 +80,10 @@ class Predictor(BasePredictor):
         from pydub import AudioSegment
         voc = AudioSegment.from_wav(str(vocals))
 
-        # 1) diarize -> distinct speakers ranked by speaking time
-        speakers = self._rank_speakers(str(vocals), len(voc))[:3]   # cap at 3 cloned voices
-        print(f"full_voice: {len(speakers)} distinct voice(s) detected")
+        # 1) diarize -> distinct speakers ranked by speaking time (min_voices hints pyannote so a dense
+        #    multi-character montage isn't merged into too few speakers)
+        speakers = self._rank_speakers(str(vocals), len(voc), min_speakers=min_voices)[:6]   # up to 6 voices
+        print(f"full_voice: {len(speakers)} distinct voice(s) detected (min_voices={min_voices})")
 
         # 2) clone each speaker ONCE from a ~40s reference built from their own segments
         voices = []   # (speaker_id, voice_id)
@@ -137,12 +138,13 @@ class Predictor(BasePredictor):
             for _, vid in voices:
                 tts.elevenlabs_delete(vid)
 
-    def _rank_speakers(self, vocals_path, voc_len_ms):
+    def _rank_speakers(self, vocals_path, voc_len_ms, min_speakers=0):
         """Diarize the isolated vocals -> [(speaker_id, [(start_s,end_s),...]), ...] ranked by total
-        speaking time. Falls back to a single whole-track speaker if diarization is unavailable."""
+        speaking time. min_speakers hints pyannote (≥N clusters). Falls back to a single whole-track
+        speaker if diarization is unavailable."""
         try:
             from diarization import diarize
-            diar = diarize(vocals_path, verbose=True)
+            diar = diarize(vocals_path, verbose=True, min_speakers=min_speakers)
             by_spk = {}
             for t in diar.get("turns", []):
                 by_spk.setdefault(t["speaker"], []).append((t["start"], t["end"]))
@@ -251,6 +253,7 @@ class Predictor(BasePredictor):
         blob_token: Secret = Input(default=None, description="Vercel Blob token (publicly hosts F5 reference audio)"),
         elevenlabs_api_key: Secret = Input(default=None, description="ElevenLabs API key (premium voice cloning — used when set)"),
         mode: str = Input(default="personalize", choices=["personalize", "full_voice"], description="personalize = 50/50 original + snippets; full_voice = 100% generated speech in the cloned voice"),
+        min_voices: int = Input(default=0, description="full_voice only: hint pyannote to find at least N distinct speakers to clone (0 = auto). Use for dense multi-character sources like a GoT montage."),
     ) -> Path:
         from auto_synthesizer import auto_synthesize
 
@@ -287,7 +290,7 @@ class Predictor(BasePredictor):
             return self._full_voice(
                 vocals, accomp, str(audio),
                 _context_prompt(name, location, battlefield, struggle, family, champion),
-                window_ms, work,
+                window_ms, work, min_voices=min_voices,
             )
 
         result = auto_synthesize(

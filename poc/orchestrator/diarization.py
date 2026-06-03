@@ -59,15 +59,17 @@ def _cache_path(audio_path: str) -> Path:
     name = Path(audio_path).stem[:40].replace(' ', '_')
     return CACHE_DIR / f"{name}_{h}.diar.json"
 
-def diarize(audio_path: str, verbose: bool = True) -> dict:
+def diarize(audio_path: str, verbose: bool = True, min_speakers: int = 0, max_speakers: int = 0) -> dict:
     """Returns {
         'speaker_count': int,        # distinct speakers detected
         'turn_count': int,           # number of speaker changes
         'turns': [{start, end, speaker}, ...],
         'speaker_durations_s': {speaker_id: total_seconds}
-    }"""
+    }
+    min_speakers/max_speakers (when > 0) HINT pyannote's clustering — vital for dense cinematic montages
+    (e.g. a GoT trailer) where auto-counting merges many short-turn characters into too few speakers."""
     cache_file = _cache_path(audio_path)
-    if cache_file.exists():
+    if cache_file.exists() and not (min_speakers or max_speakers):
         if verbose:
             print(f"  diarization cache hit: {Path(audio_path).name}")
         return json.loads(cache_file.read_text())
@@ -93,7 +95,12 @@ def diarize(audio_path: str, verbose: bool = True) -> dict:
             )
             wav, sr = sf.read(tmp_path, dtype="float32", always_2d=True)  # (frames, channels)
             waveform = torch.from_numpy(wav.T).contiguous()               # (channel, time)
-            output = pipeline({"waveform": waveform, "sample_rate": sr})
+            hint = {}
+            if min_speakers and min_speakers > 0:
+                hint["min_speakers"] = int(min_speakers)
+            if max_speakers and max_speakers > 0:
+                hint["max_speakers"] = int(max_speakers)
+            output = pipeline({"waveform": waveform, "sample_rate": sr}, **hint)
         finally:
             if os.path.exists(tmp_path):
                 os.unlink(tmp_path)
