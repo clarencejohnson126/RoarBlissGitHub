@@ -85,8 +85,9 @@ class Predictor(BasePredictor):
         speakers = self._rank_speakers(str(vocals), len(voc), min_speakers=min_voices)[:6]   # up to 6 voices
         print(f"full_voice: {len(speakers)} distinct voice(s) detected (min_voices={min_voices})")
 
-        # 2) clone each speaker ONCE from a ~40s reference built from their own segments
-        voices = []   # (speaker_id, voice_id)
+        # 2) build a clone reference per speaker (concatenate their own segments). We do NOT clone yet —
+        #    cloning happens ONE voice at a time below to stay under the account's custom-voice slot cap.
+        refs = []   # (speaker_id, ref_path)
         for spk, segs in speakers:
             ref = AudioSegment.silent(duration=0)
             for s, e in segs:
@@ -95,48 +96,97 @@ class Predictor(BasePredictor):
                 ref += voc[int(s * 1000):int(e * 1000)]
             if len(ref) < 2500:                       # too little clean audio → fall back to head of stem
                 ref = voc[:min(len(voc), 30_000)]
-            ref = ref[:40_000]
             rp = _P(work) / f"fv_ref_{spk}.wav"
-            ref.export(str(rp), format="wav")
+            ref[:40_000].export(str(rp), format="wav")
+            refs.append((spk, rp))
+        n = len(refs)
+        if n == 0:
+            raise RuntimeError("full_voice: no speaker detected")
+
+        # 3) write the COMPLETE new script for n voices (monologue if 1; multi-voice epic if >=2)
+        lines = self._write_fullvoice_script(audio_path, user_context, n, window_ms)
+        by_voice = {}
+        for idx, ln in enumerate(lines):
+            by_voice.setdefault(int(ln.get("voice", 0)) % n, []).append(idx)
+
+        # 4) render VOICE BY VOICE: clone -> TTS that voice's lines -> delete. Only one throwaway voice
+        #    exists at a time, so the ElevenLabs custom-voice slot cap (e.g. Starter = 10) is never hit
+        #    even when the account already holds several voices — this is what made 3/5 clones 400 before.
+        self._purge_orphan_clones()
+        rendered, cloned_ok = {}, 0
+        for vi, (spk, rp) in enumerate(refs):
+            idxs = by_voice.get(vi, [])
+            if not idxs:
+                continue                              # this voice got no lines → don't waste a clone
             try:
                 vid = tts.elevenlabs_clone(rp, name=f"rb_fv_{spk}")
-                voices.append((spk, vid))
-                print(f"  cloned {spk} -> {vid[:8]}…")
             except Exception as ex:
-                print(f"  clone failed for {spk}: {ex}")
-        if not voices:
-            raise RuntimeError("full_voice: no voice could be cloned from the source")
-
-        try:
-            # 3) write a COMPLETE new script (monologue if 1 voice, multi-voice epic if >=2)
-            n = len(voices)
-            lines = self._write_fullvoice_script(audio_path, user_context, n, window_ms)
-            # 4) speak every line in its assigned cloned voice; build one continuous voice track
-            track = AudioSegment.silent(duration=0)
-            prev, spoken = None, 0
-            for ln in lines:
-                txt = (ln.get("text") or "").strip()
-                if not txt:
-                    continue
-                vi = int(ln.get("voice", 0)) % n
-                try:
-                    seg = tts.elevenlabs_tts(txt, voices[vi][1])
-                except Exception as ex:
-                    print(f"  tts failed ({txt[:30]}…): {ex}"); continue
-                gap = 650 if (prev is not None and vi != prev) else 300   # longer breath on a voice change
-                track += AudioSegment.silent(duration=gap) + seg
-                prev, spoken = vi, spoken + 1
-            print(f"full_voice script: {n} voice(s), {spoken} lines, {len(track)/1000:.1f}s speech")
-            if len(track) < 1000:
-                raise RuntimeError("full_voice: script produced no audible speech")
-            # 5) lay the generated voices over the clean music+SFX bed (lighter duck for cinematic punch)
-            mixed = self._lay_over_music(track, accomp, duck_db=(8.0 if n >= 2 else 12.0))
-            out = _P(work) / "fullvoice.mp3"
-            mixed.export(str(out), format="mp3", bitrate="192k")
-            return Path(out)
-        finally:
-            for _, vid in voices:
+                print(f"  clone failed for {spk}: {ex}"); continue
+            cloned_ok += 1
+            try:
+                for idx in idxs:
+                    txt = (lines[idx].get("text") or "").strip()
+                    if not txt:
+                        continue
+                    try:
+                        rendered[idx] = tts.elevenlabs_tts(txt, vid)
+                    except Exception as ex:
+                        print(f"  tts failed ({txt[:30]}…): {ex}")
+            finally:
                 tts.elevenlabs_delete(vid)
+        print(f"full_voice: cloned {cloned_ok}/{n} voices, rendered {len(rendered)}/{len(lines)} lines")
+
+        # 5) any line whose own voice failed to clone is re-voiced with the first usable reference,
+        #    so no line is dropped
+        leftover = [i for i in range(len(lines))
+                    if i not in rendered and (lines[i].get("text") or "").strip()]
+        if leftover:
+            try:
+                vid = tts.elevenlabs_clone(str(refs[0][1]), name="rb_fv_fallback")
+                try:
+                    for idx in leftover:
+                        try:
+                            rendered[idx] = tts.elevenlabs_tts(lines[idx]["text"].strip(), vid)
+                        except Exception:
+                            pass
+                finally:
+                    tts.elevenlabs_delete(vid)
+            except Exception as ex:
+                print("  fallback clone failed:", ex)
+        if not rendered:
+            raise RuntimeError("full_voice: nothing could be synthesized")
+
+        # 6) assemble the voice track in line order, then lay it over the clean music+SFX bed
+        track = AudioSegment.silent(duration=0)
+        prev = None
+        for idx in range(len(lines)):
+            if idx not in rendered:
+                continue
+            vi = int(lines[idx].get("voice", 0)) % n
+            gap = 650 if (prev is not None and vi != prev) else 300   # longer breath on a voice change
+            track += AudioSegment.silent(duration=gap) + rendered[idx]
+            prev = vi
+        print(f"full_voice track: {n} voice(s), {len(track)/1000:.1f}s speech")
+        if len(track) < 1000:
+            raise RuntimeError("full_voice: no audible speech produced")
+        mixed = self._lay_over_music(track, accomp, duck_db=(8.0 if n >= 2 else 12.0))
+        out = _P(work) / "fullvoice.mp3"
+        mixed.export(str(out), format="mp3", bitrate="192k")
+        return Path(out)
+
+    def _purge_orphan_clones(self):
+        """Delete leftover 'rb_*' throwaway voices from a crashed earlier run to free custom-voice slots.
+        Only touches our own rb_-prefixed clones — never the user's voices."""
+        import tts
+        try:
+            r = tts.requests.get(f"{tts.ELEVENLABS_API}/voices", headers=tts._el_headers(), timeout=30)
+            r.raise_for_status()
+            for v in r.json().get("voices", []):
+                if v.get("category") == "cloned" and str(v.get("name", "")).startswith("rb_"):
+                    tts.elevenlabs_delete(v["voice_id"])
+                    print(f"  purged orphan clone {v.get('name')}")
+        except Exception as e:
+            print("  orphan purge skipped:", e)
 
     def _rank_speakers(self, vocals_path, voc_len_ms, min_speakers=0):
         """Diarize the isolated vocals -> [(speaker_id, [(start_s,end_s),...]), ...] ranked by total
@@ -189,8 +239,9 @@ class Predictor(BasePredictor):
                       "the voices like a real trailer: voices alternate, one proclaims and another answers, "
                       "tension builds to a release. Each line short and punchy (3-14 words). Use the listener's "
                       "name and real details, framed as an epic (houses, oaths, fire, legacy, the long road) "
-                      "but about THEIR real life. Build to one decisive final line. Output STRICT JSON ONLY: "
-                      "[{\"voice\":int,\"text\":str}, ...]. No prose, no markdown.")
+                      f"but about THEIR real life. USE ALL {n_voices} voices — every voice index 0..{n_voices - 1} "
+                      "gets several lines; leave none silent. Build to one decisive final line. Output STRICT "
+                      "JSON ONLY: [{\"voice\":int,\"text\":str}, ...]. No prose, no markdown.")
             usr = (f"STYLE/cadence to echo (do NOT reuse words):\n\"\"\"\n{style}\n\"\"\"\n\nLISTENER:\n{user_context}\n\n"
                    f"Write ~{target_words} words total across {n_voices} voices as a seamless, building epic. JSON only.")
         raw = llm_chat(sysmsg, usr, max_tokens=2000, temperature=0.75, model=model).strip()
