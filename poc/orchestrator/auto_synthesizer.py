@@ -90,22 +90,23 @@ def detect_sfx_cover(accomp, start_ms, end_ms):
 REF_MIN_DBFS = -32.0   # reject reference clips quieter than this (likely silence/breath)
 REF_TARGET_DUR_S = 6.0  # aim for ~6s of reference audio (concatenate clips if needed)
 
-def _build_concatenated_ref(clips: list, vocals_source: AudioSegment) -> AudioSegment:
-    """Concatenate up to N reference clips (from same speaker+emotion) into one longer
-    reference WAV, separated by 200ms silence so Qwen3 sees them as one voice sample."""
+def _build_concatenated_ref(clips: list, vocals_source: AudioSegment):
+    """Concatenate reference clips (same speaker+emotion) up to REF_TARGET_DUR_S into ONE continuous
+    WAV. Returns (audio, used_clips) so the caller can build a ref_text that EXACTLY matches the
+    audio. This matters: F5-TTS produces repeated-syllable gibberish ("stop stop stop") when ref_text
+    describes more speech than ref_audio actually contains. We also drop the inter-clip silence —
+    ref_text has no marker for it, so it throws off F5's text↔audio alignment."""
     out = AudioSegment.empty()
-    silence = AudioSegment.silent(duration=200, frame_rate=vocals_source.frame_rate)
-    total_s = 0
+    used = []
+    total_s = 0.0
     for clip in clips:
         chunk = vocals_source[int(clip["start"] * 1000):int(clip["end"] * 1000)]
-        out = out + chunk + silence
+        out = out + chunk
+        used.append(clip)
         total_s += clip["duration_s"]
         if total_s >= REF_TARGET_DUR_S:
             break
-    # Trim trailing silence
-    if len(out) > 200:
-        out = out[:-200]
-    return out
+    return out, used
 
 def resolve_reference_clip(ref_library: dict, speaker_id: str, emotion: str,
                              vocals_source: AudioSegment, cache_dir: Path) -> tuple:
@@ -129,17 +130,17 @@ def resolve_reference_clip(ref_library: dict, speaker_id: str, emotion: str,
         if not r:
             continue
         clips = r.get("clips") or [{"start": r["start"], "end": r["end"], "text": r["text"], "duration_s": r["duration_s"]}]
-        cache_file = cache_dir / f"ref_{speaker_id}_{r['emotion']}_top{len(clips)}.wav"
-        if not cache_file.exists():
-            concatenated = _build_concatenated_ref(clips, vocals_source)
-            concatenated.export(str(cache_file), format="wav")
+        cache_file = cache_dir / f"ref_{speaker_id}_{r['emotion']}.wav"
+        concatenated, used = _build_concatenated_ref(clips, vocals_source)
+        concatenated.export(str(cache_file), format="wav")
         # Quality gate: ref must be loud enough (not silence/breath only)
         ref_seg = AudioSegment.from_wav(str(cache_file))
         if ref_seg.dBFS < REF_MIN_DBFS:
             log(f"  ref {speaker_id}/{r['emotion']} too quiet ({ref_seg.dBFS:.1f}dBFS); trying fallback", "warn")
             continue
-        # Build the reference text from concatenated clips' transcripts
-        ref_text = " ".join(c["text"] for c in clips[:len(clips)])
+        # ref_text must match ONLY the clips that actually made it into the audio (`used`), never the
+        # full `clips` list — a ref_text longer than ref_audio is exactly what makes F5 loop/garble.
+        ref_text = " ".join(c["text"].strip() for c in used).strip()
         return cache_file, ref_text
 
     return None, None
