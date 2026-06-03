@@ -204,17 +204,77 @@ def synthesize_replicate(text: str, ref_path: Path, ref_text: str, slot_ms: int,
 
 
 # ──────────────────────────────────────────────────────────────────────────
+# Provider: ElevenLabs (premium voice cloning — far better timbre + clarity than F5)
+# ──────────────────────────────────────────────────────────────────────────
+ELEVENLABS_API = "https://api.elevenlabs.io/v1"
+EL_MODEL = "eleven_multilingual_v2"
+
+def _el_headers():
+    key = os.environ.get("ELEVENLABS_API_KEY")
+    if not key:
+        raise RuntimeError("ELEVENLABS_API_KEY not set")
+    return {"xi-api-key": key}
+
+def elevenlabs_clone(ref_wav: Path, name: str = "rb_clone") -> str:
+    """Instant Voice Clone from a reference WAV → voice_id. Clone ONCE per speaker (best timbre +
+    avoids hitting the account's voice limit); reuse the id for every line, then delete it."""
+    with open(ref_wav, "rb") as f:
+        r = requests.post(
+            f"{ELEVENLABS_API}/voices/add",
+            headers=_el_headers(),
+            data={"name": name, "remove_background_noise": "true"},
+            files={"files": (Path(ref_wav).name, f, "audio/wav")},
+            timeout=120,
+        )
+    r.raise_for_status()
+    return r.json()["voice_id"]
+
+def elevenlabs_tts(text: str, voice_id: str) -> AudioSegment:
+    r = requests.post(
+        f"{ELEVENLABS_API}/text-to-speech/{voice_id}?output_format=mp3_44100_128",
+        headers={**_el_headers(), "Content-Type": "application/json"},
+        json={"text": text, "model_id": EL_MODEL},
+        timeout=180,
+    )
+    r.raise_for_status()
+    return AudioSegment.from_file(io.BytesIO(r.content), format="mp3")
+
+def elevenlabs_delete(voice_id: str):
+    try:
+        requests.delete(f"{ELEVENLABS_API}/voices/{voice_id}", headers=_el_headers(), timeout=30)
+    except Exception:
+        pass
+
+def synthesize_elevenlabs(text: str, ref_path: Path, ref_text: str, slot_ms: int,
+                          cache_dir: Path, voice_id: str = None) -> AudioSegment:
+    """ElevenLabs path. If voice_id is given (cloned once per speaker) we just synthesize; otherwise
+    we clone from ref_path, synthesize, and delete the throwaway voice."""
+    vid, created = voice_id, False
+    if not vid:
+        vid = elevenlabs_clone(ref_path); created = True
+    try:
+        clone = elevenlabs_tts(text, vid)
+    finally:
+        if created:
+            elevenlabs_delete(vid)
+    return trim_silence(clone)
+
+
+# ──────────────────────────────────────────────────────────────────────────
 # Dispatch
 # ──────────────────────────────────────────────────────────────────────────
-def synthesize_clone(text: str, ref_path: Path, ref_text: str, slot_ms: int, cache_dir: Path) -> AudioSegment:
+def synthesize_clone(text: str, ref_path: Path, ref_text: str, slot_ms: int, cache_dir: Path,
+                     voice_id: str = None) -> AudioSegment:
     """Top-level entry. Routes to the selected provider via TTS_PROVIDER env var."""
     provider = os.environ.get("TTS_PROVIDER", "qwen3_mlx").lower()
-    if provider == "replicate":
+    if provider == "elevenlabs":
+        return synthesize_elevenlabs(text, ref_path, ref_text, slot_ms, cache_dir, voice_id=voice_id)
+    elif provider == "replicate":
         return synthesize_replicate(text, ref_path, ref_text, slot_ms, cache_dir)
     elif provider == "qwen3_mlx" or provider == "qwen3":
         return synthesize_qwen3(text, ref_path, ref_text, slot_ms, cache_dir)
     else:
-        raise ValueError(f"Unknown TTS_PROVIDER: {provider!r}. Use 'replicate' or 'qwen3_mlx'.")
+        raise ValueError(f"Unknown TTS_PROVIDER: {provider!r}. Use 'elevenlabs', 'replicate' or 'qwen3_mlx'.")
 
 
 def current_provider_label() -> str:

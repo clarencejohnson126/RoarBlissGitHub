@@ -70,6 +70,48 @@ class Predictor(BasePredictor):
         vocals = next(out.rglob("vocals.wav"))
         return vocals, vocals.parent / "no_vocals.wav"
 
+    def _full_voice(self, vocals, audio_path, user_context, window_ms, work):
+        """100%-generated mode: clone the speaker's voice and speak a fully-generated personalized
+        monologue (~window length) in it — no original audio mixed in."""
+        import tts
+        from pydub import AudioSegment
+        from llm import llm_chat
+        # 1) clone the voice from a ~55s clean span of the isolated vocals
+        voc = AudioSegment.from_wav(str(vocals))
+        ref = voc[: min(len(voc), 55_000)]
+        ref_path = _P(work) / "fullvoice_ref.wav"
+        ref.export(str(ref_path), format="wav")
+        voice_id = tts.elevenlabs_clone(ref_path, name="rb_fullvoice")
+        try:
+            # 2) derive the speaker's delivery style from the source transcript
+            style = ""
+            try:
+                import whisper
+                style = whisper.load_model(os.environ.get("WHISPER_MODEL", "base")).transcribe(
+                    audio_path).get("text", "")[:1500]
+            except Exception as e:
+                print("style transcribe skipped:", e)
+            target_words = max(120, int(window_ms / 1000.0 / 60.0 * 150))   # ~150 words/min
+            sysmsg = ("You write a single, continuous, first-person motivational monologue the listener "
+                      "could record as their own. MATCH the cadence, intensity and vocabulary of the "
+                      "STYLE sample, but write ORIGINAL lines about the listener's real life — never copy "
+                      "the sample's words. Output ONLY the spoken words: no headings, no stage directions.")
+            usr = (f"STYLE sample (match the delivery, do NOT reuse its words):\n\"\"\"\n{style}\n\"\"\"\n\n"
+                   f"LISTENER:\n{user_context}\n\nWrite ~{target_words} words of a seamless, building, "
+                   f"no-excuses monologue in the first person, using the listener's name + details, "
+                   f"ending on one decisive line.")
+            model = os.environ.get("WRITER_MODEL", "claude-sonnet-4-6")
+            script = llm_chat(sysmsg, usr, max_tokens=1500, temperature=0.7, model=model).strip()
+            print(f"full_voice script: {len(script.split())} words")
+            # 3) speak the whole script in the cloned voice
+            seg = tts.elevenlabs_tts(script, voice_id)
+            out = _P(work) / "fullvoice.mp3"
+            seg.export(str(out), format="mp3")
+            print(f"full_voice audio: {len(seg)/1000:.1f}s")
+            return Path(out)
+        finally:
+            tts.elevenlabs_delete(voice_id)
+
     def predict(
         self,
         audio: Path = Input(description="The motivational / cinematic audio to personalize"),
@@ -84,6 +126,8 @@ class Predictor(BasePredictor):
         hf_token: Secret = Input(default=None, description="HuggingFace token (pyannote diarization model)"),
         replicate_api_token: Secret = Input(default=None, description="Replicate API token (F5-TTS voice cloning)"),
         blob_token: Secret = Input(default=None, description="Vercel Blob token (publicly hosts F5 reference audio)"),
+        elevenlabs_api_key: Secret = Input(default=None, description="ElevenLabs API key (premium voice cloning — used when set)"),
+        mode: str = Input(default="personalize", choices=["personalize", "full_voice"], description="personalize = 50/50 original + snippets; full_voice = 100% generated speech in the cloned voice"),
     ) -> Path:
         from auto_synthesizer import auto_synthesize
 
@@ -95,6 +139,7 @@ class Predictor(BasePredictor):
             ("HF_TOKEN", hf_token),
             ("REPLICATE_API_TOKEN", replicate_api_token),
             ("BLOB_READ_WRITE_TOKEN", blob_token),
+            ("ELEVENLABS_API_KEY", elevenlabs_api_key),
         ):
             if sec is None:
                 continue
@@ -105,11 +150,22 @@ class Predictor(BasePredictor):
             if val:
                 os.environ[var] = val
 
+        # Prefer ElevenLabs whenever its key is supplied — far better timbre/clarity than F5.
+        if os.environ.get("ELEVENLABS_API_KEY"):
+            os.environ["TTS_PROVIDER"] = "elevenlabs"
+
         work = _P(tempfile.mkdtemp())
         vocals, accomp = self._separate(_P(str(audio)), work)
 
         cap = PAID_MAX_MS if paid else FREE_MAX_MS
         window_ms = max(10_000, min(_duration_ms(audio), cap))
+
+        if mode == "full_voice":
+            return self._full_voice(
+                vocals, str(audio),
+                _context_prompt(name, location, battlefield, struggle, family, champion),
+                window_ms, work,
+            )
 
         result = auto_synthesize(
             audio_path=str(audio),

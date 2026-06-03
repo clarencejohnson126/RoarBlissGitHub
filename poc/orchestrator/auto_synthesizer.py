@@ -145,6 +145,37 @@ def resolve_reference_clip(ref_library: dict, speaker_id: str, emotion: str,
 
     return None, None
 
+
+def _build_clone_reference(ref_library: dict, speaker_id: str, vocals_source: AudioSegment,
+                           cache_dir: Path, target_s: float = 45.0):
+    """Build a LONGER (~45s) continuous-feeling reference for the speaker by concatenating their
+    cleanest clips across emotions. ElevenLabs voice cloning needs more audio than F5 for a faithful
+    timbre. Returns a wav Path, or None if there isn't enough usable audio."""
+    sd = ref_library["speakers"].get(speaker_id)
+    if not sd or not sd.get("references"):
+        return None
+    clips = []
+    for r in sd["references"]:
+        clips += r.get("clips") or [{"start": r["start"], "end": r["end"], "duration_s": r["duration_s"]}]
+    clips.sort(key=lambda c: c.get("duration_s", 0.0), reverse=True)
+    out = AudioSegment.empty()
+    total = 0.0
+    seen = set()
+    for c in clips:
+        key = (round(c["start"], 2), round(c["end"], 2))
+        if key in seen:
+            continue
+        seen.add(key)
+        out += vocals_source[int(c["start"] * 1000):int(c["end"] * 1000)]
+        total += c.get("duration_s", 0.0)
+        if total >= target_s:
+            break
+    if len(out) < 3000:
+        return None
+    p = cache_dir / f"clone_ref_{speaker_id}.wav"
+    out.export(str(p), format="wav")
+    return p
+
 # ──────────────────────────────────────────────────────────────────────────────
 # TTS synthesis — delegates to the provider chosen via TTS_PROVIDER env var
 # (qwen3_mlx for local Mac, replicate for cloud F5-TTS). See tts.py.
@@ -211,6 +242,21 @@ def auto_synthesize(audio_path: str, user_context: str,
 
     # ── Stage C: per-slot synthesis ───────────────────────────────────────
     if verbose: log(f"Stage C: synthesize {len(overrides)} clones via TTS provider '{current_provider_label()}'...", "step")
+
+    # ElevenLabs: clone each speaker's voice ONCE from a longer reference (best timbre, one API voice
+    # per speaker, reused for every line) instead of re-cloning per slot. Deleted after the run.
+    el_voices = {}
+    if current_provider_label() == "elevenlabs":
+        from tts import elevenlabs_clone
+        for spk in sorted({ov["speaker"] for ov in overrides}):
+            try:
+                cref = _build_clone_reference(ref_library, spk, vocals, cache_dir)
+                if cref:
+                    el_voices[spk] = elevenlabs_clone(cref, name=f"rb_{spk}")
+                    if verbose: log(f"cloned voice for {spk} (id {el_voices[spk][:8]}…)", "ok")
+            except Exception as ex:
+                log(f"  voice clone failed for {spk}: {ex}", "warn")
+
     audit_slots = []
     for ov in overrides:
         sid, spk, emo = ov["id"], ov["speaker"], ov["emotion"]
@@ -229,7 +275,7 @@ def auto_synthesize(audio_path: str, user_context: str,
 
         # Synth with retry+sanity
         try:
-            clone = synthesize_clone(text, ref_path, ref_text, slot_ms, cache_dir)
+            clone = synthesize_clone(text, ref_path, ref_text, slot_ms, cache_dir, voice_id=el_voices.get(spk))
         except Exception as ex:
             log(f"  SYNTH FAILED: {ex}", "err")
             audit_slots.append({"id": sid, "status": "synth_failed", "error": str(ex)})
@@ -308,6 +354,13 @@ def auto_synthesize(audio_path: str, user_context: str,
             "clone_dbfs_final": round(fitted.dBFS, 2) if fitted.dBFS != float('-inf') else None,
             "status": "ok"
         })
+
+    # Clean up the throwaway ElevenLabs voices so the account's voice slots don't fill up.
+    if el_voices:
+        from tts import elevenlabs_delete
+        for vid in el_voices.values():
+            elevenlabs_delete(vid)
+        log(f"deleted {len(el_voices)} cloned voice(s)", "ok")
 
     # ── Stage D: drift check + save vocals_personalized ──────────────────
     drift_ms = abs(len(canvas) - window_ms)
