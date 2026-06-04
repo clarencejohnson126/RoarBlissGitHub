@@ -330,7 +330,8 @@ class Predictor(BasePredictor):
         replicate_api_token: Secret = Input(default=None, description="Replicate API token (F5-TTS voice cloning)"),
         blob_token: Secret = Input(default=None, description="Vercel Blob token (publicly hosts F5 reference audio)"),
         elevenlabs_api_key: Secret = Input(default=None, description="ElevenLabs API key (premium voice cloning — used when set)"),
-        mode: str = Input(default="personalize", choices=["personalize", "full_voice"], description="personalize = 50/50 original + snippets; full_voice = 100% generated speech in the cloned voice"),
+        personalization: int = Input(default=50, choices=[25, 50, 75, 100], description="How much of the audio becomes the user's: 25/50/75 keep the original speaker and replace that share of the spoken timeline with personalized lines; 100 = a fully new script spoken 100%% in the cloned voice (full_voice). This is the core 4-tier selector."),
+        mode: str = Input(default="auto", choices=["auto", "personalize", "full_voice"], description="Legacy override. 'auto' (default) derives the mode from `personalization` (100 -> full_voice, else 50/50 personalize). Set explicitly only to force a path."),
         min_voices: int = Input(default=0, description="full_voice only: hint pyannote to find at least N distinct speakers to clone (0 = auto). Use for dense multi-character sources like a GoT montage."),
         output_seconds: int = Input(default=0, description="full_voice only: cap the OUTPUT length (s) independent of source length — clone the voices from a longer source but render e.g. a 2-min piece. 0 = use the full window."),
         extra_voice_ids: str = Input(default="", description="full_voice only: comma-separated permanent ElevenLabs voice IDs to include as voices (used directly, never cloned/deleted) — e.g. the user's GoT-Jon + dany clones, to guarantee solid extra voices."),
@@ -367,7 +368,15 @@ class Predictor(BasePredictor):
         cap = PAID_MAX_MS if paid else FREE_MAX_MS
         window_ms = max(10_000, min(_duration_ms(audio), cap))
 
-        if mode == "full_voice":
+        # Resolve the 4-tier selector into a concrete path. `personalization` is canonical; `mode`
+        # is a legacy override. 100% (or an explicit full_voice) -> a fully generated new script;
+        # 25/50/75 -> the 50/50-style pipeline with that share of the spoken timeline replaced.
+        tier = int(personalization) if personalization else 50
+        use_full_voice = (mode == "full_voice") or (mode == "auto" and tier >= 100)
+        density = max(0.1, min(tier / 100.0, 0.95))   # fraction of speech to personalize (25/50/75)
+        print(f"personalization tier={tier}% -> {'full_voice' if use_full_voice else f'personalize @ density {density:.2f}'}")
+
+        if use_full_voice:
             # full_voice discovers + clones voices from the FULL separated vocals, but sizes the script
             # and bed to out_window — so we can clone all 5+ characters from a 3-min montage yet render 2 min.
             out_window = min(window_ms, output_seconds * 1000) if output_seconds and output_seconds > 0 else window_ms
@@ -387,6 +396,7 @@ class Predictor(BasePredictor):
             out_dir=work / "out",
             verbose=True,
             language=language,
+            density=density,
         )
         if result.get("status") != "ok":
             raise RuntimeError(f"pipeline status: {result.get('status')}")

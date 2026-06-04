@@ -295,10 +295,10 @@ A) FIT THE TIME - err SHORT, never long (HARD CONSTRAINT)
 B) DISTRIBUTION - never abandon the listener, never erase the source (HARD CONSTRAINT)
 ------------------
 Define the TIMELINE SPAN as from the earliest candidate's start to the latest candidate's (start + duration).
-- Personalize AT LEAST ~50% of the span (sum of chosen slot durations >= ~half the span).
+- Personalize the share of the span given by the COVERAGE TARGET in the task (sum of chosen slot durations ≈ that share). If no target is given, aim ~50%.
 - NO-GAP ALGORITHM: order all slots by start time and walk them. After each slot you select, the NEXT slot you select must begin within ~20 seconds of where the previous one ended. If the gap to your next pick would exceed ~20s, you MUST select an intervening candidate to bridge it - even a tiny one - so a stretch longer than ~20s of untouched original NEVER opens anywhere from your first pick to your last. The listener must never go 20s without hearing their own story.
 - Cover the span end to end: begin near the start (for the name, Law 3) and keep personalized beats landing all the way to the final peak. Do not cluster all picks in one half.
-- LEAVE THE SOURCE'S SOUL INTACT: do NOT overwrite everything. Untouched original between your lines carries the music and gravitas and keeps the source alive. Target roughly 50-70% of the span personalized. Overwriting ~100% is a failure as surely as leaving a 30s gap.
+- LEAVE THE SOURCE'S SOUL INTACT: do NOT overwrite everything. Untouched original between your lines carries the music and gravitas and keeps the source alive. Hit the COVERAGE TARGET from the task — no more, no less. Overwriting ~100% (when the target is lower) is a failure as surely as leaving a 30s gap.
 - Always select EVERY [PEAK] (Law 4). Peaks count toward distribution and are covered no matter what.
 
 ------------------
@@ -324,7 +324,7 @@ FINAL CHECK BEFORE YOU EMIT (run silently, then output ONLY the JSON)
 1. Every override_text word count <= its slot's target_words, aimed 75-90%, no line ends on a banned function word, every line a complete phrase, specific (no cliche mush).
 2. User's FULL name stated once, early, with a forged in-world identity that recurs as a motif later.
 3. Every [PEAK] selected and transformed into the user's name/house/title chant or vow, matched to the peak's beat.
-4. Slots sorted by start: first pick near the start, NO gap > ~20s anywhere (bridge any that would open), total personalized ~50-70% of the span, source still breathes.
+4. Slots sorted by start: first pick near the start, NO gap > ~20s anywhere (bridge any that would open), total personalized ≈ the COVERAGE TARGET from the task, source still breathes.
 5. One rising arc, first person, every line in the source's costume and lexicon, zero quoting/echoing of scene_energy, no source character or place names.
 6. Output is ONLY the JSON object - valid, parseable, ASCII only, ids all real and unique, array ordered by start time.
 
@@ -332,7 +332,8 @@ Emit the JSON now."""
 
 def llm_pick_slots(candidates: list, brief: dict, type_profile: dict,
                    target_slot_count: int, window_ms: int, protagonist: str = "",
-                   user_context: str = "", draft: list = None, language: str = "English") -> list:
+                   user_context: str = "", draft: list = None, language: str = "English",
+                   coverage_pct: int = 55) -> list:
     """LLM picks which candidates to use and writes original first-person override text per slot.
     If `draft` is given, runs a self-review pass: critique the draft against every law and return
     an improved full selection (the QA loop that lifts one-shot quality)."""
@@ -366,6 +367,10 @@ def llm_pick_slots(candidates: list, brief: dict, type_profile: dict,
             " Judge intensity per beat: iconic beats stay TIGHT and rhythmic, quieter beats may run fuller."
             " Keep the strong lines; fix the rest.\nDRAFT:\n" + "\n".join(dl))
 
+    # Max allowed gap scales inversely with coverage: a dense tier keeps the user's story constantly
+    # present (~20s), a light tier necessarily leaves longer stretches of original between picks.
+    max_gap_s = int(round(min(60, max(15, 20 * 55.0 / max(coverage_pct, 1)))))
+
     # All rules live in PLANNER_SYSTEM_PROMPT; the user message just delivers this run's data.
     user_msg = f"""USER BRIEF:
   name (state the FULL name once, early): {brief.get('name')}
@@ -376,7 +381,8 @@ def llm_pick_slots(candidates: list, brief: dict, type_profile: dict,
 RAW USER CONTEXT (their real life — translate it into the source's costume):
 {(user_context or '').strip()}
 
-TIMELINE SPAN: 0 to {window_ms/1000:.0f}s. Aim ~{target_slot_count} slots, spread end to end, no gap over ~20s.
+TIMELINE SPAN: 0 to {window_ms/1000:.0f}s. Aim ~{target_slot_count} slots, spread end to end, no gap over ~{max_gap_s}s.
+COVERAGE TARGET: personalize ~{coverage_pct}% of the spoken timeline (sum of chosen slot durations ≈ {coverage_pct}% of the speech). Leave the remaining ~{100-coverage_pct}% as untouched original so the source still breathes. This target OVERRIDES any percentage mentioned in the rules above. At a low target, pick fewer, higher-impact slots and let more original play (gaps up to ~{max_gap_s}s are expected); at a high target, cover densely. Always take every [PEAK]/[IDENTITY] on top of this.
 You MUST select EVERY [IDENTITY] slot AND EVERY [PEAK] slot — non-negotiable, none skipped.
 [IDENTITY] = a slot where the source named its own hero; forge the USER's identity here (their FULL name, or "Lord of House <surname>"), never echo the source's name.
 [PEAK] = a climax/chant; transform it into the user's name, House, a forged TITLE built from their home city (e.g. "King of <their city>"), or a vow — matched to the chant's beat.
@@ -816,7 +822,7 @@ def _draft_needs_review(draft: list, candidates: list, target_slot_count: int) -
 # ──────────────────────────────────────────────────────────────────────────────
 def generate_personalization(audio_path: str, user_context: str,
                               window_ms: int = None, verbose: bool = True,
-                              language: str = "English") -> dict:
+                              language: str = "English", density: float = 0.55) -> dict:
     if verbose:
         print(f"\n{'='*70}")
         print(" PERSONALIZATION PLANNER")
@@ -855,18 +861,24 @@ def generate_personalization(audio_path: str, user_context: str,
     win_ms = window_ms if window_ms else int(max(c["end_ms"] for c in candidates))
     win_s = win_ms / 1000
 
-    # Density: personalize a clear majority of the spoken timeline so it is unmistakably the
-    # user's — but leave enough original that the source's vibe survives.
+    # Density (core 4-tier selector): personalize ~`density` of the spoken timeline. 0.25 keeps most
+    # of the original speaker; 0.75 makes it overwhelmingly the user's; the rest stays untouched so
+    # the source's vibe survives. [PEAK]/[IDENTITY] slots are always taken on top of this floor.
+    density = max(0.1, min(float(density or 0.55), 0.95))
     non_anthem = [c for c in candidates if not c.get("is_anthem")]
     total_speech_s = sum(c["duration_s"] for c in non_anthem) or 1.0
     avg_slot_s = total_speech_s / max(1, len(non_anthem))
-    target_personalized_s = min(total_speech_s, max(win_s * 0.55, total_speech_s * 0.62))
-    target_slot_count = max(8, int(target_personalized_s / max(avg_slot_s, 0.5)))
+    target_personalized_s = min(total_speech_s, total_speech_s * density)
+    slot_floor = 8 if density >= 0.5 else 4    # a denser tier needs more picks; a light tier may be sparse
+    target_slot_count = max(slot_floor, int(target_personalized_s / max(avg_slot_s, 0.5)))
     target_slot_count = min(target_slot_count, len(non_anthem))
+    coverage_pct = int(round(density * 100))
+    if verbose: print(f"  density tier: ~{coverage_pct}% of spoken timeline -> ~{target_slot_count} slots")
 
     if verbose: print(f"\nStage 4: Opus drafts ~{target_slot_count} original first-person lines (hero {protagonist!r} -> {user_name!r})...")
     draft = llm_pick_slots(non_anthem, brief, type_profile, target_slot_count, win_ms,
-                            protagonist=protagonist, user_context=user_context, language=language)
+                            protagonist=protagonist, user_context=user_context, language=language,
+                            coverage_pct=coverage_pct)
     if verbose: print(f"  draft: {len(draft)} picks")
     # QA self-review — but only when the draft actually needs it. A cheap deterministic check
     # decides; clean drafts skip the 2nd (expensive) LLM call entirely, cutting cost.
@@ -876,7 +888,7 @@ def generate_personalization(audio_path: str, user_context: str,
         try:
             revised = llm_pick_slots(non_anthem, brief, type_profile, target_slot_count, win_ms,
                                       protagonist=protagonist, user_context=user_context, draft=draft,
-                                      language=language)
+                                      language=language, coverage_pct=coverage_pct)
             if revised:
                 selected = revised
         except Exception as ex:
