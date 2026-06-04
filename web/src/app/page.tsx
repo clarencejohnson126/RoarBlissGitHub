@@ -15,6 +15,8 @@ interface OnboardingData {
   champion: string;
   email: string;
   paid: boolean;
+  personalization: 25 | 50 | 75 | 100;
+  language: string;
   file: File | null;
 }
 

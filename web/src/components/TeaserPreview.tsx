@@ -13,6 +13,8 @@ interface TeaserPreviewProps {
     champion: string;
     email?: string;
     paid?: boolean;
+    personalization?: 25 | 50 | 75 | 100;
+    language?: string;
     file: File | null;
   };
   onComplete: (predictionId: string) => void;
@@ -81,6 +83,8 @@ export default function TeaserPreview({ formData, onComplete }: TeaserPreviewPro
             champion: formData.champion,
             email: formData.email || "",
             paid: formData.paid === true,
+            personalization: formData.personalization ?? 50,
+            language: formData.language || "English",
           }),
         });
         if (!res.ok) {

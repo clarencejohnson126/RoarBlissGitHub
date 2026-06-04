@@ -28,7 +28,14 @@ export async function POST(request: Request) {
       champion,
       email,
       paid,
+      personalization,
+      language,
     } = (data ?? {}) as Record<string, unknown>;
+
+    // Core feature 1: the 4-tier selector. Accept 25/50/75/100; anything else falls back to 50.
+    const tier = [25, 50, 75, 100].includes(Number(personalization))
+      ? (Number(personalization) as 25 | 50 | 75 | 100)
+      : 50;
 
     const base = baseUrl(request);
     const audio =
@@ -71,6 +78,8 @@ export async function POST(request: Request) {
       location: (location as string) || "",
       champion: (champion as string) || "",
       paid: paidGranted,
+      personalization: tier,
+      language: (typeof language === "string" && language.trim()) || "English",
       // Secrets travel as Cog Secret inputs (Replicate has no model-level env). Server-side env only.
       anthropic_api_key: process.env.ANTHROPIC_API_KEY || "",
       hf_token: process.env.HF_TOKEN || "",

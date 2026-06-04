@@ -59,7 +59,12 @@ export interface PredictionInput {
   replicate_api_token?: string;
   blob_token?: string;
   elevenlabs_api_key?: string; // premium voice cloning — when set, the cog uses ElevenLabs over F5
-  mode?: "personalize" | "full_voice"; // personalize = 50/50; full_voice = 100% generated in the clone
+  // Core feature 1 — how much of the audio becomes the user's. 25/50/75 keep the original speaker and
+  // replace that share of the spoken timeline; 100 = a fully new script in the cloned voice (full_voice).
+  personalization?: 25 | 50 | 75 | 100;
+  mode?: "auto" | "personalize" | "full_voice"; // legacy override; 'auto' derives the path from personalization
+  // Core feature 2 — target language for the generated lines (the cloned timbre is kept, source can be any language).
+  language?: string;
 }
 
 export type PredictionStatus =

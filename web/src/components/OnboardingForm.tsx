@@ -12,6 +12,8 @@ interface OnboardingFormProps {
     champion: string;
     email: string;
     paid: boolean;
+    personalization: 25 | 50 | 75 | 100;
+    language: string;
     file: File | null;
   }) => void;
 }
@@ -28,6 +30,10 @@ export default function OnboardingForm({ onComplete }: OnboardingFormProps) {
   const [champion, setChampion] = useState("Eric Thomas");
   const [email, setEmail] = useState("");
   const [paid, setPaid] = useState(false);
+  // Core feature 1: how much of the audio becomes the user's (25/50/75/100%).
+  const [personalization, setPersonalization] = useState<25 | 50 | 75 | 100>(50);
+  // Core feature 2: target language for the generated lines (cloned timbre is kept).
+  const [language, setLanguage] = useState("English");
 
   // Drag and Drop States
   const [isDragOver, setIsDragOver] = useState(false);
@@ -99,6 +105,8 @@ export default function OnboardingForm({ onComplete }: OnboardingFormProps) {
       champion,
       email,
       paid,
+      personalization,
+      language,
       file: usePreloaded ? null : file,
     });
   };
@@ -398,7 +406,62 @@ export default function OnboardingForm({ onComplete }: OnboardingFormProps) {
             </label>
           </div>
 
+          {/* Core feature 1: how much of the audio becomes the user's */}
           <div className="form-group" style={{ marginTop: "1rem" }}>
+            <label className="form-label">
+              Personalization
+              <span style={{ fontSize: "0.75rem", color: "var(--color-text-muted)", marginInlineStart: "0.5rem" }}>
+                — how much of the audio becomes yours
+              </span>
+            </label>
+            <div style={{ display: "flex", gap: "0.5rem" }}>
+              {([25, 50, 75, 100] as const).map((p) => (
+                <button
+                  key={p}
+                  type="button"
+                  onClick={() => setPersonalization(p)}
+                  className="btn-premium"
+                  style={{
+                    flex: 1,
+                    padding: "0.6rem 0",
+                    fontSize: "0.85rem",
+                    border: personalization === p ? "1px solid var(--color-gold)" : "1px solid rgba(255,255,255,0.12)",
+                    background: personalization === p ? "rgba(255,215,0,0.12)" : "transparent",
+                    color: personalization === p ? "var(--color-gold)" : "var(--color-text-secondary)",
+                  }}
+                >
+                  {p}%
+                </button>
+              ))}
+            </div>
+            <p style={{ fontSize: "0.72rem", color: "var(--color-text-muted)", marginBlockStart: "0.4rem", lineHeight: 1.4 }}>
+              {personalization === 100
+                ? "100% — a completely new script spoken entirely in the cloned voice."
+                : `${personalization}% — keep the original speaker, replace ${personalization}% of the lines with your story.`}
+            </p>
+          </div>
+
+          {/* Core feature 2: target language (cloned voice is kept) */}
+          <div className="form-group">
+            <label className="form-label" htmlFor="output-language">
+              Language
+              <span style={{ fontSize: "0.75rem", color: "var(--color-text-muted)", marginInlineStart: "0.5rem" }}>
+                — the cloned voice speaks this language
+              </span>
+            </label>
+            <select
+              id="output-language"
+              className="form-input"
+              value={language}
+              onChange={(e) => setLanguage(e.target.value)}
+            >
+              {["English", "German", "Spanish", "French", "Italian", "Portuguese", "Dutch", "Polish"].map((l) => (
+                <option key={l} value={l}>{l}</option>
+              ))}
+            </select>
+          </div>
+
+          <div className="form-group">
             <label className="form-label" htmlFor="user-email">
               Email (optional)
               <span style={{ fontSize: "0.75rem", color: "var(--color-text-muted)", marginInlineStart: "0.5rem" }}>
