@@ -17,8 +17,9 @@ from cog import BasePredictor, Input, Path, Secret
 # Make the orchestrator importable (it lives in poc/orchestrator).
 sys.path.insert(0, str(_P(__file__).parent / "poc" / "orchestrator"))
 
-FREE_MAX_MS = 60_000     # free tier: up to 60s
+FREE_MAX_MS = 45_000     # free tier: up to 45s
 PAID_MAX_MS = 360_000    # paid tier: up to 6 min
+FREE_TIER_PERSONALIZATION = 75   # free runs are ALWAYS 75% generated so the listener identifies at once
 
 
 def _context_prompt(name, location, battlefield, struggle, family, champion) -> str:
@@ -324,7 +325,7 @@ class Predictor(BasePredictor):
         family: str = Input(default="", description="Who they fight for (names welcome)"),
         location: str = Input(default="", description="Their home city"),
         champion: str = Input(default="", description="A figure they look up to (optional)"),
-        paid: bool = Input(default=False, description="Paid unlocks up to 6 min; free is capped at 60s"),
+        paid: bool = Input(default=False, description="Paid unlocks up to 6 min + all tiers; free is capped at 45s and locked to 75%% personalization"),
         anthropic_api_key: Secret = Input(default=None, description="Anthropic API key (Sonnet/Haiku planner)"),
         hf_token: Secret = Input(default=None, description="HuggingFace token (pyannote diarization model)"),
         replicate_api_token: Secret = Input(default=None, description="Replicate API token (F5-TTS voice cloning)"),
@@ -372,7 +373,11 @@ class Predictor(BasePredictor):
         # is a legacy override. 100% (or an explicit full_voice) -> a fully generated new script;
         # 25/50/75 -> the 50/50-style pipeline with that share of the spoken timeline replaced.
         tier = int(personalization) if personalization else 50
-        use_full_voice = (mode == "full_voice") or (mode == "auto" and tier >= 100)
+        # Free tier is locked to 75% (and ≤45s above): the listener hears overwhelmingly their own
+        # story right away, which is the hook that converts. The tier selector only applies once paid.
+        if not paid:
+            tier = FREE_TIER_PERSONALIZATION
+        use_full_voice = paid and ((mode == "full_voice") or (mode == "auto" and tier >= 100))
         density = max(0.1, min(tier / 100.0, 0.95))   # fraction of speech to personalize (25/50/75)
         print(f"personalization tier={tier}% -> {'full_voice' if use_full_voice else f'personalize @ density {density:.2f}'}")
 

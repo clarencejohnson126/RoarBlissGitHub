@@ -92,7 +92,7 @@ export default function TeaserPreview({ formData, onComplete }: TeaserPreviewPro
           if (res.status === 401 || res.status === 402) {
             throw new Error(
               (err.error || "Paid track needs sign-in + credits.") +
-                " — melde dich oben rechts an und kauf Credits, oder nimm den 6-Min-Haken raus für die kostenlose 60s-Version.",
+                " — melde dich oben rechts an und kauf Credits, oder nimm den 6-Min-Haken raus für die kostenlose 45s-Version (immer 75% personalisiert).",
             );
           }
           throw new Error(err.error || `Server rejected the run (${res.status}).`);

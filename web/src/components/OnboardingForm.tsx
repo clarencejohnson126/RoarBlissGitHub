@@ -415,27 +415,36 @@ export default function OnboardingForm({ onComplete }: OnboardingFormProps) {
               </span>
             </label>
             <div style={{ display: "flex", gap: "0.5rem" }}>
-              {([25, 50, 75, 100] as const).map((p) => (
-                <button
-                  key={p}
-                  type="button"
-                  onClick={() => setPersonalization(p)}
-                  className="btn-premium"
-                  style={{
-                    flex: 1,
-                    padding: "0.6rem 0",
-                    fontSize: "0.85rem",
-                    border: personalization === p ? "1px solid var(--color-gold)" : "1px solid rgba(255,255,255,0.12)",
-                    background: personalization === p ? "rgba(255,215,0,0.12)" : "transparent",
-                    color: personalization === p ? "var(--color-gold)" : "var(--color-text-secondary)",
-                  }}
-                >
-                  {p}%
-                </button>
-              ))}
+              {([25, 50, 75, 100] as const).map((p) => {
+                // Free tier is locked to 75% (the identify-immediately hook); the selector unlocks once paid.
+                const active = paid ? personalization === p : p === 75;
+                return (
+                  <button
+                    key={p}
+                    type="button"
+                    onClick={() => paid && setPersonalization(p)}
+                    disabled={!paid}
+                    className="btn-premium"
+                    style={{
+                      flex: 1,
+                      padding: "0.6rem 0",
+                      fontSize: "0.85rem",
+                      cursor: paid ? "pointer" : "not-allowed",
+                      opacity: paid || p === 75 ? 1 : 0.4,
+                      border: active ? "1px solid var(--color-gold)" : "1px solid rgba(255,255,255,0.12)",
+                      background: active ? "rgba(255,215,0,0.12)" : "transparent",
+                      color: active ? "var(--color-gold)" : "var(--color-text-secondary)",
+                    }}
+                  >
+                    {p}%
+                  </button>
+                );
+              })}
             </div>
             <p style={{ fontSize: "0.72rem", color: "var(--color-text-muted)", marginBlockStart: "0.4rem", lineHeight: 1.4 }}>
-              {personalization === 100
+              {!paid
+                ? "Free preview: first 45s, locked at 75% so you hear yourself right away. Unlock 25/50/100% and up to 6 min with a pack."
+                : personalization === 100
                 ? "100% — a completely new script spoken entirely in the cloned voice."
                 : `${personalization}% — keep the original speaker, replace ${personalization}% of the lines with your story.`}
             </p>
@@ -497,9 +506,9 @@ export default function OnboardingForm({ onComplete }: OnboardingFormProps) {
               style={{ marginTop: "0.2rem", accentColor: "var(--color-gold)" }}
             />
             <span style={{ fontSize: "0.8rem", color: "var(--color-text-secondary)", lineHeight: 1.4 }}>
-              <strong style={{ color: "var(--color-gold)" }}>Bis zu 6 Minuten freischalten</strong>{" "}
+              <strong style={{ color: "var(--color-gold)" }}>Bis zu 6 Minuten + alle Stufen freischalten</strong>{" "}
               (Paid · verbraucht 1 Credit). Benötigt Login + Guthaben oben rechts — ohne Haken läuft es
-              kostenlos bis 60s.
+              kostenlos bis 45s, immer 75% personalisiert.
             </span>
           </label>
 

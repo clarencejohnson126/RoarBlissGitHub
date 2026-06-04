@@ -23,7 +23,7 @@ export default function AudioVisualizer({ formData, sessionId }: AudioVisualizer
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
 
-  // The free track is already capped at 60s by the pipeline, so it plays in full (no preview lock).
+  // The free track is already capped at 45s by the pipeline, so it plays in full (no preview lock).
   const [isLocked, setIsLocked] = useState(false);
   const [showLockOverlay, setShowLockOverlay] = useState(false);
   const [email, setEmail] = useState("");

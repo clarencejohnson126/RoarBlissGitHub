@@ -13,7 +13,7 @@ import { bearerToken } from "@/lib/stripe";
  *
  * The heavy pipeline (Demucs → Whisper → pyannote → Sonnet planner → TTS → ffmpeg) runs as one
  * Replicate model, scale-to-zero. We return the prediction id; the client polls /api/process/status.
- * Tier caps (free ≤60s / paid ≤6min) are enforced inside the model itself.
+ * Tier caps (free ≤45s & locked to 75% / paid ≤6min & any tier) are enforced inside the model itself.
  */
 export async function POST(request: Request) {
   try {
@@ -33,7 +33,9 @@ export async function POST(request: Request) {
     } = (data ?? {}) as Record<string, unknown>;
 
     // Core feature 1: the 4-tier selector. Accept 25/50/75/100; anything else falls back to 50.
-    const tier = [25, 50, 75, 100].includes(Number(personalization))
+    // The free tier is locked to 75% (and ≤45s in the cog) so the listener identifies immediately —
+    // the tier selector only takes effect once paid. The cog enforces this too (defence in depth).
+    const requestedTier = [25, 50, 75, 100].includes(Number(personalization))
       ? (Number(personalization) as 25 | 50 | 75 | 100)
       : 50;
 
@@ -78,7 +80,7 @@ export async function POST(request: Request) {
       location: (location as string) || "",
       champion: (champion as string) || "",
       paid: paidGranted,
-      personalization: tier,
+      personalization: paidGranted ? requestedTier : 75,
       language: (typeof language === "string" && language.trim()) || "English",
       // Secrets travel as Cog Secret inputs (Replicate has no model-level env). Server-side env only.
       anthropic_api_key: process.env.ANTHROPIC_API_KEY || "",
