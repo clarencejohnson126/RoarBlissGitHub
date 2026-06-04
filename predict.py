@@ -70,24 +70,21 @@ class Predictor(BasePredictor):
         vocals = next(out.rglob("vocals.wav"))
         return vocals, vocals.parent / "no_vocals.wav"
 
-    def _full_voice(self, vocals, accomp, audio_path, user_context, window_ms, work, min_voices=0):
-        """100%-generated mode — adaptive. Diarize the source, clone EVERY distinct voice, write a
-        COMPLETE new script (the listener's saga, original lines, never the source's words) and speak it
-        100% in the cloned voice(s) over the source's own clean music+SFX bed. Solo source -> a one-voice
-        monologue (Tate). Multi-speaker cinematic source -> a multi-voice epic that trades lines between
-        the cloned characters (GoT). NO original dialogue is ever mixed in."""
+    def _full_voice(self, vocals, accomp, audio_path, user_context, window_ms, work,
+                    min_voices=0, extra_voice_ids=""):
+        """100%-generated mode — adaptive. Build a pool of voices (permanent voice_ids supplied by the
+        caller PLUS voices freshly cloned from the source's distinct speakers), write a COMPLETE new
+        script (the listener's saga, original lines, never the source's words) and speak it 100% across
+        those voices over the source's own clean music+SFX bed. Solo source -> one-voice monologue (Tate);
+        multi-speaker cinematic source -> a multi-voice epic (GoT). NO original dialogue is mixed in."""
         import tts
         from pydub import AudioSegment
         voc = AudioSegment.from_wav(str(vocals))
 
-        # 1) diarize -> distinct speakers ranked by speaking time (min_voices hints pyannote so a dense
-        #    multi-character montage isn't merged into too few speakers)
-        speakers = self._rank_speakers(str(vocals), len(voc), min_speakers=min_voices)[:6]   # up to 6 voices
+        # 1) diarize -> distinct speakers, build a clone reference per speaker (concatenate their segments)
+        speakers = self._rank_speakers(str(vocals), len(voc), min_speakers=min_voices)[:6]
         print(f"full_voice: {len(speakers)} distinct voice(s) detected (min_voices={min_voices})")
-
-        # 2) build a clone reference per speaker (concatenate their own segments). We do NOT clone yet —
-        #    cloning happens ONE voice at a time below to stay under the account's custom-voice slot cap.
-        refs = []   # (speaker_id, ref_path)
+        track_refs = []   # (speaker_id, ref_path) — cloned one at a time later
         for spk, segs in speakers:
             ref = AudioSegment.silent(duration=0)
             for s, e in segs:
@@ -98,31 +95,39 @@ class Predictor(BasePredictor):
                 ref = voc[:min(len(voc), 30_000)]
             rp = _P(work) / f"fv_ref_{spk}.wav"
             ref[:40_000].export(str(rp), format="wav")
-            refs.append((spk, rp))
-        n = len(refs)
-        if n == 0:
-            raise RuntimeError("full_voice: no speaker detected")
+            track_refs.append((spk, rp))
 
-        # 3) write the COMPLETE new script for n voices (monologue if 1; multi-voice epic if >=2)
+        # 2) voice pool = permanent voices first (used directly, never cloned/deleted — e.g. the user's
+        #    GoT-Jon / dany clones; they guarantee solid extra voices and cost no slot), then track clones.
+        fixed = [v.strip() for v in (extra_voice_ids or "").split(",") if v.strip()]
+        pool = [("fixed", vid) for vid in fixed] + [("clone", rp) for (_s, rp) in track_refs]
+        pool = pool[:6]
+        n = len(pool)
+        if n == 0:
+            raise RuntimeError("full_voice: no voices available")
+        print(f"full_voice: pool = {len(fixed)} permanent + {len(track_refs)} cloned -> {n} total")
+
+        # 3) write the COMPLETE new script for n voices
         lines = self._write_fullvoice_script(audio_path, user_context, n, window_ms)
         by_voice = {}
         for idx, ln in enumerate(lines):
             by_voice.setdefault(int(ln.get("voice", 0)) % n, []).append(idx)
 
-        # 4) render VOICE BY VOICE: clone -> TTS that voice's lines -> delete. Only one throwaway voice
-        #    exists at a time, so the ElevenLabs custom-voice slot cap (e.g. Starter = 10) is never hit
-        #    even when the account already holds several voices — this is what made 3/5 clones 400 before.
+        # 4) render per voice. Permanent voices TTS directly; cloned voices clone -> TTS -> delete, one at
+        #    a time, so the ElevenLabs custom-voice slot cap is never hit (this fixed the 3/5 400 errors).
         self._purge_orphan_clones()
-        rendered, cloned_ok = {}, 0
-        for vi, (spk, rp) in enumerate(refs):
+        rendered, used = {}, 0
+        for vi, (kind, ident) in enumerate(pool):
             idxs = by_voice.get(vi, [])
             if not idxs:
-                continue                              # this voice got no lines → don't waste a clone
-            try:
-                vid = tts.elevenlabs_clone(rp, name=f"rb_fv_{spk}")
-            except Exception as ex:
-                print(f"  clone failed for {spk}: {ex}"); continue
-            cloned_ok += 1
+                continue
+            vid, created = ident, False
+            if kind == "clone":
+                try:
+                    vid = tts.elevenlabs_clone(ident, name=f"rb_fv_{vi}"); created = True
+                except Exception as ex:
+                    print(f"  clone failed (voice {vi}): {ex}"); continue
+            used += 1
             try:
                 for idx in idxs:
                     txt = (lines[idx].get("text") or "").strip()
@@ -133,26 +138,30 @@ class Predictor(BasePredictor):
                     except Exception as ex:
                         print(f"  tts failed ({txt[:30]}…): {ex}")
             finally:
-                tts.elevenlabs_delete(vid)
-        print(f"full_voice: cloned {cloned_ok}/{n} voices, rendered {len(rendered)}/{len(lines)} lines")
+                if created:
+                    tts.elevenlabs_delete(vid)
+        print(f"full_voice: used {used}/{n} voices, rendered {len(rendered)}/{len(lines)} lines")
 
-        # 5) any line whose own voice failed to clone is re-voiced with the first usable reference,
-        #    so no line is dropped
+        # 5) re-voice any line whose voice failed, with a guaranteed voice (a permanent one if available)
         leftover = [i for i in range(len(lines))
                     if i not in rendered and (lines[i].get("text") or "").strip()]
         if leftover:
-            try:
-                vid = tts.elevenlabs_clone(str(refs[0][1]), name="rb_fv_fallback")
+            fb_vid, fb_created = (fixed[0] if fixed else None), False
+            if not fb_vid and track_refs:
+                try:
+                    fb_vid = tts.elevenlabs_clone(str(track_refs[0][1]), name="rb_fv_fb"); fb_created = True
+                except Exception as ex:
+                    print("  fallback clone failed:", ex)
+            if fb_vid:
                 try:
                     for idx in leftover:
                         try:
-                            rendered[idx] = tts.elevenlabs_tts(lines[idx]["text"].strip(), vid)
+                            rendered[idx] = tts.elevenlabs_tts(lines[idx]["text"].strip(), fb_vid)
                         except Exception:
                             pass
                 finally:
-                    tts.elevenlabs_delete(vid)
-            except Exception as ex:
-                print("  fallback clone failed:", ex)
+                    if fb_created:
+                        tts.elevenlabs_delete(fb_vid)
         if not rendered:
             raise RuntimeError("full_voice: nothing could be synthesized")
 
@@ -232,7 +241,7 @@ class Predictor(BasePredictor):
                    f"Write ~{target_words} words total, broken into natural spoken lines, building to one "
                    f"decisive final line. JSON only.")
         else:
-            target_words = max(140, int(window_ms / 1000.0 / 60.0 * 165))   # epic pace runs a touch slower
+            target_words = max(220, int(window_ms / 1000.0 / 60.0 * 215))   # fill the window (gaps eat time)
             sysmsg = (f"You script a cinematic, multi-voice EPIC TRAILER — the listener's life told as a "
                       f"mythic saga. You have {n_voices} distinct VOICES, numbered 0..{n_voices - 1}. Write "
                       "ORIGINAL lines ONLY — never quote any film, show, or song. Distribute the lines across "
@@ -243,7 +252,8 @@ class Predictor(BasePredictor):
                       "gets several lines; leave none silent. Build to one decisive final line. Output STRICT "
                       "JSON ONLY: [{\"voice\":int,\"text\":str}, ...]. No prose, no markdown.")
             usr = (f"STYLE/cadence to echo (do NOT reuse words):\n\"\"\"\n{style}\n\"\"\"\n\nLISTENER:\n{user_context}\n\n"
-                   f"Write ~{target_words} words total across {n_voices} voices as a seamless, building epic. JSON only.")
+                   f"Write the FULL ~{target_words} words total across {n_voices} voices as a seamless, building "
+                   f"epic — fill the whole duration, do NOT stop short. JSON only.")
         raw = llm_chat(sysmsg, usr, max_tokens=2000, temperature=0.75, model=model).strip()
         return self._parse_script_json(raw, n_voices, user_context)
 
@@ -308,6 +318,7 @@ class Predictor(BasePredictor):
         mode: str = Input(default="personalize", choices=["personalize", "full_voice"], description="personalize = 50/50 original + snippets; full_voice = 100% generated speech in the cloned voice"),
         min_voices: int = Input(default=0, description="full_voice only: hint pyannote to find at least N distinct speakers to clone (0 = auto). Use for dense multi-character sources like a GoT montage."),
         output_seconds: int = Input(default=0, description="full_voice only: cap the OUTPUT length (s) independent of source length — clone the voices from a longer source but render e.g. a 2-min piece. 0 = use the full window."),
+        extra_voice_ids: str = Input(default="", description="full_voice only: comma-separated permanent ElevenLabs voice IDs to include as voices (used directly, never cloned/deleted) — e.g. the user's GoT-Jon + dany clones, to guarantee solid extra voices."),
     ) -> Path:
         from auto_synthesizer import auto_synthesize
 
@@ -347,7 +358,7 @@ class Predictor(BasePredictor):
             return self._full_voice(
                 vocals, accomp, str(audio),
                 _context_prompt(name, location, battlefield, struggle, family, champion),
-                out_window, work, min_voices=min_voices,
+                out_window, work, min_voices=min_voices, extra_voice_ids=extra_voice_ids,
             )
 
         result = auto_synthesize(
