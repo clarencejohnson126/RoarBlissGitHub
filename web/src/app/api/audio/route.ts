@@ -1,16 +1,31 @@
 import { getPrediction, outputUrl } from "@/lib/replicate";
+import { verifyUser } from "@/lib/supabase-admin";
 
 /**
- * GET /api/audio?id=<predictionId>
+ * GET /api/audio?id=<predictionId>[&download=1]
  *
  * Streams the finished MP3 from Replicate back to the browser SAME-ORIGIN (so the Web Audio
  * visualizer can analyse it without CORS tainting, and the Replicate URL stays hidden). Forwards
  * Range headers so the <audio> element can seek.
+ *
+ * Playback (inline) is open — free users must be able to HEAR their track (the conversion hook).
+ * `download=1` returns the file as an attachment and REQUIRES a signed-in user (Bearer token):
+ * keeping the original file is the gated action that drives registration.
  */
 export async function GET(request: Request): Promise<Response> {
   const { searchParams } = new URL(request.url);
   const id = searchParams.get("id");
   if (!id) return new Response("id required", { status: 400 });
+
+  // Download is gated behind login; playback stays open.
+  const isDownload = searchParams.get("download") === "1";
+  if (isDownload) {
+    const auth = request.headers.get("authorization") || "";
+    const token = auth.toLowerCase().startsWith("bearer ") ? auth.slice(7).trim() : null;
+    if (!(await verifyUser(token))) {
+      return new Response("login required to download", { status: 401 });
+    }
+  }
 
   let url: string | null = null;
   try {
@@ -32,7 +47,10 @@ export async function GET(request: Request): Promise<Response> {
   headers.set("Content-Type", upstream.headers.get("Content-Type") || "audio/mpeg");
   headers.set("Accept-Ranges", upstream.headers.get("Accept-Ranges") || "bytes");
   headers.set("Cache-Control", "public, max-age=3600");
-  headers.set("Content-Disposition", `inline; filename="roar-bliss-${id}.mp3"`);
+  headers.set(
+    "Content-Disposition",
+    `${isDownload ? "attachment" : "inline"}; filename="roar-bliss-${id}.mp3"`,
+  );
   const cr = upstream.headers.get("Content-Range");
   if (cr) headers.set("Content-Range", cr);
   const cl = upstream.headers.get("Content-Length");

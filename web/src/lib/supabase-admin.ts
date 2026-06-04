@@ -59,3 +59,40 @@ export async function consumeCredit(userId: string): Promise<boolean> {
   });
   return true;
 }
+
+/**
+ * Free-tier abuse gate — one free track per device fingerprint OR IP. Backed by the `free_usage`
+ * table (fingerprint text, ip text, prediction_id text, created_at timestamptz). The service_role
+ * client bypasses RLS. If the table doesn't exist yet we FAIL OPEN (allow) and log — so a missing
+ * migration never blocks legitimate users; abuse protection just isn't active until the table exists.
+ */
+export async function freeUsageExists(fingerprint: string, ip: string): Promise<boolean> {
+  if (!fingerprint && !ip) return false;
+  try {
+    const ors: string[] = [];
+    if (fingerprint) ors.push(`fingerprint.eq.${fingerprint}`);
+    if (ip) ors.push(`ip.eq.${ip}`);
+    const { data, error } = await supabaseAdmin()
+      .from("free_usage")
+      .select("id")
+      .or(ors.join(","))
+      .limit(1);
+    if (error) {
+      console.warn("freeUsageExists: failing open —", error.message);
+      return false;
+    }
+    return (data?.length ?? 0) > 0;
+  } catch (e) {
+    console.warn("freeUsageExists: failing open —", (e as Error).message);
+    return false;
+  }
+}
+
+/** Record that a device/IP has consumed its one free track. Best-effort (never throws). */
+export async function recordFreeUsage(fingerprint: string, ip: string, predictionId: string): Promise<void> {
+  try {
+    await supabaseAdmin().from("free_usage").insert({ fingerprint, ip, prediction_id: predictionId });
+  } catch (e) {
+    console.warn("recordFreeUsage skipped:", (e as Error).message);
+  }
+}

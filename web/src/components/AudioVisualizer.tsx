@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useRef, useState, useEffect } from "react";
+import { supabaseBrowser } from "@/lib/supabase-browser";
 
 interface AudioVisualizerProps {
   formData: {
@@ -31,6 +32,12 @@ export default function AudioVisualizer({ formData, sessionId }: AudioVisualizer
     type: "idle" | "loading" | "success" | "error";
     message: string;
   }>({ type: "idle", message: "" });
+
+  // Download is gated behind login: free users HEAR the track, but keeping the file needs an account.
+  const [showAuthGate, setShowAuthGate] = useState(false);
+  const [authEmail, setAuthEmail] = useState("");
+  const [authMsg, setAuthMsg] = useState("");
+  const [downloadState, setDownloadState] = useState<"idle" | "working" | "error">("idle");
 
   // Web Audio Nodes refs to prevent re-connections
   const audioCtxRef = useRef<AudioContext | null>(null);
@@ -194,6 +201,63 @@ export default function AudioVisualizer({ formData, sessionId }: AudioVisualizer
       });
     }
   };
+
+  // Download flow: needs a logged-in user. Fetch the file with the access token (so /api/audio's
+  // download gate passes), then save the blob locally. Not logged in -> open the registration gate.
+  const handleDownload = async () => {
+    setDownloadState("working");
+    try {
+      const { data } = await supabaseBrowser().auth.getSession();
+      const token = data.session?.access_token;
+      if (!token) {
+        setDownloadState("idle");
+        setShowAuthGate(true);
+        return;
+      }
+      const res = await fetch(`/api/audio?id=${sessionId}&download=1`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (res.status === 401) {
+        setDownloadState("idle");
+        setShowAuthGate(true);
+        return;
+      }
+      if (!res.ok) throw new Error(`download failed (${res.status})`);
+      const blob = await res.blob();
+      const objUrl = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = objUrl;
+      a.download = `roar-bliss-${formData.name || "track"}.mp3`.replace(/\s+/g, "_");
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(objUrl);
+      setDownloadState("idle");
+    } catch (e) {
+      console.error("download error", e);
+      setDownloadState("error");
+    }
+  };
+
+  // Send the magic link for registration / sign-in (Supabase OTP).
+  const sendMagicLink = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!authEmail.includes("@")) return;
+    setAuthMsg("Sending…");
+    const { error } = await supabaseBrowser().auth.signInWithOtp({
+      email: authEmail,
+      options: { emailRedirectTo: typeof window !== "undefined" ? window.location.href : undefined },
+    });
+    setAuthMsg(error ? error.message : "Check your email — open the link, then hit Download again.");
+  };
+
+  // Auto-close the gate once the user is authenticated (e.g. returns from the magic link).
+  useEffect(() => {
+    const { data: sub } = supabaseBrowser().auth.onAuthStateChange((_e, session) => {
+      if (session) setShowAuthGate(false);
+    });
+    return () => sub.subscription.unsubscribe();
+  }, []);
 
   // Format Time Helper
   const formatTime = (secs: number) => {
@@ -459,6 +523,53 @@ export default function AudioVisualizer({ formData, sessionId }: AudioVisualizer
         </div>
       )}
 
+      {/* Registration gate — appears when a logged-out user hits Download */}
+      {showAuthGate && (
+        <div
+          style={{
+            position: "absolute", inset: 0,
+            background: "rgba(9, 9, 12, 0.9)",
+            backdropFilter: "blur(14px)", WebkitBackdropFilter: "blur(14px)",
+            display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center",
+            padding: "2rem", borderRadius: "20px", zIndex: 100, textAlign: "center",
+            animation: "fadeIn 0.3s ease forwards",
+          }}
+        >
+          <span style={{ fontSize: "2.5rem", filter: "drop-shadow(0 0 8px var(--color-gold))" }}>⬇️</span>
+          <h3 className="headline-md" style={{ marginBlockEnd: "0.5rem", fontSize: "1.3rem", color: "#fff" }}>
+            Register to download
+          </h3>
+          <p style={{ color: "var(--color-text-secondary)", fontSize: "0.85rem", maxWidth: 340, lineHeight: 1.5, marginBlockEnd: "1.5rem" }}>
+            Your track is ready to play. Create a free account to keep the file — we&apos;ll email you a magic link.
+          </p>
+          <form onSubmit={sendMagicLink} style={{ display: "flex", flexDirection: "column", gap: "0.75rem", width: "100%", maxWidth: 300 }}>
+            <input
+              type="email"
+              className="form-input"
+              value={authEmail}
+              onChange={(e) => setAuthEmail(e.target.value)}
+              placeholder="you@email.com"
+              required
+              style={{ background: "rgba(255,255,255,0.03)" }}
+            />
+            <button type="submit" className="btn-premium btn-gold" style={{ width: "100%", minBlockSize: 42, fontSize: "0.82rem" }}>
+              Send magic link &rarr;
+            </button>
+          </form>
+          {authMsg && (
+            <div style={{ marginBlockStart: "1rem", fontSize: "0.8rem", color: authMsg.startsWith("Check") ? "#4ade80" : "var(--color-text-secondary)" }}>
+              {authMsg}
+            </div>
+          )}
+          <button
+            onClick={() => setShowAuthGate(false)}
+            style={{ background: "none", border: "none", color: "var(--color-text-muted)", fontSize: "0.75rem", marginBlockStart: "1.25rem", cursor: "pointer", textDecoration: "underline" }}
+          >
+            Keep listening
+          </button>
+        </div>
+      )}
+
       {/* Visualizer Meta */}
       <div className="visualizer-card-meta">
         <span className={`visualizer-subtitle ${isGladiator ? "active-crimson" : ""}`}>
@@ -535,28 +646,33 @@ export default function AudioVisualizer({ formData, sessionId }: AudioVisualizer
             )}
           </button>
           
-          {isLocked && (
-            <div
-              onClick={() => setShowLockOverlay(true)}
-              style={{
-                position: "absolute",
-                right: "1.5rem",
-                display: "flex",
-                alignItems: "center",
-                gap: "0.35rem",
-                fontSize: "0.72rem",
-                color: "var(--color-gold)",
-                cursor: "pointer",
-                background: "rgba(255,215,0,0.08)",
-                padding: "0.25rem 0.6rem",
-                borderRadius: "6px",
-                border: "1px solid rgba(255,215,0,0.25)",
-                fontWeight: "600"
-              }}
-            >
-              <span>🔒 30s Capped</span>
-            </div>
-          )}
+          {/* Download — gated behind login. Free users can play; keeping the file needs an account. */}
+          <button
+            type="button"
+            onClick={handleDownload}
+            disabled={downloadState === "working"}
+            style={{
+              position: "absolute",
+              right: "1.5rem",
+              display: "flex",
+              alignItems: "center",
+              gap: "0.4rem",
+              fontSize: "0.78rem",
+              color: "var(--color-gold)",
+              cursor: "pointer",
+              background: "rgba(255,215,0,0.08)",
+              padding: "0.45rem 0.8rem",
+              borderRadius: "8px",
+              border: "1px solid rgba(255,215,0,0.3)",
+              fontWeight: 600,
+            }}
+            aria-label="Download track"
+          >
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="currentColor">
+              <path d="M12 16l-5-5h3V4h4v7h3l-5 5zm-7 2h14v2H5v-2z" />
+            </svg>
+            <span>{downloadState === "working" ? "…" : downloadState === "error" ? "Retry" : "Download"}</span>
+          </button>
         </div>
       </div>
 

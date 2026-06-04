@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { createPrediction, type PredictionInput } from "@/lib/replicate";
 import { baseUrl } from "@/lib/base-url";
-import { verifyUser, paidCredits, consumeCredit } from "@/lib/supabase-admin";
+import { verifyUser, paidCredits, consumeCredit, freeUsageExists, recordFreeUsage } from "@/lib/supabase-admin";
 import { bearerToken } from "@/lib/stripe";
 
 /**
@@ -30,7 +30,19 @@ export async function POST(request: Request) {
       paid,
       personalization,
       language,
+      deviceId,
     } = (data ?? {}) as Record<string, unknown>;
+
+    // Device + IP identity for the free-tier abuse gate (1 free track per device/IP). Sanitize both
+    // to safe charsets — they flow into a PostgREST .or() filter, so strip anything that isn't a
+    // plain id/ip character to avoid filter injection.
+    const fingerprint =
+      typeof deviceId === "string" ? deviceId.replace(/[^A-Za-z0-9-]/g, "").slice(0, 64) : "";
+    const ip = (request.headers.get("x-forwarded-for") || "")
+      .split(",")[0]
+      .trim()
+      .replace(/[^0-9a-fA-F:.]/g, "")
+      .slice(0, 45);
 
     // Core feature 1: the 4-tier selector. Accept 25/50/75/100; anything else falls back to 50.
     // The free tier is locked to 75% (and ≤45s in the cog) so the listener identifies immediately —
@@ -71,6 +83,20 @@ export async function POST(request: Request) {
       paidGranted = true;
     }
 
+    // Free-tier abuse gate: one free track per device fingerprint OR IP. Generation needs no login
+    // (that's the hook); the gate only stops the same device/IP from minting unlimited free tracks.
+    // Paid runs skip this entirely. Fails open if the free_usage table isn't provisioned yet.
+    if (!paidGranted && (await freeUsageExists(fingerprint, ip))) {
+      return NextResponse.json(
+        {
+          error: "Your free track is used up. Register and grab a pack to make more.",
+          freeLimitReached: true,
+          needsPurchase: true,
+        },
+        { status: 402 },
+      );
+    }
+
     const input: PredictionInput = {
       audio,
       name: (name as string) || "Warrior",
@@ -96,6 +122,9 @@ export async function POST(request: Request) {
     const emailQ = typeof email === "string" && email ? `?email=${encodeURIComponent(email)}` : "";
     const webhook = `${base}/api/replicate-callback${emailQ}`;
     const pred = await createPrediction(input, webhook.startsWith("https://") ? webhook : undefined);
+
+    // Burn this device/IP's one free track only once the prediction actually started.
+    if (!paidGranted) await recordFreeUsage(fingerprint, ip, pred.id);
 
     return NextResponse.json({ id: pred.id, status: pred.status });
   } catch (e) {

@@ -70,6 +70,16 @@ export default function TeaserPreview({ formData, onComplete }: TeaserPreviewPro
         const headers: Record<string, string> = { "Content-Type": "application/json" };
         if (token) headers.Authorization = `Bearer ${token}`;
 
+        // Stable per-device id for the free-tier gate (1 free track per device/IP).
+        let deviceId = "";
+        try {
+          deviceId = localStorage.getItem("rb_device") || "";
+          if (!deviceId) {
+            deviceId = (crypto?.randomUUID?.() || `${Date.now()}-${Math.random()}`).toString();
+            localStorage.setItem("rb_device", deviceId);
+          }
+        } catch { /* private mode — fall back to IP-only gating server-side */ }
+
         const res = await fetch("/api/process", {
           method: "POST",
           headers,
@@ -85,10 +95,16 @@ export default function TeaserPreview({ formData, onComplete }: TeaserPreviewPro
             paid: formData.paid === true,
             personalization: formData.personalization ?? 50,
             language: formData.language || "English",
+            deviceId,
           }),
         });
         if (!res.ok) {
           const err = await res.json().catch(() => ({}));
+          if (err.freeLimitReached) {
+            throw new Error(
+              "Dein kostenloser Track ist aufgebraucht (1 pro Gerät). Registriere dich oben rechts und hol dir ein Pack für mehr Tracks, längere Längen und alle Stufen.",
+            );
+          }
           if (res.status === 401 || res.status === 402) {
             throw new Error(
               (err.error || "Paid track needs sign-in + credits.") +
