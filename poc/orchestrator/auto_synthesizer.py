@@ -207,7 +207,8 @@ def auto_synthesize(audio_path: str, user_context: str,
                       vocals_path: str, accomp_path: str,
                       window_ms: int = 180_000,
                       out_dir: Path = None,
-                      verbose: bool = True) -> dict:
+                      verbose: bool = True,
+                      language: str = "English") -> dict:
     t0 = time.time()
     if out_dir is None:
         out_dir = Path(__file__).parent / "outputs" / f"auto_{int(time.time())}"
@@ -222,7 +223,8 @@ def auto_synthesize(audio_path: str, user_context: str,
 
     # ── Stage A: run the orchestrator to get OVERRIDES + reference library ──
     if verbose: log("Stage A: orchestrator (audio understanding → OVERRIDES)...", "step")
-    plan = generate_personalization(audio_path, user_context, window_ms=window_ms, verbose=verbose)
+    plan = generate_personalization(audio_path, user_context, window_ms=window_ms, verbose=verbose,
+                                    language=language)
     overrides = plan["overrides"]
     ref_library = build_reference_library(audio_path, verbose=False)
     if verbose: log(f"orchestrator produced {len(overrides)} slots", "ok")

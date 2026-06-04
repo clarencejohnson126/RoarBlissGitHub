@@ -332,7 +332,7 @@ Emit the JSON now."""
 
 def llm_pick_slots(candidates: list, brief: dict, type_profile: dict,
                    target_slot_count: int, window_ms: int, protagonist: str = "",
-                   user_context: str = "", draft: list = None) -> list:
+                   user_context: str = "", draft: list = None, language: str = "English") -> list:
     """LLM picks which candidates to use and writes original first-person override text per slot.
     If `draft` is given, runs a self-review pass: critique the draft against every law and return
     an improved full selection (the QA loop that lifts one-shot quality)."""
@@ -386,6 +386,12 @@ CANDIDATE SLOTS:
 {revision_block}
 
 Emit the JSON now."""
+
+    # Output-language override (zero change for English; multilingual_v2 then speaks the cloned voice
+    # in this language). The source can be any language — we only echo its energy, never its words.
+    if language and language.strip().lower() not in ("english", "en"):
+        user_msg += (f"\n\nLANGUAGE: Write EVERY override_text line ENTIRELY in {language.strip()} — "
+                     f"natural, native {language.strip()}, never a translation.")
 
     raw = _llm_chat(system=PLANNER_SYSTEM_PROMPT, user=user_msg, max_tokens=6000, temperature=0.6,
                      model=WRITER_MODEL)
@@ -809,7 +815,8 @@ def _draft_needs_review(draft: list, candidates: list, target_slot_count: int) -
 # Main entrypoint
 # ──────────────────────────────────────────────────────────────────────────────
 def generate_personalization(audio_path: str, user_context: str,
-                              window_ms: int = None, verbose: bool = True) -> dict:
+                              window_ms: int = None, verbose: bool = True,
+                              language: str = "English") -> dict:
     if verbose:
         print(f"\n{'='*70}")
         print(" PERSONALIZATION PLANNER")
@@ -859,7 +866,7 @@ def generate_personalization(audio_path: str, user_context: str,
 
     if verbose: print(f"\nStage 4: Opus drafts ~{target_slot_count} original first-person lines (hero {protagonist!r} -> {user_name!r})...")
     draft = llm_pick_slots(non_anthem, brief, type_profile, target_slot_count, win_ms,
-                            protagonist=protagonist, user_context=user_context)
+                            protagonist=protagonist, user_context=user_context, language=language)
     if verbose: print(f"  draft: {len(draft)} picks")
     # QA self-review — but only when the draft actually needs it. A cheap deterministic check
     # decides; clean drafts skip the 2nd (expensive) LLM call entirely, cutting cost.
@@ -868,7 +875,8 @@ def generate_personalization(audio_path: str, user_context: str,
         if verbose: print("\nStage 4b: self-review (QA pass — draft flagged)...")
         try:
             revised = llm_pick_slots(non_anthem, brief, type_profile, target_slot_count, win_ms,
-                                      protagonist=protagonist, user_context=user_context, draft=draft)
+                                      protagonist=protagonist, user_context=user_context, draft=draft,
+                                      language=language)
             if revised:
                 selected = revised
         except Exception as ex:

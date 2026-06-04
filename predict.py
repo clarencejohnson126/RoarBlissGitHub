@@ -71,7 +71,7 @@ class Predictor(BasePredictor):
         return vocals, vocals.parent / "no_vocals.wav"
 
     def _full_voice(self, vocals, accomp, audio_path, user_context, window_ms, work,
-                    min_voices=0, extra_voice_ids=""):
+                    min_voices=0, extra_voice_ids="", language="English"):
         """100%-generated mode — adaptive. Build a pool of voices (permanent voice_ids supplied by the
         caller PLUS voices freshly cloned from the source's distinct speakers), write a COMPLETE new
         script (the listener's saga, original lines, never the source's words) and speak it 100% across
@@ -107,8 +107,8 @@ class Predictor(BasePredictor):
             raise RuntimeError("full_voice: no voices available")
         print(f"full_voice: pool = {len(fixed)} permanent + {len(track_refs)} cloned -> {n} total")
 
-        # 3) write the COMPLETE new script for n voices
-        lines = self._write_fullvoice_script(audio_path, user_context, n, window_ms)
+        # 3) write the COMPLETE new script for n voices (in the target language)
+        lines = self._write_fullvoice_script(audio_path, user_context, n, window_ms, language=language)
         by_voice = {}
         for idx, ln in enumerate(lines):
             by_voice.setdefault(int(ln.get("voice", 0)) % n, []).append(idx)
@@ -165,15 +165,22 @@ class Predictor(BasePredictor):
         if not rendered:
             raise RuntimeError("full_voice: nothing could be synthesized")
 
-        # 6) assemble the voice track in line order, then lay it over the clean music+SFX bed
+        # 6) assemble the voice track in line order (capped to the output window at a clean line boundary
+        #    so an over-long script still lands near 2 min instead of running to ~3 min), then lay it over
+        #    the clean music+SFX bed.
+        cap_ms = max(0, window_ms - 5500)   # reserve room for the 2.5s intro + 3s tail
         track = AudioSegment.silent(duration=0)
         prev = None
         for idx in range(len(lines)):
             if idx not in rendered:
                 continue
+            seg = rendered[idx]
+            if cap_ms and len(track) > 1000 and len(track) + len(seg) > cap_ms:
+                print(f"  output cap (~{window_ms/1000:.0f}s) reached at line {idx}/{len(lines)}")
+                break
             vi = int(lines[idx].get("voice", 0)) % n
             gap = 650 if (prev is not None and vi != prev) else 300   # longer breath on a voice change
-            track += AudioSegment.silent(duration=gap) + rendered[idx]
+            track += AudioSegment.silent(duration=gap) + seg
             prev = vi
         print(f"full_voice track: {n} voice(s), {len(track)/1000:.1f}s speech")
         if len(track) < 1000:
@@ -217,10 +224,11 @@ class Predictor(BasePredictor):
             print("full_voice diarize failed -> single voice:", e)
         return [("SPEAKER_00", [(0.0, min(voc_len_ms / 1000.0, 45.0))])]
 
-    def _write_fullvoice_script(self, audio_path, user_context, n_voices, window_ms):
+    def _write_fullvoice_script(self, audio_path, user_context, n_voices, window_ms, language="English"):
         """Write the bespoke script as a list of {"voice": int, "text": str}. One voice -> a continuous
         monologue; multiple voices -> an epic trailer that trades lines between them. Original lines only;
-        the source words are used only to echo cadence, never reproduced."""
+        the source words are used only to echo cadence, never reproduced. `language` sets the OUTPUT
+        language (ElevenLabs multilingual_v2 + the writer both follow it) — the source may be any language."""
         from llm import llm_chat
         style = ""
         try:
@@ -230,30 +238,37 @@ class Predictor(BasePredictor):
         except Exception as e:
             print("style transcribe skipped:", e)
         model = os.environ.get("WRITER_MODEL", "claude-sonnet-4-6")
+        lang = (language or "English").strip()
+        # When the target language isn't English, force native (not translated) output — ElevenLabs
+        # multilingual_v2 then auto-detects the language from the text and keeps the cloned timbre.
+        lang_note = ("" if lang.lower() in ("english", "en", "")
+                     else f" Write EVERY line ENTIRELY in {lang} — natural, native {lang}, never a translation.")
         if n_voices <= 1:
             target_words = max(150, int(window_ms / 1000.0 / 60.0 * 205))
             sysmsg = ("You write a single, continuous, first-person motivational monologue the listener "
                       "could record as their own. Echo the cadence and intensity of the STYLE sample, but "
                       "write ORIGINAL lines about the listener's real life — never reuse the sample's words. "
                       "Output STRICT JSON ONLY: a list of {\"voice\":0,\"text\":\"...\"} objects, in order. "
-                      "No prose, no markdown.")
+                      "No prose, no markdown." + lang_note)
             usr = (f"STYLE (echo delivery, do NOT reuse words):\n\"\"\"\n{style}\n\"\"\"\n\nLISTENER:\n{user_context}\n\n"
                    f"Write ~{target_words} words total, broken into natural spoken lines, building to one "
                    f"decisive final line. JSON only.")
         else:
-            target_words = max(220, int(window_ms / 1000.0 / 60.0 * 215))   # fill the window (gaps eat time)
+            win_s = max(20, int(window_ms / 1000))
+            target_lines = max(12, int(win_s / 3.0))    # ~3s of speech+breath per line -> lands near win_s
             sysmsg = (f"You script a cinematic, multi-voice EPIC TRAILER — the listener's life told as a "
                       f"mythic saga. You have {n_voices} distinct VOICES, numbered 0..{n_voices - 1}. Write "
                       "ORIGINAL lines ONLY — never quote any film, show, or song. Distribute the lines across "
                       "the voices like a real trailer: voices alternate, one proclaims and another answers, "
-                      "tension builds to a release. Each line short and punchy (3-14 words). Use the listener's "
+                      "tension builds to a release. Each line short and punchy (3-12 words). Use the listener's "
                       "name and real details, framed as an epic (houses, oaths, fire, legacy, the long road) "
-                      f"but about THEIR real life. USE ALL {n_voices} voices — every voice index 0..{n_voices - 1} "
-                      "gets several lines; leave none silent. Build to one decisive final line. Output STRICT "
-                      "JSON ONLY: [{\"voice\":int,\"text\":str}, ...]. No prose, no markdown.")
+                      f"but about THEIR real life. USE ALL {n_voices} voices — every index 0..{n_voices - 1} gets "
+                      "several lines; leave none silent. Build to one decisive final line. Output STRICT JSON "
+                      "ONLY: [{\"voice\":int,\"text\":str}, ...]. No prose, no markdown." + lang_note)
             usr = (f"STYLE/cadence to echo (do NOT reuse words):\n\"\"\"\n{style}\n\"\"\"\n\nLISTENER:\n{user_context}\n\n"
-                   f"Write the FULL ~{target_words} words total across {n_voices} voices as a seamless, building "
-                   f"epic — fill the whole duration, do NOT stop short. JSON only.")
+                   f"Write about {target_lines} short lines total — roughly {win_s} seconds of speech — across "
+                   f"{n_voices} voices as a seamless, building epic. Do NOT exceed {target_lines + 5} lines. "
+                   f"End on one decisive final line. JSON only.")
         raw = llm_chat(sysmsg, usr, max_tokens=2000, temperature=0.75, model=model).strip()
         return self._parse_script_json(raw, n_voices, user_context)
 
@@ -319,6 +334,7 @@ class Predictor(BasePredictor):
         min_voices: int = Input(default=0, description="full_voice only: hint pyannote to find at least N distinct speakers to clone (0 = auto). Use for dense multi-character sources like a GoT montage."),
         output_seconds: int = Input(default=0, description="full_voice only: cap the OUTPUT length (s) independent of source length — clone the voices from a longer source but render e.g. a 2-min piece. 0 = use the full window."),
         extra_voice_ids: str = Input(default="", description="full_voice only: comma-separated permanent ElevenLabs voice IDs to include as voices (used directly, never cloned/deleted) — e.g. the user's GoT-Jon + dany clones, to guarantee solid extra voices."),
+        language: str = Input(default="English", description="Target language for the generated lines (e.g. 'German', 'Spanish', 'French'). ElevenLabs multilingual_v2 keeps the cloned timbre and the writer composes natively; the source audio can be any language."),
     ) -> Path:
         from auto_synthesizer import auto_synthesize
 
@@ -359,6 +375,7 @@ class Predictor(BasePredictor):
                 vocals, accomp, str(audio),
                 _context_prompt(name, location, battlefield, struggle, family, champion),
                 out_window, work, min_voices=min_voices, extra_voice_ids=extra_voice_ids,
+                language=language,
             )
 
         result = auto_synthesize(
@@ -369,6 +386,7 @@ class Predictor(BasePredictor):
             window_ms=window_ms,
             out_dir=work / "out",
             verbose=True,
+            language=language,
         )
         if result.get("status") != "ok":
             raise RuntimeError(f"pipeline status: {result.get('status')}")
