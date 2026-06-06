@@ -1,0 +1,23 @@
+{
+  "_comment": "EXAMPLE job input only — not part of the engine. Shows the shape the orchestrator/web app feeds roar_render.render() in production: a voice_id, an ordered list of narration lines, and optional recipe overrides. Any user's instrumental + story produces a file like this. Reproduces the approved money-shot render. CLI: python scripts/roar_render.py INSTRUMENTAL OUT.mp3 scripts/sample_job.json",
+  "voice_id": "TCuusGciH6HRSOGrYg31",
+  "recipe": {},
+  "lines": [
+    "Sit down. Let an old voice tell you the truth you already carry.",
+    "Forty-three years. A good man. A worn man. You buried your fire under bills, and routine, and the weight of being needed.",
+    "But ash still remembers the flame. And something in you never stopped wanting to build.",
+    "Your hardest war was never against other people. It was against the man you used to be.",
+    "At twenty-four, they locked a door behind you. Months alone. No distractions. No excuses.",
+    "Most men break in there. You rebuilt. You read. You trained your mind. You came out sharper, calmer, wiser.",
+    "For one clear moment, you met the man you could become. Then the years stole him back, and the warrior fell asleep.",
+    "So wake him. Not the angry boy. The man. Twenty-four's fire, with forty-three's wisdom.",
+    "They are not your burden. They are your reason.",
+    "They will not remember your speeches. They will remember their father standing back up.",
+    "So build. Not walls. Not towers. Build with your mind what your hands already understand.",
+    "Thirteen years in the trade, meeting the tools of tomorrow. A builder, becoming a builder again.",
+    "You have buried enough versions of yourself to know which one deserves to live.",
+    "You were never chasing a crown. You were growing the shoulders to carry its weight.",
+    "The world does not need the loudest man in the room. It needs the one who kept standing when no one was watching.",
+    "The old chapter is ash. Now, build."
+  ]
+}
