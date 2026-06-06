@@ -22,7 +22,7 @@ import os, sys, subprocess, wave, tempfile, requests, imageio_ffmpeg
 API = os.environ["ELEVENLABS_API_KEY"]
 INST = sys.argv[1] if len(sys.argv) > 1 else "instrumental.mp3"
 OUT  = sys.argv[2] if len(sys.argv) > 2 else "RoarBliss_out.mp3"
-DEFAULT_VOICE = "onwK4e9ZLuTAKqWW03F9"   # "Daniel" deep British; swap for a warrior voice
+DEFAULT_VOICE = "TCuusGciH6HRSOGrYg31"    # "GoT-Jon" (Jon Snow clone) — Clarence's chosen warrior voice
 VOICE_ID = sys.argv[3] if len(sys.argv) > 3 else DEFAULT_VOICE
 FF = imageio_ffmpeg.get_ffmpeg_exe()
 
