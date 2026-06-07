@@ -1,24 +1,25 @@
 "use client";
 
 import React, { useState } from "react";
+import Link from "next/link";
 import AccountPanel from "@/components/AccountPanel";
 
 const LINKS = [
-  { label: "Features", href: "#personalization" },
-  { label: "How It Works", href: "#how-it-works" },
-  { label: "Templates", href: "#templates" },
-  { label: "Pricing", href: "#pricing" },
-  { label: "About", href: "#why" },
+  { label: "Features", href: "/#personalization" },
+  { label: "How It Works", href: "/#how-it-works" },
+  { label: "Templates", href: "/#templates" },
+  { label: "Pricing", href: "/#pricing" },
+  { label: "About", href: "/#why" },
 ];
 
-export default function Navbar({ onGetStarted }: { onGetStarted: () => void }) {
+export default function Navbar() {
   const [open, setOpen] = useState(false);
 
   return (
     <header className="nav-bar">
       <div className="nav-inner" style={{ position: "relative" }}>
-        <a
-          href="#top"
+        <Link
+          href="/"
           className="brand-mark"
           style={{ display: "flex", alignItems: "center", gap: "0.6rem", textDecoration: "none" }}
         >
@@ -35,24 +36,25 @@ export default function Navbar({ onGetStarted }: { onGetStarted: () => void }) {
             R
           </span>
           <span>ROAR<span className="bm-gold">BLISS</span></span>
-        </a>
+        </Link>
 
         <nav className={`nav-links${open ? " open" : ""}`}>
           {LINKS.map((l) => (
-            <a key={l.label} href={l.href} className="nav-link" onClick={() => setOpen(false)}>
+            <Link key={l.label} href={l.href} className="nav-link" onClick={() => setOpen(false)}>
               {l.label}
-            </a>
+            </Link>
           ))}
           <div onClick={() => setOpen(false)} style={{ display: "flex", alignItems: "center" }}>
             <AccountPanel />
           </div>
-          <button
+          <Link
+            href="/create"
             className="btn-premium btn-gold"
-            style={{ padding: "0.6rem 1.4rem", minBlockSize: "auto", fontSize: "0.8rem" }}
-            onClick={() => { setOpen(false); onGetStarted(); }}
+            style={{ padding: "0.6rem 1.4rem", minBlockSize: "auto", fontSize: "0.8rem", textDecoration: "none" }}
+            onClick={() => setOpen(false)}
           >
             Get Started
-          </button>
+          </Link>
         </nav>
 
         <button className="nav-burger" aria-label="Toggle menu" onClick={() => setOpen((o) => !o)}>

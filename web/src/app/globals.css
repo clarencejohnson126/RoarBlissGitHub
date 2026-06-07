@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=Inter:wght@300;400;500;600;700&family=Playfair+Display:ital,wght@0,500;0,600;0,700;0,800;0,900;1,500;1,600&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;500;600;700;800&family=Inter:wght@300;400;500;600;700&display=swap');
 
 @layer base, theme, components, utilities;
 
@@ -29,7 +29,7 @@
 
     --font-heading: 'Outfit', sans-serif;
     --font-body: 'Inter', sans-serif;
-    --font-serif: 'Playfair Display', Georgia, serif;
+    --font-serif: var(--font-playfair), 'Playfair Display', Georgia, serif;
 
     color-scheme: dark;
   }
@@ -538,14 +538,16 @@
 /* ============================================================= */
 @layer theme {
   .headline-serif {
+    display: flex;
+    flex-direction: column;
     font-family: var(--font-serif);
     font-weight: 800;
-    font-size: clamp(2.8rem, 1.6rem + 5.5vw, 5.5rem);
-    line-height: 1.0;
+    font-size: clamp(2.4rem, 1.3rem + 3.4vw, 4.4rem);
+    line-height: 1.04;
     letter-spacing: -0.01em;
     color: var(--color-ivory);
-    text-wrap: balance;
   }
+  .headline-serif .hl-line { white-space: nowrap; }
   .roar-accent { color: var(--color-gold); font-style: italic; }
   .eyebrow {
     display: inline-block;
@@ -590,15 +592,16 @@
   /* Hero */
   .hero {
     position: relative; width: 100%;
-    min-height: clamp(560px, 86vh, 900px);
+    min-height: 100vh;         /* fill the viewport on every screen; cover keeps it adaptive */
     display: flex; align-items: center; overflow: hidden;
     background: var(--color-black);
   }
+  @media (max-height: 720px) { .hero { min-height: 640px; } }  /* short windows: don't crush the art */
   .hero-scrim {
     position: absolute; inset: 0; z-index: 1;
     background:
-      linear-gradient(90deg, rgba(5,5,5,0.92) 0%, rgba(5,5,5,0.82) 26%, rgba(5,5,5,0.5) 46%, rgba(8,9,13,0.18) 64%, transparent 80%),
-      linear-gradient(180deg, rgba(5,5,5,0.55) 0%, transparent 22%, transparent 58%, rgba(5,5,5,0.9) 100%);
+      linear-gradient(90deg, rgba(5,5,5,0.96) 0%, rgba(5,5,5,0.9) 22%, rgba(5,5,5,0.62) 40%, rgba(8,9,13,0.25) 56%, transparent 72%),
+      linear-gradient(180deg, rgba(5,5,5,0.5) 0%, transparent 22%, transparent 60%, rgba(5,5,5,0.92) 100%);
   }
   .hero-content { position: relative; z-index: 2; max-width: 640px; padding: clamp(2rem, 5vw, 4.5rem); }
   .hero-sub {

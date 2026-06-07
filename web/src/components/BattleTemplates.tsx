@@ -1,6 +1,5 @@
-"use client";
-
 import React from "react";
+import Link from "next/link";
 
 const TEMPLATES = [
   { title: "Discipline", desc: "For the grind nobody sees — the reps, the early mornings, the quiet work." },
@@ -13,7 +12,7 @@ const TEMPLATES = [
   { title: "Dark Season", desc: "When it's heaviest — the voice that keeps you standing." },
 ];
 
-export default function BattleTemplates({ onSelect }: { onSelect?: () => void }) {
+export default function BattleTemplates() {
   return (
     <section id="templates" className="section-pad">
       <span className="section-eyebrow">Choose your battle</span>
@@ -21,10 +20,10 @@ export default function BattleTemplates({ onSelect }: { onSelect?: () => void })
       <p className="section-sub">Pick a template to set the tone, or write a custom prompt about your own life.</p>
       <div className="feature-grid">
         {TEMPLATES.map((t) => (
-          <button key={t.title} type="button" className="feature-card" onClick={onSelect}>
+          <Link key={t.title} href="/create" className="feature-card" style={{ textDecoration: "none" }}>
             <div className="fc-title">{t.title}</div>
             <div className="fc-desc">{t.desc}</div>
-          </button>
+          </Link>
         ))}
       </div>
     </section>

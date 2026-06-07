@@ -1,6 +1,5 @@
-"use client";
-
 import React from "react";
+import Link from "next/link";
 
 const ICON = { width: 22, height: 22, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 1.8, strokeLinecap: "round" as const, strokeLinejoin: "round" as const };
 
@@ -31,21 +30,20 @@ const STEPS = [
   },
 ];
 
-export default function ProcessBar({ onStep }: { onStep?: () => void }) {
+export default function ProcessBar() {
   return (
     <div className="process-wrap">
       <div className="process-bar">
         {STEPS.map((s, i) => (
           <React.Fragment key={s.label}>
-            <button
-              type="button"
-              onClick={onStep}
+            <Link
+              href="/create"
               className="process-step"
-              style={{ background: "none", border: "none", cursor: onStep ? "pointer" : "default" }}
+              style={{ background: "none", border: "none", cursor: "pointer", textDecoration: "none" }}
             >
               <span className="process-step-icon">{s.icon}</span>
               {s.label}
-            </button>
+            </Link>
             {i < STEPS.length - 1 && (
               <span className="process-sep" aria-hidden>
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="m9 18 6-6-6-6" /></svg>
