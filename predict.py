@@ -399,6 +399,8 @@ class Predictor(BasePredictor):
         family: str = Input(default="", description="Who they fight for (names welcome)"),
         location: str = Input(default="", description="Their home city"),
         champion: str = Input(default="", description="A figure they look up to (optional)"),
+        prompt: str = Input(default="", description="Free-form personalization prompt — write exactly how you want it (your story, the mood, what it should say). When given, this drives the rewrite directly (the planner parses it). Leave empty to use the structured fields / a template."),
+        tone: str = Input(default="", description="Optional tone/template tag — a one-click mood for users who don't want to write a prompt (e.g. 'heartbreak', 'fighter', 'confident', 'reflective', 'grief')."),
         paid: bool = Input(default=False, description="Paid unlocks up to 6 min + all tiers; free is capped at 45s and locked to 75%% personalization"),
         anthropic_api_key: Secret = Input(default=None, description="Anthropic API key (Sonnet/Haiku planner)"),
         hf_token: Secret = Input(default=None, description="HuggingFace token (pyannote diarization model)"),
@@ -471,13 +473,21 @@ class Predictor(BasePredictor):
         else:
             vocals, accomp = self._separate(_P(str(audio)), work)
 
+        # Personalization context for the planner/writer: a free-form `prompt` takes precedence (the
+        # planner parses free text into a brief); otherwise build it from the structured story fields.
+        # An optional `tone`/template tag is appended as the desired mood. EITHER/OR — both end up here.
+        ctx = (prompt.strip() if isinstance(prompt, str) and prompt.strip()
+               else _context_prompt(name, location, battlefield, struggle, family, champion))
+        if isinstance(tone, str) and tone.strip():
+            ctx = f"{ctx}\nDesired tone / mood: {tone.strip()}."
+
         if use_full_voice:
             # full_voice discovers + clones voices from the FULL separated vocals, but sizes the script
             # and bed to out_window — so we can clone all 5+ characters from a 3-min montage yet render 2 min.
             out_window = min(window_ms, output_seconds * 1000) if output_seconds and output_seconds > 0 else window_ms
             return self._full_voice(
                 vocals, accomp, str(audio),
-                _context_prompt(name, location, battlefield, struggle, family, champion),
+                ctx,
                 out_window, work, min_voices=min_voices, extra_voice_ids=extra_voice_ids,
                 language=language, clone_source_voices=clone_source_voices,
                 music_gain_db=music_gain_db, duck_db=duck_db, voice_speed=voice_speed,
@@ -485,7 +495,7 @@ class Predictor(BasePredictor):
 
         result = auto_synthesize(
             audio_path=str(audio),
-            user_context=_context_prompt(name, location, battlefield, struggle, family, champion),
+            user_context=ctx,
             vocals_path=str(vocals),
             accomp_path=str(accomp),
             window_ms=window_ms,
