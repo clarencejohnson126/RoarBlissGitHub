@@ -637,6 +637,7 @@
 
   /* Sections */
   .section-pad { max-width: 1440px; margin-inline: auto; padding: clamp(3.5rem, 7vw, 7rem) clamp(1.25rem, 5vw, 3rem); }
+  .section-pad + .section-pad { padding-block-start: 0; }  /* avoid doubled dead space between bare sections */
   .section-eyebrow { display: block; font-family: var(--font-heading); text-transform: uppercase; letter-spacing: 0.28em; font-size: 0.72rem; font-weight: 600; color: var(--color-gold); margin-block-end: 0.75rem; }
   .section-head { font-family: var(--font-serif); font-weight: 700; font-size: clamp(2rem, 1.3rem + 2.5vw, 3.2rem); color: var(--color-ivory); line-height: 1.1; margin-block-end: 0.75rem; text-wrap: balance; }
   .section-sub { color: var(--color-smoke); font-size: 1.05rem; line-height: 1.6; max-width: 62ch; }
@@ -645,7 +646,7 @@
   .section-band { position: relative; overflow: hidden; }
   .section-band > .sec-bg { position: absolute; inset: 0; background-size: cover; background-position: center; opacity: 0.92; }
   /* Only blend the top/bottom edges into the page; keep the middle of the image visible. */
-  .section-band > .sec-overlay { position: absolute; inset: 0; background: linear-gradient(180deg, var(--color-obsidian) 0%, rgba(8,9,13,0.12) 16%, rgba(8,9,13,0.12) 84%, var(--color-obsidian) 100%); }
+  .section-band > .sec-overlay { position: absolute; inset: 0; background: linear-gradient(180deg, var(--color-obsidian) 0%, rgba(8,9,13,0.15) 9%, rgba(8,9,13,0.15) 91%, var(--color-obsidian) 100%); }
   .section-band > .section-pad { position: relative; z-index: 1; }
 
   /* Feature / template cards */

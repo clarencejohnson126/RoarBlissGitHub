@@ -73,8 +73,8 @@ export default function Home() {
       </section>
 
       {/* Early access waitlist */}
-      <section id="early-access" className="section-pad" style={{ maxWidth: "560px" }}>
-        <div className="glass-card glow-gold" style={{ border: "1px solid var(--color-obsidian-border)" }}>
+      <section id="early-access" className="section-pad">
+        <div className="glass-card glow-gold" style={{ maxWidth: "560px", marginInline: "auto", border: "1px solid var(--color-obsidian-border)" }}>
           <h3 className="headline-md" style={{ marginBlockEnd: "0.5rem" }}>
             Get <span className="text-highlight-gold">early access</span>
           </h3>
