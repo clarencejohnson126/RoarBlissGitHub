@@ -29,7 +29,10 @@ const QA = [
 
 export default function FAQ() {
   return (
-    <section id="faq" className="section-pad">
+    <section id="faq" className="section-band">
+      <div className="sec-bg" style={{ backgroundImage: "url(/images/sec-faq.jpg)" }} />
+      <div className="sec-overlay" />
+      <div className="section-pad">
       <span className="section-eyebrow">Questions</span>
       <h2 className="section-head">Before your first roar.</h2>
       <div className="feature-grid" style={{ gridTemplateColumns: "repeat(auto-fit, minmax(300px, 1fr))" }}>
@@ -39,6 +42,7 @@ export default function FAQ() {
             <div className="fc-desc">{item.a}</div>
           </div>
         ))}
+      </div>
       </div>
     </section>
   );

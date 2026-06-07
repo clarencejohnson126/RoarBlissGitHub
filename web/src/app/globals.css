@@ -592,11 +592,12 @@
   /* Hero */
   .hero {
     position: relative; width: 100%;
-    min-height: 100vh;         /* fill the viewport on every screen; cover keeps it adaptive */
+    aspect-ratio: 16 / 9;      /* match the artwork's 16:9 → the WHOLE image shows, nothing cropped */
+    max-height: 100vh;
+    min-height: 380px;
     display: flex; align-items: center; overflow: hidden;
     background: var(--color-black);
   }
-  @media (max-height: 720px) { .hero { min-height: 640px; } }  /* short windows: don't crush the art */
   .hero-scrim {
     position: absolute; inset: 0; z-index: 1;
     background:
@@ -633,6 +634,12 @@
   .section-eyebrow { display: block; font-family: var(--font-heading); text-transform: uppercase; letter-spacing: 0.28em; font-size: 0.72rem; font-weight: 600; color: var(--color-gold); margin-block-end: 0.75rem; }
   .section-head { font-family: var(--font-serif); font-weight: 700; font-size: clamp(2rem, 1.3rem + 2.5vw, 3.2rem); color: var(--color-ivory); line-height: 1.1; margin-block-end: 0.75rem; text-wrap: balance; }
   .section-sub { color: var(--color-smoke); font-size: 1.05rem; line-height: 1.6; max-width: 62ch; }
+
+  /* Full-width cinematic section background (cropped collage art behind each section) */
+  .section-band { position: relative; overflow: hidden; }
+  .section-band > .sec-bg { position: absolute; inset: 0; background-size: cover; background-position: center; opacity: 0.22; }
+  .section-band > .sec-overlay { position: absolute; inset: 0; background: linear-gradient(180deg, var(--color-obsidian) 0%, rgba(8,9,13,0.55) 28%, rgba(8,9,13,0.55) 72%, var(--color-obsidian) 100%); }
+  .section-band > .section-pad { position: relative; z-index: 1; }
 
   /* Feature / template cards */
   .feature-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1.25rem; margin-block-start: 2.5rem; }

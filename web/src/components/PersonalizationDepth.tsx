@@ -9,7 +9,10 @@ const LEVELS = [
 
 export default function PersonalizationDepth() {
   return (
-    <section id="personalization" className="section-pad">
+    <section id="personalization" className="section-band">
+      <div className="sec-bg" style={{ backgroundImage: "url(/images/sec-depth.jpg)" }} />
+      <div className="sec-overlay" />
+      <div className="section-pad">
       <span className="section-eyebrow">Personalization depth</span>
       <h2 className="section-head">How much of it becomes yours.</h2>
       <p className="section-sub">You decide how far the rewrite goes — from a few personal lines to a complete battle speech.</p>
@@ -21,6 +24,7 @@ export default function PersonalizationDepth() {
             <div className="fc-desc">{l.desc}</div>
           </div>
         ))}
+      </div>
       </div>
     </section>
   );

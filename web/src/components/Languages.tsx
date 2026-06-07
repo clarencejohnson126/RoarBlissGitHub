@@ -4,7 +4,10 @@ const LANGS = ["English", "Deutsch", "Español", "Français", "Italiano", "Portu
 
 export default function Languages() {
   return (
-    <section id="languages" className="section-pad">
+    <section id="languages" className="section-band">
+      <div className="sec-bg" style={{ backgroundImage: "url(/images/sec-languages.jpg)" }} />
+      <div className="sec-overlay" />
+      <div className="section-pad">
       <span className="section-eyebrow">Speak your language</span>
       <h2 className="section-head">Hear it in your own tongue.</h2>
       <p className="section-sub">
@@ -24,6 +27,7 @@ export default function Languages() {
             {l}
           </span>
         ))}
+      </div>
       </div>
     </section>
   );

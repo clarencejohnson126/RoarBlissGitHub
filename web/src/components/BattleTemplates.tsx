@@ -14,7 +14,10 @@ const TEMPLATES = [
 
 export default function BattleTemplates() {
   return (
-    <section id="templates" className="section-pad">
+    <section id="templates" className="section-band">
+      <div className="sec-bg" style={{ backgroundImage: "url(/images/sec-templates.jpg)" }} />
+      <div className="sec-overlay" />
+      <div className="section-pad">
       <span className="section-eyebrow">Choose your battle</span>
       <h2 className="section-head">Every fight has a voice.</h2>
       <p className="section-sub">Pick a template to set the tone, or write a custom prompt about your own life.</p>
@@ -25,6 +28,7 @@ export default function BattleTemplates() {
             <div className="fc-desc">{t.desc}</div>
           </Link>
         ))}
+      </div>
       </div>
     </section>
   );

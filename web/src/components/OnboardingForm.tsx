@@ -24,7 +24,7 @@ export default function OnboardingForm({ onComplete }: OnboardingFormProps) {
   const [step, setStep] = useState(1);
   const [usePreloaded, setUsePreloaded] = useState(true);
   const [file, setFile] = useState<File | null>(null);
-  const [battlefield, setBattlefield] = useState("Building an Empire");
+  const [battlefield, setBattlefield] = useState("Discipline");
   const [name, setName] = useState("Clarence");
   const [family, setFamily] = useState("Lean and Elanese");
   const [location, setLocation] = useState("Mannheim, Germany");
@@ -74,13 +74,31 @@ export default function OnboardingForm({ onComplete }: OnboardingFormProps) {
       alert("Please upload a valid audio file (.mp3 or .wav)");
       return;
     }
-    // Limit to 15MB
-    if (f.size > 15 * 1024 * 1024) {
-      alert("Audio file is too large. Maximum size is 15MB.");
+    // Limit to 100MB
+    if (f.size > 100 * 1024 * 1024) {
+      alert("Audio file is too large. Maximum size is 100MB.");
       return;
     }
-    setFile(f);
-    setUsePreloaded(false); // Uncheck preloaded if they upload
+    // Enforce a 6-minute maximum (read duration from metadata; accept if it can't be read — the
+    // backend caps the window at 6 min anyway).
+    const url = URL.createObjectURL(f);
+    const probe = new Audio();
+    probe.preload = "metadata";
+    probe.onloadedmetadata = () => {
+      URL.revokeObjectURL(url);
+      if (probe.duration && probe.duration > 366) {
+        alert("Audio is longer than 6 minutes. Please upload a clip up to 6 minutes.");
+        return;
+      }
+      setFile(f);
+      setUsePreloaded(false);
+    };
+    probe.onerror = () => {
+      URL.revokeObjectURL(url);
+      setFile(f);
+      setUsePreloaded(false);
+    };
+    probe.src = url;
   };
 
   const removeFile = (e: React.MouseEvent) => {
@@ -204,7 +222,7 @@ export default function OnboardingForm({ onComplete }: OnboardingFormProps) {
                 <span className="radio-card-title">Upload Custom Audio File</span>
                 <span className="drop-zone-text">
                   Drag & drop your MP3/WAV here, or click to browse<br />
-                  <span style={{ fontSize: "0.75rem", color: "var(--color-text-muted)" }}>Maximum file size: 15MB</span>
+                  <span style={{ fontSize: "0.75rem", color: "var(--color-text-muted)" }}>Up to 6 minutes · max 100MB</span>
                 </span>
               </>
             )}
@@ -227,55 +245,37 @@ export default function OnboardingForm({ onComplete }: OnboardingFormProps) {
         <div className="flex-column" style={{ gap: "1.5rem" }}>
           <div>
             <h2 className="headline-md" style={{ marginBlockEnd: "0.5rem" }}>
-              2. Choose Your <span className="text-highlight-gold">Battlefield</span>
+              2. Choose Your <span className="text-highlight-gold">Battle</span>
             </h2>
             <p style={{ color: "var(--color-text-secondary)", fontSize: "0.9rem", lineHeight: "1.4" }}>
-              Where are you currently fighting your greatest battles? Select the domain where you need the ultimate personalized alignment.
+              Pick the battle this speech is for — it sets the theme the engine writes toward. Or write
+              your own prompt in the next step.
             </p>
           </div>
 
-          <div className="radio-cards" style={{ gridTemplateColumns: "1fr" }}>
-            <label className={`radio-card ${battlefield === "Building an Empire" ? "champion-gladiator" : ""}`}>
-              <input
-                type="radio"
-                name="battlefield"
-                value="Building an Empire"
-                checked={battlefield === "Building an Empire"}
-                onChange={() => setBattlefield("Building an Empire")}
-              />
-              <span className="radio-card-title">💼 Building an Empire</span>
-              <span className="radio-card-desc">
-                For entrepreneurs, creators, and builders pushing through isolating business sprints, launch fatigue, and corporate escape.
-              </span>
-            </label>
-
-            <label className={`radio-card ${battlefield === "Pushing Physical Limits" ? "champion-gladiator" : ""}`}>
-              <input
-                type="radio"
-                name="battlefield"
-                value="Pushing Physical Limits"
-                checked={battlefield === "Pushing Physical Limits"}
-                onChange={() => setBattlefield("Pushing Physical Limits")}
-              />
-              <span className="radio-card-title">⚡ Pushing Physical Limits</span>
-              <span className="radio-card-desc">
-                For athletes, gym-goers, and runners breaking personal records, conquering pain thresholds, and training at extreme hours.
-              </span>
-            </label>
-
-            <label className={`radio-card ${battlefield === "The Personal Comeback" ? "champion-gladiator" : ""}`}>
-              <input
-                type="radio"
-                name="battlefield"
-                value="The Personal Comeback"
-                checked={battlefield === "The Personal Comeback"}
-                onChange={() => setBattlefield("The Personal Comeback")}
-              />
-              <span className="radio-card-title">🔥 The Personal Comeback</span>
-              <span className="radio-card-desc">
-                For those rising from personal setbacks, doubts, rebuilding relationships, or recovering from deep crises.
-              </span>
-            </label>
+          <div className="radio-cards">
+            {[
+              { t: "Discipline", d: "The grind nobody sees — reps, early mornings, quiet work." },
+              { t: "Heartbreak", d: "Turn the wound into resolve. Rise from what broke you." },
+              { t: "Grief", d: "Carry the loss forward with strength, not silence." },
+              { t: "Muscle Gain", d: "Fuel the training — pain thresholds, last sets, records." },
+              { t: "Business Comeback", d: "Rebuild after the setback. Back on your feet." },
+              { t: "Fatherhood", d: "Be the example, for the ones who watch you." },
+              { t: "Confidence", d: "Walk in as the man who already decided." },
+              { t: "Dark Season", d: "When it's heaviest — the voice that keeps you standing." },
+            ].map((b) => (
+              <label key={b.t} className={`radio-card ${battlefield === b.t ? "champion-gladiator" : ""}`}>
+                <input
+                  type="radio"
+                  name="battlefield"
+                  value={b.t}
+                  checked={battlefield === b.t}
+                  onChange={() => setBattlefield(b.t)}
+                />
+                <span className="radio-card-title">{b.t}</span>
+                <span className="radio-card-desc">{b.d}</span>
+              </label>
+            ))}
           </div>
 
           <div style={{ display: "flex", gap: "1rem" }}>

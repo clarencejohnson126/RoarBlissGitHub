@@ -9,7 +9,10 @@ const STEPS = [
 
 export default function HowItWorks() {
   return (
-    <section id="how-it-works" className="section-pad">
+    <section id="how-it-works" className="section-band">
+      <div className="sec-bg" style={{ backgroundImage: "url(/images/sec-howitworks.jpg)" }} />
+      <div className="sec-overlay" />
+      <div className="section-pad">
       <span className="section-eyebrow">How it works</span>
       <h2 className="section-head">From their words to your roar.</h2>
       <p className="section-sub">Four steps turn audio you love into the speech that pulls you forward.</p>
@@ -21,6 +24,7 @@ export default function HowItWorks() {
             <div className="fc-desc">{s.desc}</div>
           </div>
         ))}
+      </div>
       </div>
     </section>
   );
