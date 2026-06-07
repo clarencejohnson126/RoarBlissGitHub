@@ -52,16 +52,28 @@ export default function AccountPanel() {
     if (!email.includes("@")) return;
     setPhase("sending");
     setMsg("");
-    const { error } = await supabaseBrowser().auth.signInWithOtp({
-      email,
-      options: { emailRedirectTo: typeof window !== "undefined" ? window.location.origin : undefined },
-    });
-    if (error) {
-      setMsg(error.message);
+    try {
+      // Use our own route → magic link generated server-side + delivered via Resend (Supabase's
+      // built-in email sender is not configured and 500s).
+      const r = await fetch("/api/auth/magic-link", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email,
+          redirectTo: typeof window !== "undefined" ? window.location.origin : undefined,
+        }),
+      });
+      const j = await r.json();
+      if (!r.ok) {
+        setMsg(j.error || "Sign-in failed.");
+        setPhase("idle");
+      } else {
+        setPhase("sent");
+        setMsg("Check your email for the sign-in link.");
+      }
+    } catch {
+      setMsg("Network error. Please try again.");
       setPhase("idle");
-    } else {
-      setPhase("sent");
-      setMsg("Check your email for the magic link.");
     }
   };
 

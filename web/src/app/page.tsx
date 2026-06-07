@@ -45,7 +45,7 @@ export default function Home() {
   };
 
   return (
-    <div className="flex-column" style={{ minHeight: "100vh" }}>
+    <div style={{ minHeight: "100vh" }}>
       <Navbar />
       <HeroSection />
       <ProcessBar />
