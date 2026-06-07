@@ -546,6 +546,7 @@
     line-height: 1.04;
     letter-spacing: -0.01em;
     color: var(--color-ivory);
+    text-shadow: 0 2px 22px rgba(0,0,0,0.8), 0 1px 3px rgba(0,0,0,0.7);
   }
   .headline-serif .hl-line { white-space: nowrap; }
   .roar-accent { color: var(--color-gold); font-style: italic; }
@@ -592,24 +593,25 @@
   /* Hero */
   .hero {
     position: relative; width: 100%;
-    aspect-ratio: 16 / 9;      /* match the artwork's 16:9 → the WHOLE image shows, nothing cropped */
-    max-height: 100vh;
-    min-height: 380px;
+    min-height: 100vh;         /* fill the whole monitor */
     display: flex; align-items: center; overflow: hidden;
     background: var(--color-black);
   }
+  /* Light touch only — keep the artwork bright/exact; readability comes from text-shadow. */
   .hero-scrim {
-    position: absolute; inset: 0; z-index: 1;
-    background:
-      linear-gradient(90deg, rgba(5,5,5,0.96) 0%, rgba(5,5,5,0.9) 22%, rgba(5,5,5,0.62) 40%, rgba(8,9,13,0.25) 56%, transparent 72%),
-      linear-gradient(180deg, rgba(5,5,5,0.5) 0%, transparent 22%, transparent 60%, rgba(5,5,5,0.92) 100%);
+    position: absolute; inset: 0; z-index: 1; pointer-events: none;
+    background: linear-gradient(90deg, rgba(5,5,5,0.5) 0%, rgba(5,5,5,0.24) 26%, rgba(5,5,5,0.04) 46%, transparent 62%);
   }
   .hero-content { position: relative; z-index: 2; max-width: 640px; padding: clamp(2rem, 5vw, 4.5rem); }
   .hero-sub {
-    color: var(--color-smoke);
+    color: var(--color-ivory);
     font-size: clamp(1.05rem, 0.9rem + 0.6vw, 1.4rem);
     line-height: 1.5; margin-block: 1.25rem 2rem; max-width: 32ch;
+    text-shadow: 0 1px 12px rgba(0,0,0,0.85);
   }
+  .eyebrow, .section-eyebrow { text-shadow: 0 1px 8px rgba(0,0,0,0.85); }
+  .section-head, .pull-quote { text-shadow: 0 2px 18px rgba(0,0,0,0.7); }
+  .section-sub { text-shadow: 0 1px 10px rgba(0,0,0,0.8); }
   .hero-ctas { display: flex; gap: 1rem; flex-wrap: wrap; }
   .btn-outline-ivory { background: transparent; border: 1px solid rgba(232, 227, 216, 0.4); color: var(--color-ivory); }
   .btn-outline-ivory:hover:not(:disabled) { background: rgba(232, 227, 216, 0.08); border-color: var(--color-ivory); transform: translateY(-2px); }
@@ -635,15 +637,16 @@
   .section-head { font-family: var(--font-serif); font-weight: 700; font-size: clamp(2rem, 1.3rem + 2.5vw, 3.2rem); color: var(--color-ivory); line-height: 1.1; margin-block-end: 0.75rem; text-wrap: balance; }
   .section-sub { color: var(--color-smoke); font-size: 1.05rem; line-height: 1.6; max-width: 62ch; }
 
-  /* Full-width cinematic section background (cropped collage art behind each section) */
+  /* Full-width cinematic section background (cropped collage art behind each section) — VISIBLE. */
   .section-band { position: relative; overflow: hidden; }
-  .section-band > .sec-bg { position: absolute; inset: 0; background-size: cover; background-position: center; opacity: 0.22; }
-  .section-band > .sec-overlay { position: absolute; inset: 0; background: linear-gradient(180deg, var(--color-obsidian) 0%, rgba(8,9,13,0.55) 28%, rgba(8,9,13,0.55) 72%, var(--color-obsidian) 100%); }
+  .section-band > .sec-bg { position: absolute; inset: 0; background-size: cover; background-position: center; opacity: 0.92; }
+  /* Only blend the top/bottom edges into the page; keep the middle of the image visible. */
+  .section-band > .sec-overlay { position: absolute; inset: 0; background: linear-gradient(180deg, var(--color-obsidian) 0%, rgba(8,9,13,0.12) 16%, rgba(8,9,13,0.12) 84%, var(--color-obsidian) 100%); }
   .section-band > .section-pad { position: relative; z-index: 1; }
 
   /* Feature / template cards */
   .feature-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1.25rem; margin-block-start: 2.5rem; }
-  .feature-card { background: rgba(255, 255, 255, 0.025); border: 1px solid var(--color-obsidian-border); border-radius: 16px; padding: 1.6rem; transition: border-color 0.25s, transform 0.25s, background 0.25s; text-align: left; }
+  .feature-card { background: rgba(10, 9, 7, 0.68); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); border: 1px solid var(--color-obsidian-border); border-radius: 16px; padding: 1.6rem; transition: border-color 0.25s, transform 0.25s, background 0.25s; text-align: left; }
   a.feature-card, button.feature-card { cursor: pointer; display: block; width: 100%; }
   .feature-card:hover { border-color: rgba(214, 168, 79, 0.4); transform: translateY(-3px); background: rgba(214, 168, 79, 0.04); }
   .fc-icon { color: var(--color-gold); margin-block-end: 0.9rem; display: flex; }
