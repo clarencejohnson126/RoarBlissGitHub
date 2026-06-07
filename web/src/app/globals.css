@@ -593,7 +593,7 @@
   /* Hero */
   .hero {
     position: relative; width: 100%;
-    min-height: 100vh;         /* fill the whole monitor */
+    min-height: calc(100vh - 64px);  /* sticky navbar takes ~64px → navbar + hero = exactly one screen */
     display: flex; align-items: center; overflow: hidden;
     background: var(--color-black);
   }
