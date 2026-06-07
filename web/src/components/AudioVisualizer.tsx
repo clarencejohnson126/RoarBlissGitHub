@@ -463,10 +463,10 @@ export default function AudioVisualizer({ formData, sessionId }: AudioVisualizer
         >
           <span style={{ fontSize: "2.5rem", filter: "drop-shadow(0 0 8px var(--color-gold))" }}>🔒</span>
           <h3 className="headline-md" style={{ marginBlockEnd: "0.5rem", fontSize: "1.3rem", color: "#ffffff" }}>
-            Ego-Track Locked
+            Full Speech Locked
           </h3>
           <p style={{ color: "var(--color-text-secondary)", fontSize: "0.85rem", maxWidth: "340px", lineHeight: "1.5", marginBlockEnd: "1.5rem" }}>
-            You are listening to a 30-second personalized preview. Secure your place on the priority waitlist to immediately unlock the full track!
+            You&apos;re hearing a short personalized preview. Register to unlock and download your full speech.
           </p>
           
           <form onSubmit={handleUnlockSubmit} style={{ display: "flex", flexDirection: "column", gap: "0.75rem", width: "100%", maxWidth: "300px" }}>
@@ -573,10 +573,10 @@ export default function AudioVisualizer({ formData, sessionId }: AudioVisualizer
       {/* Visualizer Meta */}
       <div className="visualizer-card-meta">
         <span className={`visualizer-subtitle ${isGladiator ? "active-crimson" : ""}`}>
-          {isGladiator ? "🥋 Gladiator Arena Focus Session" : "👑 The Sage Wisdom Suite"}
+          {isGladiator ? "🔥 High-Energy Session" : "🪨 Deep & Reflective Session"}
         </span>
         <h3 className="visualizer-title">
-          {formData.name}&apos;s Personalized Battle Hymn
+          {formData.name}&apos;s Personal Battle Speech
         </h3>
         <p style={{ color: "var(--color-text-secondary)", fontSize: "0.85rem", marginBlockStart: "0.25rem" }}>
           Surgically Grafted Voice: Cloned {formData.champion} Model

@@ -184,13 +184,13 @@ export default function TeaserPreview({ formData, onComplete }: TeaserPreviewPro
         {isFailed ? (
           <>Pipeline <span className="text-highlight-crimson">Aborted</span></>
         ) : (
-          <>Surgically Grafting Your <span className="text-highlight-crimson">Ego-Track</span></>
+          <>Creating Your <span className="text-highlight-gold">Speech</span></>
         )}
       </h2>
       <p style={{ color: "var(--color-text-secondary)", fontSize: "0.85rem", marginBlockEnd: "1.5rem", lineHeight: "1.4" }}>
         {isFailed
           ? "The cloud run didn't complete. Check your connection or try again with different audio."
-          : "Our scale-to-zero GPU cloud is splitting stems, scanning tension valleys, cloning the speaker's voice, and level-mixing the final track. Watch the compiler run:"}
+          : "Our scale-to-zero GPU cloud is splitting the audio, scanning the music, rewriting the speech for your story while preserving the original tone, and level-mixing the final track. Watch it run:"}
       </p>
 
       <div className="terminal-box" style={{ minHeight: "220px" }}>

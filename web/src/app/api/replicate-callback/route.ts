@@ -81,12 +81,12 @@ export async function POST(request: Request) {
 function doneHtml(name: string, listen: string, base: string): string {
   return `
     <div style="font-family:system-ui,sans-serif;max-width:560px;margin:0 auto;padding:24px;background:#0a0a0c;color:#e6e6e8;border-radius:12px">
-      <h2 style="color:#ffd54a;margin:0 0 16px">🎧 Your battle hymn is ready.</h2>
-      <p>Hey ${name}, the engine just finished crafting your personalized motivational track.</p>
+      <h2 style="color:#D6A84F;margin:0 0 16px">🎧 Your battle speech is ready.</h2>
+      <p>Hey ${name}, we just finished creating your personalized motivational speech.</p>
       <p style="margin:24px 0;text-align:center">
-        <a href="${listen}" style="background:#ffd54a;color:#0a0a0c;padding:14px 32px;border-radius:8px;text-decoration:none;font-weight:bold">▶  Listen now</a>
+        <a href="${listen}" style="background:#D6A84F;color:#0a0a0c;padding:14px 32px;border-radius:8px;text-decoration:none;font-weight:bold">▶  Listen now</a>
       </p>
-      <p style="font-size:13px;color:#888;margin-top:32px">Built fresh from your audio + your story. The voice clones the original speaker, the music stays untouched, and your personalized moments are placed inside.</p>
+      <p style="font-size:13px;color:#888;margin-top:32px">Built fresh from your audio + your story. The original tone and music are preserved, and your personalized moments are placed inside.</p>
       <p style="font-size:11px;color:#555;margin-top:24px">Roar Bliss • You received this because you started a session at <a href="${base}" style="color:#888">Roar Bliss</a>.</p>
     </div>`;
 }

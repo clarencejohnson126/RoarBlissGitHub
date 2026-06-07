@@ -424,13 +424,16 @@ export default function OnboardingForm({ onComplete }: OnboardingFormProps) {
         <div className="flex-column" style={{ gap: "1.5rem" }}>
           <div>
             <h2 className="headline-md" style={{ marginBlockEnd: "0.5rem" }}>
-              4. Choose Your <span className="text-highlight-gold">Mentor</span>
+              4. Choose Your <span className="text-highlight-gold">Tone</span>
             </h2>
             <p style={{ color: "var(--color-text-secondary)", fontSize: "0.9rem", lineHeight: "1.4" }}>
-              Select the voice model whose emotional frequency fits your battlefield. 
+              Pick the tone and delivery style that fits your battle. These are style templates that
+              shape the energy and pacing of your speech — not a person.
             </p>
           </div>
 
+          {/* NOTE: the `champion` values ("Eric Thomas"/"Les Brown") are OPAQUE internal tone keys the
+              pipeline + player already understand; only the visible LABELS are tone descriptions. */}
           <div className="radio-cards">
             <label className={`radio-card ${champion === "Eric Thomas" ? "champion-gladiator" : ""}`}>
               <input
@@ -440,10 +443,10 @@ export default function OnboardingForm({ onComplete }: OnboardingFormProps) {
                 checked={champion === "Eric Thomas"}
                 onChange={() => setChampion("Eric Thomas")}
               />
-              <span className="radio-card-title text-highlight-crimson">🥋 The Gladiator</span>
-              <span className="radio-card-subtitle" style={{ fontSize: "0.8rem", color: "var(--color-text-muted)" }}>Eric Thomas Style</span>
+              <span className="radio-card-title text-highlight-crimson">🔥 High-Energy Drive</span>
+              <span className="radio-card-subtitle" style={{ fontSize: "0.8rem", color: "var(--color-text-muted)" }}>Intense · fast · commanding</span>
               <span className="radio-card-desc">
-                High-energy, intense, gravelly roars. Perfect for pushing past exhaustion, workout climaxes, and aggressive focus splits.
+                High-energy, intense, gravelly delivery. Perfect for pushing past exhaustion, workout climaxes, and aggressive focus.
               </span>
             </label>
 
@@ -455,10 +458,10 @@ export default function OnboardingForm({ onComplete }: OnboardingFormProps) {
                 checked={champion === "Les Brown"}
                 onChange={() => setChampion("Les Brown")}
               />
-              <span className="radio-card-title text-highlight-gold">👑 The Sage</span>
-              <span className="radio-card-subtitle" style={{ fontSize: "0.8rem", color: "var(--color-text-muted)" }}>Les Brown Style</span>
+              <span className="radio-card-title text-highlight-gold">🪨 Deep &amp; Reflective</span>
+              <span className="radio-card-subtitle" style={{ fontSize: "0.8rem", color: "var(--color-text-muted)" }}>Resonant · calm · wise</span>
               <span className="radio-card-desc">
-                Resonant, deep, wise reflections. Perfect for re-framing pain, overcoming doubts, and finding inner strategic grit.
+                Resonant, deep, reflective delivery. Perfect for re-framing pain, overcoming doubts, and finding inner grit.
               </span>
             </label>
           </div>
@@ -574,7 +577,7 @@ export default function OnboardingForm({ onComplete }: OnboardingFormProps) {
               Back
             </button>
             <button type="submit" className="btn-premium btn-gold" style={{ flex: 2 }}>
-              Graft My Ego-Track &rarr;
+              Create My Speech &rarr;
             </button>
           </div>
         </div>

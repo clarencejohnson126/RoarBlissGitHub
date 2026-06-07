@@ -56,7 +56,7 @@ export async function POST(request: Request) {
       name: name || "Warrior",
       battlefield: battlefield || "General self-mastery",
       struggle: struggle || "No details specified",
-      champion: champion || "Eric Thomas",
+      champion: champion || "High-Energy",
       timestamp: new Date().toISOString(),
     };
 
