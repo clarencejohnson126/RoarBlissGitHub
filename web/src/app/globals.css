@@ -571,7 +571,7 @@
     border-bottom: 1px solid var(--color-obsidian-border);
   }
   .nav-inner {
-    max-width: 1320px; margin-inline: auto;
+    max-width: 1440px; margin-inline: auto;
     display: flex; align-items: center; justify-content: space-between; gap: 1rem;
     padding: 0.85rem clamp(1rem, 4vw, 2.5rem);
   }
@@ -619,7 +619,7 @@
   /* Process bar */
   .process-wrap { position: relative; z-index: 3; margin-block-start: -3.5rem; padding-inline: clamp(1rem, 4vw, 2.5rem); }
   .process-bar {
-    max-width: 1180px; margin-inline: auto;
+    max-width: 1440px; margin-inline: auto;
     display: flex; align-items: center; justify-content: space-between; gap: 0.5rem;
     background: rgba(8, 9, 13, 0.82);
     backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
@@ -632,7 +632,7 @@
   .process-sep { color: rgba(214, 168, 79, 0.4); flex: 0 0 auto; }
 
   /* Sections */
-  .section-pad { max-width: 1280px; margin-inline: auto; padding: clamp(3.5rem, 7vw, 7rem) clamp(1.25rem, 5vw, 3rem); }
+  .section-pad { max-width: 1440px; margin-inline: auto; padding: clamp(3.5rem, 7vw, 7rem) clamp(1.25rem, 5vw, 3rem); }
   .section-eyebrow { display: block; font-family: var(--font-heading); text-transform: uppercase; letter-spacing: 0.28em; font-size: 0.72rem; font-weight: 600; color: var(--color-gold); margin-block-end: 0.75rem; }
   .section-head { font-family: var(--font-serif); font-weight: 700; font-size: clamp(2rem, 1.3rem + 2.5vw, 3.2rem); color: var(--color-ivory); line-height: 1.1; margin-block-end: 0.75rem; text-wrap: balance; }
   .section-sub { color: var(--color-smoke); font-size: 1.05rem; line-height: 1.6; max-width: 62ch; }
