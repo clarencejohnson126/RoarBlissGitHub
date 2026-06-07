@@ -65,6 +65,17 @@ export interface PredictionInput {
   mode?: "auto" | "personalize" | "full_voice"; // legacy override; 'auto' derives the path from personalization
   // Core feature 2 — target language for the generated lines (the cloned timbre is kept, source can be any language).
   language?: string;
+  // Core feature 3 — EITHER a free-form prompt (the planner parses it) OR a one-click tone/template.
+  prompt?: string; // free-form: "write exactly how you want it"; takes precedence over the structured fields
+  tone?: string; // one-click mood/template tag, e.g. "fighter", "reflective", "grief", "confident"
+  // Advanced voice/mix knobs (optional; the cog defaults are correct for the standard upload+clone flow).
+  clone_source_voices?: boolean; // false = only use extra_voice_ids over the upload-as-bed (instrumental + chosen voice)
+  extra_voice_ids?: string; // comma-separated permanent ElevenLabs voice IDs
+  music_gain_db?: number; // bed loudness relative to the voice (0 = at voice level)
+  duck_db?: number; // sidechain duck depth under the voice
+  voice_speed?: number; // <1 = slower/more deliberate
+  output_seconds?: number; // cap output length (0 = full source length)
+  min_voices?: number; // full_voice cloning: hint pyannote to find ≥N speakers
 }
 
 export type PredictionStatus =

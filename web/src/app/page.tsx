@@ -17,6 +17,8 @@ interface OnboardingData {
   paid: boolean;
   personalization: 25 | 50 | 75 | 100;
   language: string;
+  prompt: string;
+  tone: string;
   file: File | null;
 }
 

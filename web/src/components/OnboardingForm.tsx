@@ -14,6 +14,8 @@ interface OnboardingFormProps {
     paid: boolean;
     personalization: 25 | 50 | 75 | 100;
     language: string;
+    prompt: string;
+    tone: string;
     file: File | null;
   }) => void;
 }
@@ -34,6 +36,9 @@ export default function OnboardingForm({ onComplete }: OnboardingFormProps) {
   const [personalization, setPersonalization] = useState<25 | 50 | 75 | 100>(50);
   // Core feature 2: target language for the generated lines (cloned timbre is kept).
   const [language, setLanguage] = useState("English");
+  // Core feature 3: a one-click tone/template OR a free-form prompt (either/or; prompt overrides fields).
+  const [tone, setTone] = useState("");
+  const [prompt, setPrompt] = useState("");
 
   // Drag and Drop States
   const [isDragOver, setIsDragOver] = useState(false);
@@ -107,6 +112,8 @@ export default function OnboardingForm({ onComplete }: OnboardingFormProps) {
       paid,
       personalization,
       language,
+      tone,
+      prompt,
       file: usePreloaded ? null : file,
     });
   };
@@ -348,6 +355,56 @@ export default function OnboardingForm({ onComplete }: OnboardingFormProps) {
               onChange={(e) => setStruggle(e.target.value)}
               placeholder="e.g., late-night coding fatigue, financial stress, or people doubting your path"
               required
+            />
+          </div>
+
+          {/* Core feature 3a: one-click tone / template — no writing needed (optional) */}
+          <div className="form-group">
+            <label className="form-label">
+              Tone / Template
+              <span style={{ fontSize: "0.75rem", color: "var(--color-text-muted)", marginInlineStart: "0.5rem" }}>
+                — one click, no writing needed (optional)
+              </span>
+            </label>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: "0.5rem" }}>
+              {["Fighter", "Reflective", "Confident", "Grief", "Triumphant"].map((t) => {
+                const active = tone === t;
+                return (
+                  <button
+                    key={t}
+                    type="button"
+                    onClick={() => setTone(active ? "" : t)}
+                    className="btn-premium"
+                    style={{
+                      padding: "0.5rem 0.9rem",
+                      fontSize: "0.8rem",
+                      cursor: "pointer",
+                      border: active ? "1px solid var(--color-gold)" : "1px solid rgba(255,255,255,0.12)",
+                      background: active ? "rgba(255,215,0,0.12)" : "transparent",
+                      color: active ? "var(--color-gold)" : "var(--color-text-secondary)",
+                    }}
+                  >
+                    {t}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Core feature 3b: free-form prompt — for users who'd rather write it themselves (overrides fields) */}
+          <div className="form-group">
+            <label className="form-label" htmlFor="user-prompt">
+              Or write your own prompt
+              <span style={{ fontSize: "0.75rem", color: "var(--color-text-muted)", marginInlineStart: "0.5rem" }}>
+                — optional; describe exactly how you want it (this overrides the fields above)
+              </span>
+            </label>
+            <textarea
+              id="user-prompt"
+              className="form-textarea"
+              value={prompt}
+              onChange={(e) => setPrompt(e.target.value)}
+              placeholder="e.g., Speak to me like an old mentor before my final battle — calm and deep, about rebuilding after I lost my business, for my kids Lian and Lenise."
             />
           </div>
 

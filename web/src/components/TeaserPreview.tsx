@@ -15,6 +15,8 @@ interface TeaserPreviewProps {
     paid?: boolean;
     personalization?: 25 | 50 | 75 | 100;
     language?: string;
+    prompt?: string;
+    tone?: string;
     file: File | null;
   };
   onComplete: (predictionId: string) => void;
@@ -95,6 +97,8 @@ export default function TeaserPreview({ formData, onComplete }: TeaserPreviewPro
             paid: formData.paid === true,
             personalization: formData.personalization ?? 50,
             language: formData.language || "English",
+            prompt: formData.prompt || "",
+            tone: formData.tone || "",
             deviceId,
           }),
         });

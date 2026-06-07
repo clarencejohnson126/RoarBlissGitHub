@@ -30,6 +30,8 @@ export async function POST(request: Request) {
       paid,
       personalization,
       language,
+      prompt,
+      tone,
       deviceId,
     } = (data ?? {}) as Record<string, unknown>;
 
@@ -108,6 +110,9 @@ export async function POST(request: Request) {
       paid: paidGranted,
       personalization: paidGranted ? requestedTier : 75,
       language: (typeof language === "string" && language.trim()) || "English",
+      // Core feature 3 — EITHER a free-form prompt OR a one-click tone/template (both optional).
+      prompt: typeof prompt === "string" ? prompt.slice(0, 2000) : "",
+      tone: typeof tone === "string" ? tone.slice(0, 60) : "",
       // Secrets travel as Cog Secret inputs (Replicate has no model-level env). Server-side env only.
       anthropic_api_key: process.env.ANTHROPIC_API_KEY || "",
       hf_token: process.env.HF_TOKEN || "",
