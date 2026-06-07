@@ -593,7 +593,10 @@
   /* Hero */
   .hero {
     position: relative; width: 100%;
-    min-height: calc(100vh - 64px);  /* sticky navbar takes ~64px → navbar + hero = exactly one screen */
+    /* Responsive height: never taller than the image's own 16:9 (56.25vw) so narrow/laptop screens
+       show the FULL scene instead of cropping to just the warrior; capped at one screen so wide
+       monitors still fill. = min(16:9-of-width, one screen). */
+    min-height: clamp(420px, 56.25vw, calc(100vh - 64px));
     display: flex; align-items: center; overflow: hidden;
     background: var(--color-black);
   }
