@@ -20,6 +20,7 @@ sys.path.insert(0, str(_P(__file__).parent / "poc" / "orchestrator"))
 FREE_MAX_MS = 45_000     # free tier: up to 45s
 PAID_MAX_MS = 360_000    # paid tier: up to 6 min
 FREE_TIER_PERSONALIZATION = 75   # free runs are ALWAYS 75% generated so the listener identifies at once
+VOICE_TARGET_DBFS = -16.0        # every rendered line is loudness-matched to this so no voice is louder/quieter
 
 
 def _context_prompt(name, location, battlefield, struggle, family, champion) -> str:
@@ -72,7 +73,7 @@ class Predictor(BasePredictor):
         return vocals, vocals.parent / "no_vocals.wav"
 
     def _full_voice(self, vocals, accomp, audio_path, user_context, window_ms, work,
-                    min_voices=0, extra_voice_ids="", language="English"):
+                    min_voices=0, extra_voice_ids="", language="English", clone_source_voices=True):
         """100%-generated mode — adaptive. Build a pool of voices (permanent voice_ids supplied by the
         caller PLUS voices freshly cloned from the source's distinct speakers), write a COMPLETE new
         script (the listener's saga, original lines, never the source's words) and speak it 100% across
@@ -80,23 +81,30 @@ class Predictor(BasePredictor):
         multi-speaker cinematic source -> a multi-voice epic (GoT). NO original dialogue is mixed in."""
         import tts
         from pydub import AudioSegment
-        voc = AudioSegment.from_wav(str(vocals))
 
-        # 1) diarize -> distinct speakers, build a clone reference per speaker (concatenate their segments)
-        speakers = self._rank_speakers(str(vocals), len(voc), min_speakers=min_voices)[:6]
-        print(f"full_voice: {len(speakers)} distinct voice(s) detected (min_voices={min_voices})")
+        # 1) Voice sourcing is DETERMINISTIC. Clone the source's own distinct speakers ONLY when the
+        #    caller asks for it (clone_source_voices=True) — e.g. personalizing a real multi-speaker
+        #    speech. For "chosen voices over a bed" (instrumental + your Jon voice, or N picked voices),
+        #    clone_source_voices=False -> NO diarization, NO cloning, NO invented voices. The user only
+        #    ever hears the voices they chose.
         track_refs = []   # (speaker_id, ref_path) — cloned one at a time later
-        for spk, segs in speakers:
-            ref = AudioSegment.silent(duration=0)
-            for s, e in segs:
-                if len(ref) >= 40_000:
-                    break
-                ref += voc[int(s * 1000):int(e * 1000)]
-            if len(ref) < 2500:                       # too little clean audio → fall back to head of stem
-                ref = voc[:min(len(voc), 30_000)]
-            rp = _P(work) / f"fv_ref_{spk}.wav"
-            ref[:40_000].export(str(rp), format="wav")
-            track_refs.append((spk, rp))
+        if clone_source_voices and vocals is not None:
+            voc = AudioSegment.from_wav(str(vocals))
+            speakers = self._rank_speakers(str(vocals), len(voc), min_speakers=min_voices)[:6]
+            print(f"full_voice: {len(speakers)} source speaker(s) to clone (min_voices={min_voices})")
+            for spk, segs in speakers:
+                ref = AudioSegment.silent(duration=0)
+                for s, e in segs:
+                    if len(ref) >= 40_000:
+                        break
+                    ref += voc[int(s * 1000):int(e * 1000)]
+                if len(ref) < 2500:                   # too little clean audio → fall back to head of stem
+                    ref = voc[:min(len(voc), 30_000)]
+                rp = _P(work) / f"fv_ref_{spk}.wav"
+                ref[:40_000].export(str(rp), format="wav")
+                track_refs.append((spk, rp))
+        else:
+            print("full_voice: cloning disabled -> only the chosen voice(s), no invented voices")
 
         # 2) voice pool = permanent voices first (used directly, never cloned/deleted — e.g. the user's
         #    GoT-Jon / dany clones; they guarantee solid extra voices and cost no slot), then track clones.
@@ -135,7 +143,7 @@ class Predictor(BasePredictor):
                     if not txt:
                         continue
                     try:
-                        rendered[idx] = tts.elevenlabs_tts(txt, vid)
+                        rendered[idx] = self._norm(tts.elevenlabs_tts(txt, vid))
                     except Exception as ex:
                         print(f"  tts failed ({txt[:30]}…): {ex}")
             finally:
@@ -157,7 +165,7 @@ class Predictor(BasePredictor):
                 try:
                     for idx in leftover:
                         try:
-                            rendered[idx] = tts.elevenlabs_tts(lines[idx]["text"].strip(), fb_vid)
+                            rendered[idx] = self._norm(tts.elevenlabs_tts(lines[idx]["text"].strip(), fb_vid))
                         except Exception:
                             pass
                 finally:
@@ -186,10 +194,40 @@ class Predictor(BasePredictor):
         print(f"full_voice track: {n} voice(s), {len(track)/1000:.1f}s speech")
         if len(track) < 1000:
             raise RuntimeError("full_voice: no audible speech produced")
+        track = self._voice_polish(track, work)   # cinematic "Stimmenklang" — body/presence/air + glue comp
         mixed = self._lay_over_music(track, accomp, duck_db=(8.0 if n >= 2 else 12.0))
         out = _P(work) / "fullvoice.mp3"
         mixed.export(str(out), format="mp3", bitrate="192k")
         return Path(out)
+
+    def _norm(self, seg):
+        """Loudness-match a rendered line to VOICE_TARGET_DBFS so every voice sits at the same level
+        (fixes 'one voice too loud, another too quiet'). Silent/empty segments pass through."""
+        try:
+            if seg is None or seg.dBFS == float("-inf"):
+                return seg
+            return seg.apply_gain(VOICE_TARGET_DBFS - seg.dBFS)
+        except Exception:
+            return seg
+
+    def _voice_polish(self, seg, work):
+        """Cinematic VO 'Stimmenklang' on the assembled voice track: body(200Hz)+warmth, presence(2.8k),
+        air(9k), gentle glue compression. NO gate (gates make speech gasp). ffmpeg in, pydub out; if
+        ffmpeg is unavailable the dry track is returned unchanged."""
+        import subprocess
+        from pydub import AudioSegment
+        src = _P(work) / "vox_pre.wav"; dst = _P(work) / "vox_post.wav"
+        try:
+            seg.export(str(src), format="wav")
+            chain = ("highpass=f=75,equalizer=f=200:width_type=q:w=0.9:g=2,bass=g=2:f=150,"
+                     "equalizer=f=2800:width_type=q:w=1.2:g=4,treble=g=2.5:f=9000,"
+                     "acompressor=threshold=-20dB:ratio=3:attack=10:release=200:makeup=3")
+            subprocess.run(["ffmpeg", "-y", "-i", str(src), "-af", chain, str(dst)],
+                           capture_output=True, check=True)
+            return AudioSegment.from_wav(str(dst))
+        except Exception as e:
+            print("voice polish skipped:", e)
+            return seg
 
     def _purge_orphan_clones(self):
         """Delete leftover 'rb_*' throwaway voices from a crashed earlier run to free custom-voice slots.
@@ -335,7 +373,8 @@ class Predictor(BasePredictor):
         mode: str = Input(default="auto", choices=["auto", "personalize", "full_voice"], description="Legacy override. 'auto' (default) derives the mode from `personalization` (100 -> full_voice, else 50/50 personalize). Set explicitly only to force a path."),
         min_voices: int = Input(default=0, description="full_voice only: hint pyannote to find at least N distinct speakers to clone (0 = auto). Use for dense multi-character sources like a GoT montage."),
         output_seconds: int = Input(default=0, description="full_voice only: cap the OUTPUT length (s) independent of source length — clone the voices from a longer source but render e.g. a 2-min piece. 0 = use the full window."),
-        extra_voice_ids: str = Input(default="", description="full_voice only: comma-separated permanent ElevenLabs voice IDs to include as voices (used directly, never cloned/deleted) — e.g. the user's GoT-Jon + dany clones, to guarantee solid extra voices."),
+        extra_voice_ids: str = Input(default="", description="Comma-separated permanent ElevenLabs voice IDs to use as voices (used directly, never cloned/deleted) — e.g. the user's GoT-Jon. These are the user's CHOSEN voices."),
+        clone_source_voices: bool = Input(default=True, description="DETERMINISTIC voice sourcing. True = clone the distinct speakers found in the uploaded audio (correct when personalizing a real speech, or for a multi-speaker cinematic source). False = NEVER diarize/clone the source; speak ONLY the voices in extra_voice_ids over the upload-as-bed (instrumental + your chosen voice(s); N picked voices talking over your track). Set False so a user NEVER gets a voice they didn't choose."),
         language: str = Input(default="English", description="Target language for the generated lines (e.g. 'German', 'Spanish', 'French'). ElevenLabs multilingual_v2 keeps the cloned timbre and the writer composes natively; the source audio can be any language."),
     ) -> Path:
         from auto_synthesizer import auto_synthesize
@@ -364,8 +403,6 @@ class Predictor(BasePredictor):
             os.environ["TTS_PROVIDER"] = "elevenlabs"
 
         work = _P(tempfile.mkdtemp())
-        vocals, accomp = self._separate(_P(str(audio)), work)
-
         cap = PAID_MAX_MS if paid else FREE_MAX_MS
         window_ms = max(10_000, min(_duration_ms(audio), cap))
 
@@ -381,6 +418,20 @@ class Predictor(BasePredictor):
         density = max(0.1, min(tier / 100.0, 0.95))   # fraction of speech to personalize (25/50/75)
         print(f"personalization tier={tier}% -> {'full_voice' if use_full_voice else f'personalize @ density {density:.2f}'}")
 
+        # DETERMINISTIC voice sourcing. Only separate (and later clone) the source's speakers when the
+        # job actually needs it. "Chosen voices over a pure bed" (instrumental + your voice, or N picked
+        # voices talking over your track) sets clone_source_voices=False -> the upload is used directly
+        # as the music/SFX bed: no Demucs, no pyannote, no cloning, NO surprise voices, and far faster.
+        # Personalize tiers (25/50/75) and full_voice-with-cloning still separate exactly as before.
+        bed_only = use_full_voice and not clone_source_voices
+        if bed_only:
+            if not (extra_voice_ids or "").strip():
+                raise RuntimeError("clone_source_voices=False requires at least one voice in extra_voice_ids")
+            vocals, accomp = None, _P(str(audio))
+            print("voice sourcing: chosen voices only (no clone) -> upload used directly as the bed")
+        else:
+            vocals, accomp = self._separate(_P(str(audio)), work)
+
         if use_full_voice:
             # full_voice discovers + clones voices from the FULL separated vocals, but sizes the script
             # and bed to out_window — so we can clone all 5+ characters from a 3-min montage yet render 2 min.
@@ -389,7 +440,7 @@ class Predictor(BasePredictor):
                 vocals, accomp, str(audio),
                 _context_prompt(name, location, battlefield, struggle, family, champion),
                 out_window, work, min_voices=min_voices, extra_voice_ids=extra_voice_ids,
-                language=language,
+                language=language, clone_source_voices=clone_source_voices,
             )
 
         result = auto_synthesize(
