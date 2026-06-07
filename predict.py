@@ -309,7 +309,7 @@ class Predictor(BasePredictor):
         lang_note = ("" if lang.lower() in ("english", "en", "")
                      else f" Write EVERY line ENTIRELY in {lang} — natural, native {lang}, never a translation.")
         if n_voices <= 1:
-            target_words = max(150, int(window_ms / 1000.0 / 60.0 * 205))
+            target_words = max(120, int(window_ms / 1000.0 / 60.0 * 150))   # ~150 wpm = deliberate, not rushed
             sysmsg = ("You write a single, continuous, first-person motivational monologue the listener "
                       "could record as their own. Echo the cadence and intensity of the STYLE sample, but "
                       "write ORIGINAL lines about the listener's real life — never reuse the sample's words. "
@@ -320,7 +320,7 @@ class Predictor(BasePredictor):
                    f"decisive final line. JSON only.")
         else:
             win_s = max(20, int(window_ms / 1000))
-            target_lines = max(12, int(win_s / 3.0))    # ~3s of speech+breath per line -> lands near win_s
+            target_lines = max(10, int(win_s / 3.8))    # ~3.8s per line -> fewer, more spaced (less rushed)
             sysmsg = (f"You script a cinematic, multi-voice EPIC TRAILER — the listener's life told as a "
                       f"mythic saga. You have {n_voices} distinct VOICES, numbered 0..{n_voices - 1}. Write "
                       "ORIGINAL lines ONLY — never quote any film, show, or song. Distribute the lines across "
@@ -334,11 +334,15 @@ class Predictor(BasePredictor):
                    f"Write about {target_lines} short lines total — roughly {win_s} seconds of speech — across "
                    f"{n_voices} voices as a seamless, building epic. Do NOT exceed {target_lines + 5} lines. "
                    f"End on one decisive final line. JSON only.")
-        raw = llm_chat(sysmsg, usr, max_tokens=2000, temperature=0.75, model=model).strip()
+        # Big token budget: a full-length translation can be 100+ lines; a small cap truncated the JSON,
+        # which then failed to parse and got read aloud as raw structure ("voice 0 text ...").
+        raw = llm_chat(sysmsg, usr, max_tokens=8000, temperature=0.75, model=model).strip()
         return self._parse_script_json(raw, n_voices, user_context)
 
     def _parse_script_json(self, raw, n_voices, user_context):
-        """Robustly parse the model's JSON line list; fall back to splitting prose across voices."""
+        """Parse the model's JSON line list. CRITICAL: never speak JSON structure. If json.loads fails
+        (e.g. truncated output), regex-extract ONLY the "text" field VALUES so the keys/indices
+        ('voice', 'text', numbers) are never read aloud."""
         import json as _json, re as _re
         txt = raw.strip()
         if txt.startswith("```"):
@@ -353,11 +357,24 @@ class Predictor(BasePredictor):
                 if out:
                     return out
             except Exception as e:
-                print("script JSON parse failed, falling back:", e)
-        sents = [s.strip() for s in _re.split(r"(?<=[.!?])\s+", _re.sub(r"[\[\]{}\"]", " ", txt)) if s.strip()]
-        if not sents:
-            sents = [f"{user_context.split('.')[0]}.", "This is my reckoning.", "I rise now."]
-        return [{"voice": i % n_voices, "text": s} for i, s in enumerate(sents)]
+                print("script JSON parse failed, extracting text fields only:", e)
+        # Robust, truncation-tolerant: pull each object's "voice" (if present) + "text" VALUE only.
+        out = []
+        for mo in _re.finditer(r'"text"\s*:\s*"((?:[^"\\]|\\.)*)"', txt, _re.S):
+            t = mo.group(1).replace('\\"', '"').replace('\\n', ' ').replace('\\', '').strip()
+            # find a "voice":N just before this text, if any (else round-robin)
+            pre = txt[:mo.start()]
+            vm = None
+            for vmm in _re.finditer(r'"voice"\s*:\s*(\d+)', pre):
+                vm = vmm
+            vi = (int(vm.group(1)) % n_voices) if vm else (len(out) % n_voices)
+            if t:
+                out.append({"voice": vi, "text": t})
+        if out:
+            return out
+        # truly nothing parseable -> minimal safe content (NEVER the raw JSON)
+        seed = (user_context.split(".")[0] or "Stand up").strip()
+        return [{"voice": 0, "text": seed + "."}]
 
     def _lay_over_music(self, voice, accomp, work, duck_db=8.0, music_gain_db=0.0, bed_len_ms=0):
         """Lay the voice over the bed with a short intro, then SIDECHAIN-DUCK the music under the voice:
