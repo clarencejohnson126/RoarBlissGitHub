@@ -42,6 +42,10 @@ poc/*.wav
 # Old demo outputs (regenerable)
 rebelzai_personalized_*.mp3
 
+# Render inputs/outputs staged into the workspace at runtime (do not commit)
+King_of_the_North.mp3
+RoarBliss_Clarence_CLOUD.mp3
+
 # Editor / IDE
 .antigravitycli/
 .vscode/
