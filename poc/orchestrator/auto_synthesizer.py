@@ -345,9 +345,12 @@ def auto_synthesize(audio_path: str, user_context: str,
         # the following original vocal, since we're replacing a whole sentence) and overlay the clone.
         # Total canvas length is unchanged, so the separate music stem stays perfectly in sync.
         place_ms = len(fitted)
-        canvas = (canvas[:s_ms]
-                  + AudioSegment.silent(duration=place_ms, frame_rate=canvas.frame_rate)
-                  + canvas[s_ms + place_ms:])
+        # Instead of replacing the original with DIGITAL SILENCE under the clone (which makes dry, no-music
+        # sections go dead-silent between the clone's words — the 0:36 "sound gone" dropout), keep a muffled,
+        # ducked copy of the original as a continuity bed: a 450Hz low-pass removes speech intelligibility
+        # (no ghost words) while preserving room tone / energy so the background never drops to nothing.
+        under = canvas[s_ms:s_ms + place_ms].low_pass_filter(450) - 16
+        canvas = (canvas[:s_ms] + under + canvas[s_ms + place_ms:])
         canvas = canvas.overlay(fitted, position=s_ms)
 
         audit_slots.append({
