@@ -21,6 +21,8 @@ FREE_MAX_MS = 45_000     # free tier: up to 45s
 PAID_MAX_MS = 360_000    # paid tier: up to 6 min
 FREE_TIER_PERSONALIZATION = 75   # free runs are ALWAYS 75% generated so the listener identifies at once
 VOICE_TARGET_DBFS = -16.0        # every rendered line is loudness-matched to this so no voice is louder/quieter
+LANG_CODE = {"english": "en", "german": "de", "spanish": "es", "french": "fr", "italian": "it",
+             "portuguese": "pt", "dutch": "nl", "polish": "pl"}  # target-name -> whisper code
 
 
 def _context_prompt(name, location, battlefield, struggle, family, champion) -> str:
@@ -58,6 +60,21 @@ class Predictor(BasePredictor):
             whisper.load_model(os.environ["WHISPER_MODEL"])
         except Exception as e:
             print("whisper warm skipped:", e)
+
+    def _detect_source_lang(self, audio):
+        """Whisper language code of the source (e.g. 'en','de'). Used to decide if a target language
+        is a TRANSLATION (cross-language) — in which case the WHOLE track is re-spoken in the target
+        language, never a half-source/half-target mix."""
+        try:
+            import whisper
+            m = whisper.load_model(os.environ.get("WHISPER_MODEL", "base"))
+            clip = whisper.pad_or_trim(whisper.load_audio(str(audio)))
+            mel = whisper.log_mel_spectrogram(clip).to(m.device)
+            _, probs = m.detect_language(mel)
+            return max(probs, key=probs.get)
+        except Exception as e:
+            print("source-lang detect skipped:", e)
+            return None
 
     def _separate(self, audio: _P, workdir: _P):
         """Demucs two-stem split on the GPU (falls back to CPU if no CUDA)."""
@@ -458,6 +475,16 @@ class Predictor(BasePredictor):
         use_full_voice = paid and ((mode == "full_voice") or (mode == "auto" and tier >= 100))
         density = max(0.1, min(tier / 100.0, 0.95))   # fraction of speech to personalize (25/50/75)
         print(f"personalization tier={tier}% -> {'full_voice' if use_full_voice else f'personalize @ density {density:.2f}'}")
+
+        # TRANSLATION = the WHOLE track in the target language (never a half-English/half-German mix).
+        # If the chosen language differs from the source's language, force full_voice: re-speak the
+        # entire piece in the target language in the cloned voice over the continuous music bed.
+        if (language or "").strip().lower() not in ("", "english", "en") and not use_full_voice:
+            tgt = LANG_CODE.get((language or "").strip().lower())
+            src = self._detect_source_lang(str(audio)) if tgt else None
+            if tgt and src and src != tgt:
+                use_full_voice = True
+                print(f"translation {src}->{tgt}: forcing full_voice (whole track re-spoken in target language)")
 
         # DETERMINISTIC voice sourcing. Only separate (and later clone) the source's speakers when the
         # job actually needs it. "Chosen voices over a pure bed" (instrumental + your voice, or N picked

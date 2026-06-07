@@ -381,8 +381,11 @@ def auto_synthesize(audio_path: str, user_context: str,
     accomp_trimmed = out_dir / "accompaniment_window.wav"
     accomp.export(str(accomp_trimmed), format="wav")
     final_path = out_dir / "personalized_output.mp3"
+    # ...then trim any dead trailing silence (sources often end with a silent tail; we leave ~1s so it
+    # doesn't end abruptly) so the track never finishes with a long stretch of nothing.
     cmd = ["ffmpeg","-y","-loglevel","error","-i",str(pv_path),"-i",str(accomp_trimmed),
-             "-filter_complex","[0:a]volume=1.0[s];[1:a]volume=1.0[m];[s][m]amix=inputs=2:duration=longest:normalize=0",
+             "-filter_complex","[0:a]volume=1.0[s];[1:a]volume=1.0[m];[s][m]amix=inputs=2:duration=longest:normalize=0,"
+             "areverse,silenceremove=start_periods=1:start_threshold=-50dB:start_silence=1.0,areverse",
              "-ac","2","-ar","44100","-b:a","320k", str(final_path)]
     r = subprocess.run(cmd, capture_output=True, text=True)
     if r.returncode != 0:
