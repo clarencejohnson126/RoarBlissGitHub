@@ -74,7 +74,7 @@ class Predictor(BasePredictor):
 
     def _full_voice(self, vocals, accomp, audio_path, user_context, window_ms, work,
                     min_voices=0, extra_voice_ids="", language="English", clone_source_voices=True,
-                    music_gain_db=0.0, duck_db=8.0):
+                    music_gain_db=0.0, duck_db=8.0, voice_speed=1.0):
         """100%-generated mode — adaptive. Build a pool of voices (permanent voice_ids supplied by the
         caller PLUS voices freshly cloned from the source's distinct speakers), write a COMPLETE new
         script (the listener's saga, original lines, never the source's words) and speak it 100% across
@@ -195,8 +195,9 @@ class Predictor(BasePredictor):
         print(f"full_voice track: {n} voice(s), {len(track)/1000:.1f}s speech")
         if len(track) < 1000:
             raise RuntimeError("full_voice: no audible speech produced")
-        track = self._voice_polish(track, work)   # cinematic "Stimmenklang" — body/presence/air + glue comp
-        mixed = self._lay_over_music(track, accomp, work, duck_db=duck_db, music_gain_db=music_gain_db)
+        track = self._voice_polish(track, work, speed=voice_speed)   # Stimmenklang + optional slowdown
+        mixed = self._lay_over_music(track, accomp, work, duck_db=duck_db, music_gain_db=music_gain_db,
+                                     bed_len_ms=window_ms)
         out = _P(work) / "fullvoice.mp3"
         mixed.export(str(out), format="mp3", bitrate="192k")
         return Path(out)
@@ -211,10 +212,11 @@ class Predictor(BasePredictor):
         except Exception:
             return seg
 
-    def _voice_polish(self, seg, work):
+    def _voice_polish(self, seg, work, speed=1.0):
         """Cinematic VO 'Stimmenklang' on the assembled voice track: body(200Hz)+warmth, presence(2.8k),
-        air(9k), gentle glue compression. NO gate (gates make speech gasp). ffmpeg in, pydub out; if
-        ffmpeg is unavailable the dry track is returned unchanged."""
+        air(9k), gentle glue compression, and an optional speed change (speed<1 = slower/more deliberate,
+        pitch preserved). NO gate (gates make speech gasp). ffmpeg in, pydub out; if ffmpeg is unavailable
+        the dry track is returned unchanged."""
         import subprocess
         from pydub import AudioSegment
         src = _P(work) / "vox_pre.wav"; dst = _P(work) / "vox_post.wav"
@@ -223,6 +225,12 @@ class Predictor(BasePredictor):
             chain = ("highpass=f=75,equalizer=f=200:width_type=q:w=0.9:g=2,bass=g=2:f=150,"
                      "equalizer=f=2800:width_type=q:w=1.2:g=4,treble=g=2.5:f=9000,"
                      "acompressor=threshold=-20dB:ratio=3:attack=10:release=200:makeup=3")
+            try:
+                sp = float(speed)
+            except (TypeError, ValueError):
+                sp = 1.0
+            if abs(sp - 1.0) > 0.01 and 0.5 <= sp <= 2.0:   # atempo keeps pitch; only when meaningfully off 1.0
+                chain += f",atempo={sp:.3f}"
             subprocess.run(["ffmpeg", "-y", "-i", str(src), "-af", chain, str(dst)],
                            capture_output=True, check=True)
             return AudioSegment.from_wav(str(dst))
@@ -334,24 +342,30 @@ class Predictor(BasePredictor):
             sents = [f"{user_context.split('.')[0]}.", "This is my reckoning.", "I rise now."]
         return [{"voice": i % n_voices, "text": s} for i, s in enumerate(sents)]
 
-    def _lay_over_music(self, voice, accomp, work, duck_db=8.0, music_gain_db=0.0):
+    def _lay_over_music(self, voice, accomp, work, duck_db=8.0, music_gain_db=0.0, bed_len_ms=0):
         """Lay the voice over the bed with a short intro, then SIDECHAIN-DUCK the music under the voice:
         the bed plays full/loud and only dips ~duck_db while someone speaks, springing back between lines
         — loud music AND a clear voice (the cinematic balance). music_gain_db sets the bed level relative
-        to the voice (0 = at voice level). Both knobs are tunable per run, no rebuild. Falls back to a
-        simple level-lock overlay if ffmpeg sidechain isn't available; returns dry voice if there's no bed."""
+        to the voice (0 = at voice level). bed_len_ms lets the music play its FULL natural length (e.g. the
+        whole 2:09 instrumental) even after the voice finishes — the bed simply continues solo and fades
+        at its real end, no abrupt cut-off. All knobs tunable per run, no rebuild. Falls back to a simple
+        level-lock overlay if ffmpeg sidechain isn't available; returns dry voice if there's no bed."""
         import subprocess
         from pydub import AudioSegment
         intro_ms, tail_ms = 2500, 3000
         vfull = AudioSegment.silent(duration=intro_ms) + voice
-        total = len(vfull) + tail_ms
         try:
             music = AudioSegment.from_file(str(accomp))
         except Exception as e:
             print("music bed skipped (no accomp):", e); return voice
         if music.dBFS < -40:          # source had no real music bed → keep the voice dry
             print("music bed skipped (stem effectively silent)"); return voice
-        if len(music) < total:        # loop the bed if it's shorter than the voice
+        # Play the bed to its natural end (bed_len_ms, capped to the actual source) so the track runs the
+        # full instrumental length; never shorter than the voice + tail.
+        voice_total = len(vfull) + tail_ms
+        bed_total = min(len(music), int(bed_len_ms)) if bed_len_ms and bed_len_ms > 0 else voice_total
+        total = max(voice_total, bed_total)
+        if len(music) < total:        # loop the bed only if the source is shorter than needed
             music = music * (total // max(1, len(music)) + 1)
         music = music[:total].fade_in(1500).fade_out(tail_ms)
         # Bring the bed up to ~voice level (+ user gain) so it's full and loud; the sidechain below keeps
@@ -399,6 +413,7 @@ class Predictor(BasePredictor):
         clone_source_voices: bool = Input(default=True, description="DETERMINISTIC voice sourcing. True = clone the distinct speakers found in the uploaded audio (correct when personalizing a real speech, or for a multi-speaker cinematic source). False = NEVER diarize/clone the source; speak ONLY the voices in extra_voice_ids over the upload-as-bed (instrumental + your chosen voice(s); N picked voices talking over your track). Set False so a user NEVER gets a voice they didn't choose."),
         music_gain_db: float = Input(default=0.0, description="Music bed loudness, in dB relative to the voice. 0 = bed sits at voice level and is full/loud (it ducks under the voice via sidechain so words stay clear). Positive = louder music, negative = quieter. Tune this per run — no rebuild needed."),
         duck_db: float = Input(default=8.0, description="How far the music dips UNDER the voice while someone speaks (sidechain duck depth, dB). Higher = voice cuts through more; lower = music stays prouder under the voice."),
+        voice_speed: float = Input(default=1.0, description="Speaking pace of the generated voice. 1.0 = natural; <1 = slower/more deliberate (e.g. 0.93), >1 = faster. Applied to the voice only — the music is untouched."),
         language: str = Input(default="English", description="Target language for the generated lines (e.g. 'German', 'Spanish', 'French'). ElevenLabs multilingual_v2 keeps the cloned timbre and the writer composes natively; the source audio can be any language."),
     ) -> Path:
         from auto_synthesizer import auto_synthesize
@@ -465,7 +480,7 @@ class Predictor(BasePredictor):
                 _context_prompt(name, location, battlefield, struggle, family, champion),
                 out_window, work, min_voices=min_voices, extra_voice_ids=extra_voice_ids,
                 language=language, clone_source_voices=clone_source_voices,
-                music_gain_db=music_gain_db, duck_db=duck_db,
+                music_gain_db=music_gain_db, duck_db=duck_db, voice_speed=voice_speed,
             )
 
         result = auto_synthesize(
