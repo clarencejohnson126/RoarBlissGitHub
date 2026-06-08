@@ -5,9 +5,6 @@ import Link from "next/link";
 import AccountPanel from "@/components/AccountPanel";
 
 const LINKS = [
-  { label: "Features", href: "/#personalization" },
-  { label: "How It Works", href: "/#how-it-works" },
-  { label: "Templates", href: "/#templates" },
   { label: "Pricing", href: "/pricing" },
   { label: "Dashboard", href: "/dashboard" },
 ];
