@@ -1,0 +1,62 @@
+/* Dashboard — dark/gold, tabbed (Overview / Profile / Settings). Reuses the global :root palette. */
+.wrap {
+  min-height: 100svh;
+  background: radial-gradient(120% 80% at 50% 0%, #0c0d12 0%, var(--color-black) 60%);
+  color: var(--color-ivory);
+  padding: clamp(5rem, 9vh, 7rem) clamp(1.25rem, 5vw, 3rem) 5rem;
+}
+.inner { max-width: 980px; margin-inline: auto; }
+
+.center { max-width: 440px; margin: 12vh auto 0; text-align: center; }
+.signin { display: flex; gap: 0.5rem; background: rgba(0,0,0,0.3); border: 1px solid var(--color-obsidian-border); border-radius: 12px; padding: 0.5rem; margin-block-start: 1.5rem; }
+.signinInput { flex: 1; background: transparent; border: none; color: #fff; padding: 0.6rem 0.8rem; font-size: 0.95rem; outline: none; }
+.signinBtn { background: rgba(214,168,79,0.14); border: 1px solid rgba(214,168,79,0.4); color: var(--color-gold); border-radius: 9px; padding: 0.5rem 1rem; font-size: 0.82rem; font-weight: 600; cursor: pointer; white-space: nowrap; }
+
+.eyebrow { font-family: var(--font-heading,"Outfit",sans-serif); text-transform: uppercase; letter-spacing: 0.26em; font-size: 0.7rem; font-weight: 600; color: var(--color-gold); }
+.h1 { font-family: var(--font-serif); font-weight: 800; font-size: clamp(2rem, 1.4rem + 2.4vw, 3rem); line-height: 1.06; margin-block: 0.8rem 0.4rem; }
+.gold { color: var(--color-gold); }
+.sub { color: var(--color-smoke); font-size: 1.02rem; }
+
+.tabs { display: flex; gap: 0.5rem; margin-block: 2rem 1.75rem; border-bottom: 1px solid var(--color-obsidian-border); }
+.tab { background: none; border: none; color: var(--color-smoke); font-family: var(--font-heading,"Outfit",sans-serif); font-size: 0.92rem; font-weight: 500; padding: 0.7rem 1rem; cursor: pointer; border-bottom: 2px solid transparent; margin-bottom: -1px; transition: color 0.2s, border-color 0.2s; }
+.tab:hover { color: var(--color-ivory); }
+.tabActive { color: var(--color-gold); border-bottom-color: var(--color-gold); }
+
+.grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 1rem; }
+.card { border: 1px solid rgba(214,168,79,0.16); border-radius: 16px; padding: 1.4rem 1.5rem; background: rgba(12,11,9,0.6); }
+.cardLabel { font-family: var(--font-heading,"Outfit",sans-serif); font-size: 0.7rem; letter-spacing: 0.12em; text-transform: uppercase; color: var(--color-smoke); }
+.cardValue { font-family: var(--font-serif); font-weight: 800; font-size: 2rem; color: var(--color-ivory); margin-block-start: 0.4rem; }
+.cardValueGold { background: linear-gradient(135deg, var(--color-gold), #fff3cf); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent; }
+.cardSub { color: var(--color-smoke); font-size: 0.85rem; margin-block-start: 0.35rem; line-height: 1.4; }
+
+.section { margin-block-start: 1.5rem; }
+.sectionTitle { font-family: var(--font-serif); font-weight: 700; font-size: 1.25rem; margin-block-end: 1rem; }
+.empty { border: 1px dashed var(--color-obsidian-border); border-radius: 14px; padding: 2.5rem 1.5rem; text-align: center; color: var(--color-smoke); }
+
+.field { margin-block-end: 1.25rem; }
+.label { display: block; font-family: var(--font-heading,"Outfit",sans-serif); font-size: 0.85rem; color: var(--color-text-secondary); margin-block-end: 0.55rem; }
+.input, .textarea { width: 100%; background: rgba(0,0,0,0.45); border: 1px solid rgba(255,255,255,0.1); border-radius: 11px; padding: 0.85rem 1rem; color: #fff; font-size: 1rem; transition: border-color 0.2s, box-shadow 0.2s; }
+.input:focus, .textarea:focus { outline: none; border-color: var(--color-gold); box-shadow: 0 0 14px rgba(214,168,79,0.16); }
+.textarea { min-height: 80px; resize: vertical; line-height: 1.5; }
+.chipRow { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+.chip { font-family: var(--font-heading,"Outfit",sans-serif); font-size: 0.85rem; color: var(--color-ivory); padding: 0.5rem 0.95rem; border-radius: 999px; border: 1px solid rgba(255,255,255,0.12); background: rgba(255,255,255,0.03); cursor: pointer; transition: all 0.2s; }
+.chip:hover { border-color: rgba(214,168,79,0.4); }
+.chipOn { border-color: var(--color-gold); background: rgba(214,168,79,0.14); box-shadow: 0 0 12px rgba(214,168,79,0.14); }
+
+.row { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: 1.1rem 0; border-bottom: 1px solid var(--color-obsidian-border); }
+.rowLabel { font-size: 0.95rem; color: var(--color-ivory); }
+.rowSub { font-size: 0.82rem; color: var(--color-smoke); margin-block-start: 0.2rem; }
+
+.actions { display: flex; gap: 0.85rem; flex-wrap: wrap; margin-block-start: 1.75rem; }
+.btnGold, .btnGhost, .btnDanger {
+  font-family: var(--font-heading,"Outfit",sans-serif); font-weight: 600; font-size: 0.85rem; letter-spacing: 0.04em;
+  padding: 0.8rem 1.5rem; border-radius: 11px; cursor: pointer; min-block-size: 48px; display: inline-flex; align-items: center; gap: 0.5rem;
+  text-decoration: none; transition: transform 0.2s, box-shadow 0.2s, background 0.2s, border-color 0.2s, opacity 0.2s;
+}
+.btnGold { background: linear-gradient(135deg, var(--color-gold), var(--color-gold-deep,#a97c2b)); color: #1a130a; border: none; box-shadow: 0 8px 22px rgba(214,168,79,0.28); }
+.btnGold:hover { transform: translateY(-2px); box-shadow: 0 12px 30px rgba(214,168,79,0.42); }
+.btnGhost { background: rgba(232,227,216,0.04); border: 1px solid rgba(232,227,216,0.3); color: var(--color-ivory); }
+.btnGhost:hover { border-color: var(--color-ivory); background: rgba(232,227,216,0.1); }
+.btnDanger { background: none; border: 1px solid rgba(230,57,70,0.4); color: #f87171; }
+.btnDanger:hover { background: rgba(230,57,70,0.08); }
+.saveMsg { color: #4ade80; font-size: 0.88rem; margin-block-start: 0.5rem; min-height: 1.2em; }

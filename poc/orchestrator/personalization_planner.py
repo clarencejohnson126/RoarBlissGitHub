@@ -107,6 +107,32 @@ No prose outside the JSON object."""
 def _norm_phrase(t: str) -> str:
     return re.sub(r'[^a-z ]', '', t.lower()).strip()
 
+
+def _group_into_sentences(segments: list, max_group_s: float = 14.0) -> list:
+    """Merge consecutive Whisper segments into SENTENCE units so a replaced slot never begins or ends
+    mid-sentence (the #1 cause of the choppy 'words swapped inside a sentence' artefact). A unit closes
+    when its accumulated text ends with . ! ? … (a real sentence boundary) — or when it would exceed
+    max_group_s (a safety cap for sources Whisper transcribes without punctuation). Each unit keeps the
+    first segment's start and the last segment's end, so the clone always replaces whole sentences and
+    the untouched original on either side is itself a complete sentence that can breathe."""
+    groups, cur = [], None
+    for seg in segments:
+        text = (seg.get("text") or "").strip()
+        if cur is None:
+            cur = {"start": seg["start"], "end": seg["end"], "text": text}
+        else:
+            cur["end"] = seg["end"]
+            cur["text"] = (cur["text"] + " " + text).strip()
+        ends_sentence = cur["text"].endswith((".", "!", "?", "…", '."', '!"', '?"'))
+        too_long = (cur["end"] - cur["start"]) >= max_group_s
+        if ends_sentence or too_long:
+            groups.append(cur)
+            cur = None
+    if cur is not None:
+        groups.append(cur)
+    return groups
+
+
 def find_candidate_slots(audio_path: str, ref_library: dict, window_ms: int = None) -> list:
     """Return all Whisper segments that are eligible to be replaced.
     Each candidate is annotated with speaker, target syllable count, surrounding context,
@@ -121,6 +147,8 @@ def find_candidate_slots(audio_path: str, ref_library: dict, window_ms: int = No
     whisper_cache = _cache_path(audio_path, "whisper.json")
     transcript = json.loads(whisper_cache.read_text())
     segments = transcript["segments"]
+    # Group raw Whisper segments into whole-sentence units so a slot never starts/ends mid-sentence.
+    units = _group_into_sentences(segments)
     diar = diarize(audio_path, verbose=False)
 
     valid_speakers = set(ref_library["speakers"].keys())
@@ -133,12 +161,12 @@ def find_candidate_slots(audio_path: str, ref_library: dict, window_ms: int = No
 
     # Detect anthem phrases: a short phrase repeated >=3 times across the audio (a chant).
     from collections import Counter as _Counter
-    norm_counts = _Counter(_norm_phrase(s["text"]) for s in segments if _norm_phrase(s["text"]))
+    norm_counts = _Counter(_norm_phrase(s["text"]) for s in units if _norm_phrase(s["text"]))
     anthem_phrases = {p for p, c in norm_counts.items() if c >= 3 and 1 <= len(p.split()) <= 6}
 
     candidates = []
     anthem_seen = 0
-    for i, seg in enumerate(segments):
+    for i, seg in enumerate(units):
         s_start = seg["start"]
         s_end = seg["end"]
         duration = s_end - s_start
@@ -174,8 +202,8 @@ def find_candidate_slots(audio_path: str, ref_library: dict, window_ms: int = No
         else:
             continue  # no usable reference voice for this slot
 
-        ctx_before = segments[i-1]["text"].strip() if i > 0 else ""
-        ctx_after  = segments[i+1]["text"].strip() if i < len(segments)-1 else ""
+        ctx_before = units[i-1]["text"].strip() if i > 0 else ""
+        ctx_after  = units[i+1]["text"].strip() if i < len(units)-1 else ""
         candidates.append({
             "cand_id": len(candidates),
             "start_ms": int(s_start * 1000),

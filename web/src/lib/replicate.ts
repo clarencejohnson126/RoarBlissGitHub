@@ -22,6 +22,35 @@ function headers(extra: Record<string, string> = {}): Record<string, string> {
   };
 }
 
+/**
+ * Retry transient failures with exponential backoff + jitter. Retries ONLY on 429 / 5xx / network
+ * errors — never on a 4xx (those are validation/auth and won't get better). Honors Retry-After.
+ * On the final attempt it returns the (still-bad) Response so the caller can read the error body.
+ */
+async function fetchWithRetry(url: string, init: RequestInit, retries = 4): Promise<Response> {
+  let lastErr: unknown;
+  for (let attempt = 0; ; attempt++) {
+    try {
+      const res = await fetch(url, init);
+      if ((res.status === 429 || res.status >= 500) && attempt < retries) {
+        await backoff(attempt, res.headers.get("retry-after"));
+        continue;
+      }
+      return res;
+    } catch (e) {
+      lastErr = e; // network/DNS/timeout
+      if (attempt >= retries) throw e;
+      await backoff(attempt, null);
+    }
+  }
+}
+
+function backoff(attempt: number, retryAfter: string | null): Promise<void> {
+  const ra = retryAfter ? Number(retryAfter) * 1000 : 0;
+  const base = ra > 0 ? Math.min(15_000, ra) : Math.min(8_000, 400 * 2 ** attempt);
+  return new Promise((r) => setTimeout(r, base + Math.random() * 250));
+}
+
 // Private/user models can't use the /models/{owner}/{name}/predictions shortcut (that's for official
 // models only — it 404s here). We resolve the latest version and use the version-based endpoint.
 let cachedVersion: string | null = null;
@@ -32,7 +61,7 @@ async function latestVersionId(): Promise<string> {
   const pinned = process.env.REPLICATE_MODEL_VERSION;
   if (pinned) return pinned;
   if (cachedVersion) return cachedVersion;
-  const res = await fetch(`${API}/models/${MODEL}`, { headers: headers(), cache: "no-store" });
+  const res = await fetchWithRetry(`${API}/models/${MODEL}`, { headers: headers(), cache: "no-store" });
   if (!res.ok) {
     throw new Error(`Replicate resolve version ${res.status}: ${(await res.text()).slice(0, 200)}`);
   }
@@ -105,7 +134,7 @@ export async function createPrediction(
     body.webhook = webhook;
     body.webhook_events_filter = ["completed"];
   }
-  const res = await fetch(`${API}/predictions`, {
+  const res = await fetchWithRetry(`${API}/predictions`, {
     method: "POST",
     headers: headers({ "Content-Type": "application/json" }),
     body: JSON.stringify(body),
@@ -119,7 +148,7 @@ export async function createPrediction(
 }
 
 export async function getPrediction(id: string): Promise<Prediction> {
-  const res = await fetch(`${API}/predictions/${id}`, {
+  const res = await fetchWithRetry(`${API}/predictions/${id}`, {
     headers: headers(),
     cache: "no-store",
   });

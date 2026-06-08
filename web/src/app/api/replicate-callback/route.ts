@@ -3,6 +3,8 @@ import { Resend } from "resend";
 import { put } from "@vercel/blob";
 import { outputUrl } from "@/lib/replicate";
 import { baseUrl } from "@/lib/base-url";
+import { markJobTerminal } from "@/lib/scale-guard";
+import { drainQueue } from "@/lib/drain";
 
 /**
  * POST /api/replicate-callback?email=<addr>
@@ -67,6 +69,16 @@ export async function POST(request: Request) {
           subject: `Roar Bliss hit a snag with your track`,
           html: failHtml(name, String(payload.error || "")),
         });
+      }
+    }
+
+    // Bookkeeping + backpressure: mark this run terminal and promote the next queued job, if any.
+    if (id && (status === "succeeded" || status === "failed" || status === "canceled")) {
+      await markJobTerminal(id, status === "succeeded");
+      try {
+        await drainQueue();
+      } catch (e) {
+        console.error("drain after callback failed:", e);
       }
     }
 

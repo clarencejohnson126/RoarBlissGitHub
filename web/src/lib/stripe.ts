@@ -12,6 +12,10 @@ export const CREDITS_PER_PURCHASE = 5;
 export const PRICE_CENTS = 500; // €5.00 (TEST)
 export const CURRENCY = "eur";
 
+// Tier config lives in the client-safe ./tiers (no server SDK) so /pricing + dashboard can import it.
+export { TIERS, tierById, euro } from "./tiers";
+export type { Tier, TierId } from "./tiers";
+
 /** Bearer token out of an Authorization header. */
 export function bearerToken(req: Request): string | null {
   const h = req.headers.get("authorization") || "";

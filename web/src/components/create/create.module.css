@@ -1,0 +1,721 @@
+/* ===========================================================================
+   Cinematic /create onboarding wizard — scoped CSS Modules, reuses global :root.
+   =========================================================================== */
+
+.wrap {
+  position: relative;
+  min-height: 100svh;
+  background: var(--color-black);
+  color: var(--color-ivory);
+  overflow-x: hidden;
+}
+
+/* per-step cinematic background image (dimmed) */
+.bg {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+}
+.bgImg {
+  position: absolute;
+  inset: 0;
+  object-fit: cover;
+  opacity: 0.62;
+}
+.bgScrim {
+  position: absolute;
+  inset: 0;
+  background:
+    radial-gradient(130% 100% at 50% 22%, rgba(5, 5, 5, 0.28) 0%, rgba(5, 5, 5, 0.62) 55%, rgba(5, 5, 5, 0.86) 100%),
+    linear-gradient(180deg, rgba(5, 5, 5, 0.2) 0%, transparent 30%, rgba(5, 5, 5, 0.55) 100%);
+}
+
+.stage {
+  position: relative;
+  z-index: 1;
+  min-height: 100svh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: clamp(5rem, 9vh, 7rem) clamp(1.25rem, 5vw, 3rem) clamp(2rem, 6vh, 4rem);
+}
+.inner {
+  width: 100%;
+  max-width: 720px;
+  margin-inline: auto;
+}
+.innerWide {
+  max-width: 980px;
+}
+
+/* ---------- Progress indicator ---------- */
+.progress {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 40;
+  background: rgba(5, 5, 5, 0.7);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border-bottom: 1px solid var(--color-obsidian-border);
+}
+.progressInner {
+  max-width: 980px;
+  margin-inline: auto;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.85rem clamp(1rem, 4vw, 2rem);
+}
+.progressItem {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex: 0 0 auto;
+}
+.progressDot {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-heading, "Outfit", sans-serif);
+  font-size: 0.72rem;
+  font-weight: 700;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  color: var(--color-smoke);
+  flex: 0 0 auto;
+}
+.progressActive .progressDot {
+  background: linear-gradient(135deg, var(--color-gold), var(--color-gold-deep, #a97c2b));
+  color: #1a130a;
+  border-color: transparent;
+}
+.progressDone .progressDot {
+  border-color: var(--color-gold);
+  color: var(--color-gold);
+}
+.progressLabel {
+  font-family: var(--font-heading, "Outfit", sans-serif);
+  font-size: 0.74rem;
+  letter-spacing: 0.04em;
+  color: var(--color-smoke);
+  white-space: nowrap;
+}
+.progressActive .progressLabel {
+  color: var(--color-ivory);
+}
+.progressSep {
+  flex: 1 1 auto;
+  height: 1px;
+  background: rgba(255, 255, 255, 0.08);
+  min-width: 8px;
+}
+@media (max-width: 720px) {
+  .progressLabel {
+    display: none;
+  }
+}
+
+/* ---------- Typography ---------- */
+.eyebrow {
+  display: inline-block;
+  font-family: var(--font-heading, "Outfit", sans-serif);
+  text-transform: uppercase;
+  letter-spacing: 0.28em;
+  font-size: 0.7rem;
+  font-weight: 600;
+  color: var(--color-gold);
+  margin-block-end: 1rem;
+}
+.headline {
+  font-family: var(--font-serif);
+  font-weight: 800;
+  font-size: clamp(2rem, 1.3rem + 2.6vw, 3.4rem);
+  line-height: 1.08;
+  letter-spacing: -0.01em;
+  color: var(--color-ivory);
+  text-wrap: balance;
+  text-shadow: 0 2px 22px rgba(0, 0, 0, 0.8);
+}
+.gold {
+  color: var(--color-gold);
+}
+.sub {
+  font-size: clamp(1rem, 0.95rem + 0.4vw, 1.2rem);
+  line-height: 1.6;
+  color: var(--color-smoke);
+  margin-block-start: 1rem;
+  max-width: 54ch;
+  text-shadow: 0 1px 12px rgba(0, 0, 0, 0.85);
+}
+.hint {
+  font-size: 0.85rem;
+  color: var(--color-text-muted, #8a8170);
+  line-height: 1.5;
+  margin-block-start: 0.75rem;
+}
+.body {
+  margin-block-start: 2.25rem;
+}
+
+/* ---------- Inputs ---------- */
+.label {
+  display: block;
+  font-family: var(--font-heading, "Outfit", sans-serif);
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: var(--color-text-secondary);
+  margin-block-end: 0.6rem;
+}
+.input,
+.textarea {
+  width: 100%;
+  font-family: var(--font-body, "Inter", sans-serif);
+  font-size: 1.05rem;
+  color: #fff;
+  background: rgba(0, 0, 0, 0.45);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
+  padding: 1rem 1.1rem;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease, background 0.2s ease;
+}
+.input:focus,
+.textarea:focus {
+  outline: none;
+  border-color: var(--color-gold);
+  box-shadow: 0 0 14px rgba(214, 168, 79, 0.18);
+  background: rgba(0, 0, 0, 0.6);
+}
+.textarea {
+  resize: vertical;
+  min-height: 96px;
+  line-height: 1.55;
+}
+.fieldRow {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+}
+.field {
+  margin-block-end: 1.25rem;
+}
+@media (max-width: 560px) {
+  .fieldRow {
+    grid-template-columns: 1fr;
+  }
+}
+
+/* ---------- Selectable chips ---------- */
+.chipGroup {
+  margin-block-end: 1.75rem;
+}
+.chipQ {
+  font-family: var(--font-serif);
+  font-weight: 600;
+  font-size: 1.15rem;
+  color: var(--color-ivory);
+  margin-block-end: 0.85rem;
+}
+.chipGrid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.6rem;
+}
+.chip {
+  font-family: var(--font-heading, "Outfit", sans-serif);
+  font-size: 0.88rem;
+  color: var(--color-ivory);
+  padding: 0.6rem 1.1rem;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.03);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+.chip:hover {
+  border-color: rgba(214, 168, 79, 0.4);
+}
+.chipOn {
+  border-color: var(--color-gold);
+  background: rgba(214, 168, 79, 0.14);
+  color: #fff;
+  box-shadow: 0 0 14px rgba(214, 168, 79, 0.14);
+}
+
+/* ---------- Battle cards ---------- */
+.battleGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 1rem;
+  margin-block-start: 2.25rem;
+}
+.battleCard {
+  position: relative;
+  text-align: left;
+  border: 1px solid rgba(214, 168, 79, 0.14);
+  border-radius: 16px;
+  padding: 1.4rem;
+  background: rgba(12, 11, 9, 0.62);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  cursor: pointer;
+  transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.25s, box-shadow 0.25s, background 0.25s;
+}
+.battleCard:hover {
+  transform: translateY(-3px);
+  border-color: rgba(214, 168, 79, 0.4);
+}
+.battleCardOn {
+  border-color: var(--color-gold);
+  background: rgba(214, 168, 79, 0.07);
+  box-shadow: 0 12px 34px rgba(0, 0, 0, 0.5), 0 0 24px rgba(214, 168, 79, 0.18);
+}
+.battleIcon {
+  font-size: 1.5rem;
+  color: var(--color-gold);
+  margin-block-end: 0.6rem;
+}
+.battleTitle {
+  font-family: var(--font-serif);
+  font-weight: 700;
+  font-size: 1.2rem;
+  color: var(--color-ivory);
+  margin-block-end: 0.35rem;
+}
+.battleDesc {
+  font-size: 0.86rem;
+  line-height: 1.5;
+  color: var(--color-smoke);
+}
+.battleCheck {
+  position: absolute;
+  top: 1rem;
+  right: 1rem;
+  color: var(--color-gold);
+}
+
+/* ---------- Tone cards ---------- */
+.toneGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 0.9rem;
+  margin-block-start: 1rem;
+}
+.toneCard {
+  position: relative;
+  text-align: left;
+  border: 1px solid rgba(214, 168, 79, 0.14);
+  border-radius: 14px;
+  padding: 1.1rem 1.2rem;
+  background: rgba(12, 11, 9, 0.55);
+  cursor: pointer;
+  transition: all 0.22s ease;
+}
+.toneCard:hover {
+  border-color: rgba(214, 168, 79, 0.4);
+}
+.tonePrimary {
+  border-color: var(--color-gold);
+  background: rgba(214, 168, 79, 0.12);
+  box-shadow: 0 0 22px rgba(214, 168, 79, 0.16);
+}
+.toneSecondary {
+  border-color: rgba(214, 168, 79, 0.5);
+}
+.toneTitle {
+  font-family: var(--font-serif);
+  font-weight: 700;
+  font-size: 1.05rem;
+  color: var(--color-ivory);
+}
+.toneDesc {
+  font-size: 0.8rem;
+  color: var(--color-smoke);
+  margin-block-start: 0.2rem;
+}
+.toneBadge {
+  position: absolute;
+  top: 0.7rem;
+  right: 0.8rem;
+  font-family: var(--font-heading, "Outfit", sans-serif);
+  font-size: 0.58rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--color-gold);
+}
+
+/* ---------- Intensity + depth + language ---------- */
+.blockLabel {
+  font-family: var(--font-serif);
+  font-weight: 600;
+  font-size: 1.15rem;
+  color: var(--color-ivory);
+  margin-block: 2rem 0.85rem;
+}
+.slider {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 8px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.14);
+  cursor: pointer;
+  outline: none;
+}
+.slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--color-gold), var(--color-gold-deep, #a97c2b));
+  border: 3px solid #1a130a;
+  box-shadow: 0 0 14px rgba(214, 168, 79, 0.55);
+  cursor: pointer;
+  margin-top: -9px;
+}
+.slider::-moz-range-thumb {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--color-gold);
+  border: 3px solid #1a130a;
+  box-shadow: 0 0 14px rgba(214, 168, 79, 0.55);
+  cursor: pointer;
+}
+.slider::-webkit-slider-runnable-track {
+  height: 8px;
+  border-radius: 999px;
+}
+.slider::-moz-range-track {
+  height: 8px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.14);
+}
+.sliderLabels {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.78rem;
+  color: var(--color-smoke);
+  margin-block-start: 0.5rem;
+}
+.depthRow {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0.6rem;
+}
+.depthBtn {
+  border: 1px solid rgba(214, 168, 79, 0.16);
+  border-radius: 12px;
+  padding: 0.9rem 0.5rem;
+  background: rgba(12, 11, 9, 0.5);
+  cursor: pointer;
+  text-align: center;
+  transition: all 0.2s ease;
+}
+.depthBtn:hover {
+  border-color: rgba(214, 168, 79, 0.4);
+}
+.depthBtnOn {
+  border-color: var(--color-gold);
+  background: rgba(214, 168, 79, 0.1);
+}
+.depthNum {
+  font-family: var(--font-serif);
+  font-weight: 800;
+  font-size: 1.5rem;
+  background: linear-gradient(135deg, var(--color-gold), #fff3cf);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+.depthHint {
+  font-size: 0.7rem;
+  color: var(--color-smoke);
+  margin-block-start: 0.25rem;
+  line-height: 1.3;
+}
+.langRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+/* ---------- Upload ---------- */
+.uploadBox {
+  border: 2px dashed rgba(214, 168, 79, 0.3);
+  border-radius: 18px;
+  padding: 2.5rem 1.5rem;
+  text-align: center;
+  background: rgba(214, 168, 79, 0.02);
+  cursor: pointer;
+  transition: all 0.25s ease;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.75rem;
+}
+.uploadBox:hover,
+.uploadBoxDrag {
+  border-color: var(--color-gold);
+  background: rgba(214, 168, 79, 0.06);
+}
+.uploadBoxOn {
+  border-style: solid;
+  border-color: rgba(74, 222, 128, 0.5);
+  background: rgba(74, 222, 128, 0.04);
+}
+.uploadIcon {
+  color: var(--color-gold);
+}
+.uploadText {
+  font-family: var(--font-serif);
+  font-weight: 600;
+  font-size: 1.15rem;
+  color: var(--color-ivory);
+}
+.uploadMeta {
+  font-size: 0.82rem;
+  color: var(--color-smoke);
+}
+.uploadFile {
+  font-size: 0.9rem;
+  color: #4ade80;
+  word-break: break-all;
+}
+.disclaimer {
+  margin-block-start: 1rem;
+  font-size: 0.82rem;
+  color: var(--color-text-secondary);
+  line-height: 1.5;
+  border: 1px solid var(--color-obsidian-border);
+  border-radius: 10px;
+  padding: 0.85rem 1rem;
+  background: rgba(0, 0, 0, 0.3);
+}
+.safeNote {
+  margin-block-start: 0.9rem;
+  font-size: 0.76rem;
+  color: var(--color-text-muted, #8a8170);
+  line-height: 1.5;
+}
+.errorMsg {
+  margin-block-start: 0.85rem;
+  font-size: 0.85rem;
+  color: #f87171;
+  border: 1px solid rgba(230, 57, 70, 0.3);
+  border-radius: 10px;
+  padding: 0.7rem 0.9rem;
+  background: rgba(230, 57, 70, 0.06);
+}
+
+/* ---------- Nav row ---------- */
+.nav {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-block-start: 2.5rem;
+}
+.btnGold,
+.btnGhost,
+.btnBack {
+  font-family: var(--font-heading, "Outfit", sans-serif);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-size: 0.85rem;
+  padding: 1rem 2rem;
+  border-radius: 12px;
+  cursor: pointer;
+  min-block-size: 52px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.25s, background 0.25s, border-color 0.25s, opacity 0.2s;
+  text-decoration: none;
+}
+.btnGold {
+  background: linear-gradient(135deg, var(--color-gold), var(--color-gold-deep, #a97c2b));
+  color: #1a130a;
+  border: none;
+  box-shadow: 0 8px 24px rgba(214, 168, 79, 0.3);
+}
+.btnGold:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 12px 34px rgba(214, 168, 79, 0.46);
+}
+.btnGold:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.btnGhost {
+  background: rgba(232, 227, 216, 0.04);
+  border: 1px solid rgba(232, 227, 216, 0.3);
+  color: var(--color-ivory);
+}
+.btnGhost:hover {
+  border-color: var(--color-ivory);
+  background: rgba(232, 227, 216, 0.1);
+}
+.btnBack {
+  background: none;
+  border: none;
+  color: var(--color-smoke);
+  padding: 1rem 0.5rem;
+  text-transform: none;
+  letter-spacing: 0;
+}
+.btnBack:hover {
+  color: var(--color-ivory);
+}
+.spacer {
+  flex: 1 1 auto;
+}
+
+/* ---------- Generating loader ---------- */
+.loader {
+  text-align: center;
+  max-width: 560px;
+}
+.loaderBars {
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  gap: 6px;
+  height: 56px;
+  margin-block-end: 2rem;
+}
+.loaderBar {
+  width: 6px;
+  border-radius: 3px;
+  background: linear-gradient(180deg, var(--color-gold), var(--color-gold-deep, #a97c2b));
+  animation: loaderPulse 1.1s ease-in-out infinite;
+}
+@keyframes loaderPulse {
+  0%, 100% { height: 16%; opacity: 0.5; }
+  50% { height: 100%; opacity: 1; }
+}
+.phases {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin-block-start: 2.25rem;
+  text-align: left;
+  max-width: 360px;
+  margin-inline: auto;
+}
+.phase {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  font-size: 0.95rem;
+  color: var(--color-smoke);
+  opacity: 0.4;
+  transition: opacity 0.4s ease, color 0.4s ease;
+}
+.phaseOn {
+  opacity: 1;
+  color: var(--color-ivory);
+}
+.phaseDone {
+  opacity: 0.9;
+  color: var(--color-gold);
+}
+.phaseTick {
+  width: 18px;
+  flex: 0 0 auto;
+  color: var(--color-gold);
+}
+.loaderBarTrack {
+  height: 4px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.08);
+  margin-block-start: 2.25rem;
+  overflow: hidden;
+}
+.loaderBarFill {
+  height: 100%;
+  border-radius: 4px;
+  background: linear-gradient(90deg, var(--color-gold-deep, #a97c2b), var(--color-gold), #fff3cf);
+  transition: width 0.5s ease;
+}
+
+.spin {
+  animation: rbSpin 0.9s linear infinite;
+}
+@keyframes rbSpin {
+  to { transform: rotate(360deg); }
+}
+
+/* ---------- Wizard top bar (home + dashboard, on every step) ---------- */
+.wizHome {
+  position: fixed;
+  top: 0.7rem;
+  left: clamp(1rem, 4vw, 2rem);
+  z-index: 60;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+  text-decoration: none;
+  color: var(--color-ivory);
+}
+.wizLogo {
+  width: 34px;
+  height: 34px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--color-gold), var(--color-gold-deep, #a97c2b));
+  color: #1a130a;
+  font-family: var(--font-serif);
+  font-weight: 800;
+  font-size: 1.05rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 0 14px rgba(214, 168, 79, 0.4);
+}
+.wizWord {
+  font-family: var(--font-serif);
+  font-weight: 700;
+  font-size: 0.95rem;
+  letter-spacing: 0.02em;
+}
+.wizWord b { color: var(--color-gold); font-weight: 700; }
+.wizDash {
+  position: fixed;
+  top: 0.85rem;
+  right: clamp(1rem, 4vw, 2rem);
+  z-index: 60;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  color: var(--color-ivory);
+  background: rgba(0, 0, 0, 0.42);
+  border: 1px solid var(--color-obsidian-border);
+  border-radius: 999px;
+  padding: 0.5rem 0.95rem;
+  font-family: var(--font-heading, "Outfit", sans-serif);
+  font-size: 0.8rem;
+  text-decoration: none;
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  transition: border-color 0.2s ease, color 0.2s ease;
+}
+.wizDash:hover { border-color: var(--color-gold); color: var(--color-gold); }
+@media (max-width: 560px) {
+  .wizWord { display: none; }
+  .wizDash span { display: none; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .loaderBar {
+    animation: none;
+    height: 60%;
+  }
+  .spin {
+    animation: none;
+  }
+}

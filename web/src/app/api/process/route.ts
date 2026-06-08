@@ -3,6 +3,19 @@ import { createPrediction, type PredictionInput } from "@/lib/replicate";
 import { baseUrl } from "@/lib/base-url";
 import { verifyUser, paidCredits, consumeCredit, freeUsageExists, recordFreeUsage } from "@/lib/supabase-admin";
 import { bearerToken } from "@/lib/stripe";
+import {
+  limits,
+  estimateCostCents,
+  idempotencyKey,
+  findByIdempotencyKey,
+  runsAndSpendToday,
+  runsForUserToday,
+  countInFlight,
+  recordRunningJob,
+  enqueueJob,
+  stripSecrets,
+  sendBudgetAlert,
+} from "@/lib/scale-guard";
 
 /**
  * POST /api/process  — starts a cloud personalization run.
@@ -59,9 +72,41 @@ export async function POST(request: Request) {
         ? audioUrl
         : `${base}/preloaded.mp3`; // public fallback track (Replicate fetches it by URL)
 
+    const lim = limits();
+    const estCostCents = estimateCostCents(paid === true, requestedTier);
+    // Local dev / staging escape hatch for repeated testing — never set in production.
+    const freeGateOff = process.env.DISABLE_FREE_GATE === "1";
+
+    // Idempotency: a recent identical submit (double-click, retry) reuses the same run instead of
+    // starting — and crucially, before any credit is consumed or a prediction is started.
+    const idemKey = idempotencyKey([fingerprint || ip, audio, battlefield, prompt, paid, requestedTier, name]);
+    const dup = await findByIdempotencyKey(idemKey);
+    if (dup?.prediction_id) {
+      return NextResponse.json({ id: dup.prediction_id, status: dup.status === "done" ? "succeeded" : "processing", dedup: true });
+    }
+
+    // Spend-cap / budget guard — checked BEFORE consuming a credit so a blocked run costs nothing.
+    const { runs, cents } = await runsAndSpendToday();
+    if (runs >= lim.maxRunsPerDay || cents >= lim.maxSpendCentsPerDay) {
+      await sendBudgetAlert(
+        `Daily cap reached: ${runs}/${lim.maxRunsPerDay} runs, $${(cents / 100).toFixed(2)}/$${(lim.maxSpendCentsPerDay / 100).toFixed(0)}.`,
+      );
+      return NextResponse.json(
+        { error: "We've hit today's capacity. Please try again a little later — we'll be back shortly.", budgetReached: true },
+        { status: 429 },
+      );
+    }
+    if ((await runsForUserToday(null, fingerprint)) >= lim.maxRunsPerUserPerDay) {
+      return NextResponse.json(
+        { error: "You've reached today's limit on this device. Please come back tomorrow.", userLimitReached: true },
+        { status: 429 },
+      );
+    }
+
     // Paid (up to 6 min) requires a signed-in user with a credit; we consume one here. Free (≤60s)
     // needs no auth. The cog hard-caps the window either way, so this is the billing gate, not the cap.
     let paidGranted = false;
+    let jobUserId: string | null = null;
     if (paid === true) {
       const user = await verifyUser(bearerToken(request));
       if (!user) {
@@ -83,12 +128,13 @@ export async function POST(request: Request) {
         );
       }
       paidGranted = true;
+      jobUserId = user.id;
     }
 
     // Free-tier abuse gate: one free track per device fingerprint OR IP. Generation needs no login
     // (that's the hook); the gate only stops the same device/IP from minting unlimited free tracks.
     // Paid runs skip this entirely. Fails open if the free_usage table isn't provisioned yet.
-    if (!paidGranted && (await freeUsageExists(fingerprint, ip))) {
+    if (!paidGranted && !freeGateOff && (await freeUsageExists(fingerprint, ip))) {
       return NextResponse.json(
         {
           error: "Your free track is used up. Register and grab a pack to make more.",
@@ -108,7 +154,10 @@ export async function POST(request: Request) {
       location: (location as string) || "",
       champion: (champion as string) || "",
       paid: paidGranted,
-      personalization: paidGranted ? requestedTier : 75,
+      // Honor the chosen tier on BOTH free + paid so the preview reflects exactly what was picked
+      // (25/50/75 = that share of the timeline; 100 = full rewrite). Free stays bounded by the 45s cap
+      // + the 1-free-per-device gate — not by a forced tier.
+      personalization: requestedTier,
       language: (typeof language === "string" && language.trim()) || "English",
       // Core feature 3 — EITHER a free-form prompt OR a one-click tone/template (both optional).
       prompt: typeof prompt === "string" ? prompt.slice(0, 2000) : "",
@@ -126,10 +175,22 @@ export async function POST(request: Request) {
     // user when they've navigated away; on http (local dev) we skip it and rely on client polling.
     const emailQ = typeof email === "string" && email ? `?email=${encodeURIComponent(email)}` : "";
     const webhook = `${base}/api/replicate-callback${emailQ}`;
-    const pred = await createPrediction(input, webhook.startsWith("https://") ? webhook : undefined);
+    const httpsWebhook = webhook.startsWith("https://") ? webhook : undefined;
+    const meta = { idempotencyKey: idemKey, userId: jobUserId, fingerprint, ip, paid: paidGranted, estCostCents };
+
+    // Concurrency / backpressure: at or over the cap → queue instead of starting now. A finishing run
+    // (replicate-callback) or the /api/jobs/drain cron promotes the oldest queued job when a slot frees.
+    if ((await countInFlight()) >= lim.maxConcurrency) {
+      const jobId = await enqueueJob(meta, stripSecrets(input), httpsWebhook);
+      if (!paidGranted && !freeGateOff) await recordFreeUsage(fingerprint, ip, jobId || "queued");
+      return NextResponse.json({ id: jobId, status: "queued", queued: true });
+    }
+
+    const pred = await createPrediction(input, httpsWebhook);
+    await recordRunningJob(pred.id, meta);
 
     // Burn this device/IP's one free track only once the prediction actually started.
-    if (!paidGranted) await recordFreeUsage(fingerprint, ip, pred.id);
+    if (!paidGranted && !freeGateOff) await recordFreeUsage(fingerprint, ip, pred.id);
 
     return NextResponse.json({ id: pred.id, status: pred.status });
   } catch (e) {

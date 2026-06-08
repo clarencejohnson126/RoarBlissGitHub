@@ -34,6 +34,22 @@ export function paidCredits(user: User | null): number {
   return Number((user?.app_metadata as Record<string, unknown>)?.paid_credits ?? 0);
 }
 
+/** The user's subscription tier id (set by the Stripe webhook), or null if none. */
+export function userTier(user: User | null): string | null {
+  const t = (user?.app_metadata as Record<string, unknown>)?.tier;
+  return typeof t === "string" && t ? t : null;
+}
+
+/** Set the user's subscription tier id (called by the Stripe webhook on a subscription checkout). */
+export async function setUserTier(userId: string, tier: string): Promise<void> {
+  const admin = supabaseAdmin();
+  const { data, error } = await admin.auth.admin.getUserById(userId);
+  if (error || !data?.user) return;
+  await admin.auth.admin.updateUserById(userId, {
+    app_metadata: { ...data.user.app_metadata, tier },
+  });
+}
+
 /** Add N paid credits to a user (called by the Stripe webhook after a successful TEST payment). */
 export async function grantCredits(userId: string, n: number): Promise<number> {
   const admin = supabaseAdmin();

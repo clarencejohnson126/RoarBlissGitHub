@@ -14,6 +14,8 @@ place to change if we ever switch LLM backends (Five Pillars: extensible, swap n
 """
 
 import os
+import time
+import random
 
 ANTHROPIC_MODEL = os.environ.get("ANTHROPIC_MODEL", "claude-haiku-4-5")
 OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "qwen2.5:7b")
@@ -39,8 +41,22 @@ def llm_chat(system: str, user: str, max_tokens: int = 2000, temperature: float 
         # Newer models (e.g. Opus 4.8) deprecate the `temperature` param — only send it where supported.
         if "opus-4-8" not in chosen:
             kwargs["temperature"] = temperature
-        resp = client.messages.create(**kwargs)
-        return resp.content[0].text
+        # Retry-with-backoff on transient Anthropic errors (429 / 5xx / connection / timeout) so a
+        # rate-limit blip under load doesn't crash the whole run. Hard 4xx (bad request) re-raises.
+        last_exc = None
+        for attempt in range(5):
+            try:
+                resp = client.messages.create(**kwargs)
+                return resp.content[0].text
+            except (anthropic.APIStatusError, anthropic.APIConnectionError, anthropic.APITimeoutError) as e:
+                last_exc = e
+                status = getattr(e, "status_code", None)
+                if isinstance(e, anthropic.APIStatusError) and status is not None and status < 500 and status != 429:
+                    raise  # non-retryable client error
+                if attempt == 4:
+                    raise
+                time.sleep(min(10.0, 0.5 * (2 ** attempt)) + random.random() * 0.3)
+        raise last_exc  # pragma: no cover
 
     # Fallback: local Ollama (dev only). Imported lazily so cloud builds don't need it.
     import ollama

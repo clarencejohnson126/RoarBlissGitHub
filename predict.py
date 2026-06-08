@@ -150,10 +150,20 @@ class Predictor(BasePredictor):
                 continue
             vid, created = ident, False
             if kind == "clone":
-                try:
-                    vid = tts.elevenlabs_clone(ident, name=f"rb_fv_{vi}"); created = True
-                except Exception as ex:
-                    print(f"  clone failed (voice {vi}): {ex}"); continue
+                # Clone with a one-shot re-attempt (fresh name + slot purge) before giving up — a failed
+                # clone drops ALL of this voice's lines. elevenlabs_clone already retries transient
+                # 429/5xx at the HTTP layer; this second attempt covers a stale-slot / name-collision
+                # blip (the most common non-transient clone failure under load).
+                for attempt in range(2):
+                    try:
+                        vid = tts.elevenlabs_clone(ident, name=f"rb_fv_{vi}_{attempt}"); created = True
+                        break
+                    except Exception as ex:
+                        print(f"  clone failed (voice {vi}, attempt {attempt + 1}/2): {ex}")
+                        if attempt == 0:
+                            self._purge_orphan_clones()  # free a custom-voice slot in case the cap was the cause
+                if not created:
+                    continue
             used += 1
             try:
                 for idx in idxs:
@@ -435,7 +445,7 @@ class Predictor(BasePredictor):
         champion: str = Input(default="", description="A figure they look up to (optional)"),
         prompt: str = Input(default="", description="Free-form personalization prompt — write exactly how you want it (your story, the mood, what it should say). When given, this drives the rewrite directly (the planner parses it). Leave empty to use the structured fields / a template."),
         tone: str = Input(default="", description="Optional tone/template tag — a one-click mood for users who don't want to write a prompt (e.g. 'heartbreak', 'fighter', 'confident', 'reflective', 'grief')."),
-        paid: bool = Input(default=False, description="Paid unlocks up to 6 min + all tiers; free is capped at 45s and locked to 75%% personalization"),
+        paid: bool = Input(default=False, description="Paid unlocks up to 6 min; free is capped at 45s. The chosen personalization tier is honored either way (free is bounded by the 45s cap + 1-per-device gate, not by a forced tier)."),
         anthropic_api_key: Secret = Input(default=None, description="Anthropic API key (Sonnet/Haiku planner)"),
         hf_token: Secret = Input(default=None, description="HuggingFace token (pyannote diarization model)"),
         replicate_api_token: Secret = Input(default=None, description="Replicate API token (F5-TTS voice cloning)"),
@@ -485,11 +495,11 @@ class Predictor(BasePredictor):
         # is a legacy override. 100% (or an explicit full_voice) -> a fully generated new script;
         # 25/50/75 -> the 50/50-style pipeline with that share of the spoken timeline replaced.
         tier = int(personalization) if personalization else 50
-        # Free tier is locked to 75% (and ≤45s above): the listener hears overwhelmingly their own
-        # story right away, which is the hook that converts. The tier selector only applies once paid.
-        if not paid:
-            tier = FREE_TIER_PERSONALIZATION
-        use_full_voice = paid and ((mode == "full_voice") or (mode == "auto" and tier >= 100))
+        # The chosen tier is honored on BOTH free + paid, so the preview reflects EXACTLY what was
+        # picked: 25/50/75 = that share of the spoken timeline is replaced; 100 = a fully new script
+        # (full_voice, no original text remains). Free runs stay bounded by the 45s cap above + the
+        # 1-free-per-device gate in the web layer — NOT by a forced tier.
+        use_full_voice = (mode == "full_voice") or (mode == "auto" and tier >= 100)
         density = max(0.1, min(tier / 100.0, 0.95))   # fraction of speech to personalize (25/50/75)
         print(f"personalization tier={tier}% -> {'full_voice' if use_full_voice else f'personalize @ density {density:.2f}'}")
 

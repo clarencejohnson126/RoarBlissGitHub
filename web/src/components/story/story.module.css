@@ -1,0 +1,895 @@
+/* ===========================================================================
+   /story — cinematic storytelling design system (CSS Modules, scoped to /story).
+   Reuses the global :root palette + --font-serif from globals.css. Adds NO global
+   selectors, so the existing landing (/) is provably untouched.
+   =========================================================================== */
+
+.page {
+  position: relative;
+  z-index: 1;
+  background: var(--color-black);
+  color: var(--color-ivory);
+  /* clip (not hidden) — `overflow-x: hidden` would make .page a scroll container and break
+     position:sticky for the final face reveal. clip prevents horizontal scroll without that. */
+  overflow-x: clip;
+}
+
+/* Fixed atmospheric ember layer behind everything */
+.particleWrap {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+}
+
+/* ---------- Chapter shell ---------- */
+.chapter {
+  position: relative;
+  z-index: 1;
+  width: 100%;
+  display: flex;
+  align-items: center;
+  padding: clamp(3rem, 8vh, 9rem) clamp(1.5rem, 6vw, 7rem);
+  /* NO overflow:hidden here — content must be able to grow on short windows instead of being
+     clipped ("cut off"). The image layer clips itself (.bgLayer + CinematicImage wrap). */
+}
+.chapterFull {
+  min-height: 100svh;
+}
+.bgLayer {
+  overflow: hidden;
+}
+.chapterCenter {
+  justify-content: center;
+  text-align: center;
+}
+/* push the section's content block to the bottom (e.g. final CTA over a portrait face) */
+.chapterAlignBottom {
+  align-items: flex-end;
+}
+.bgLayer {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+}
+.inner {
+  position: relative;
+  z-index: 2;
+  width: 100%;
+  max-width: 1180px;
+  margin-inline: auto;
+}
+
+/* ---------- Scrims ---------- */
+.scrimBottom,
+.scrimLeft,
+.scrimVignette,
+.scrimRadialGold,
+.scrimSoft {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+}
+.scrimBottom {
+  background: linear-gradient(180deg, rgba(5, 5, 5, 0.35) 0%, rgba(5, 5, 5, 0.1) 35%, rgba(5, 5, 5, 0.85) 100%);
+}
+.scrimLeft {
+  background: linear-gradient(90deg, rgba(5, 5, 5, 0.9) 0%, rgba(5, 5, 5, 0.55) 35%, rgba(5, 5, 5, 0.1) 70%, transparent 100%);
+}
+.scrimVignette {
+  background:
+    radial-gradient(120% 90% at 50% 40%, transparent 40%, rgba(5, 5, 5, 0.7) 100%),
+    linear-gradient(180deg, rgba(5, 5, 5, 0.5) 0%, rgba(5, 5, 5, 0.2) 30%, rgba(5, 5, 5, 0.8) 100%);
+}
+.scrimRadialGold {
+  background:
+    radial-gradient(80% 70% at 70% 50%, rgba(214, 168, 79, 0.16) 0%, transparent 60%),
+    linear-gradient(90deg, rgba(5, 5, 5, 0.88) 0%, rgba(5, 5, 5, 0.45) 45%, rgba(5, 5, 5, 0.15) 100%);
+}
+.scrimSoft {
+  background: linear-gradient(180deg, rgba(5, 5, 5, 0.55), rgba(5, 5, 5, 0.7));
+}
+
+/* ---------- Typography ---------- */
+.eyebrow {
+  display: inline-block;
+  font-family: var(--font-heading, "Outfit", sans-serif);
+  text-transform: uppercase;
+  letter-spacing: 0.32em;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--color-gold);
+  margin-block-end: 1.5rem;
+  text-shadow: 0 1px 10px rgba(0, 0, 0, 0.8);
+}
+.headline {
+  font-family: var(--font-serif);
+  font-weight: 700;
+  font-size: clamp(2rem, 1.2rem + 3vw, 3.6rem);
+  line-height: 1.12;
+  letter-spacing: -0.01em;
+  color: var(--color-ivory);
+  text-wrap: balance;
+  text-shadow: 0 2px 24px rgba(0, 0, 0, 0.75);
+}
+.headlineHuge {
+  font-family: var(--font-serif);
+  font-weight: 800;
+  font-size: clamp(2.6rem, 1.2rem + 5.4vw, 6rem);
+  line-height: 1.04;
+  letter-spacing: -0.02em;
+  color: var(--color-ivory);
+  text-shadow: 0 3px 30px rgba(0, 0, 0, 0.85);
+}
+/* Flowing narrative lines (Silence / Reason) — readable serif, sentences flow normally */
+.storyLine {
+  font-family: var(--font-serif);
+  font-weight: 600;
+  font-size: clamp(1.6rem, 1.1rem + 1.7vw, 2.9rem);
+  line-height: 1.3;
+  letter-spacing: -0.005em;
+  color: var(--color-ivory);
+  text-shadow: 0 2px 22px rgba(0, 0, 0, 0.78);
+}
+.lead {
+  font-size: clamp(1.1rem, 0.95rem + 0.7vw, 1.5rem);
+  line-height: 1.6;
+  color: var(--color-ivory);
+  max-width: 46ch;
+  margin-block-start: 1.5rem;
+  text-shadow: 0 1px 14px rgba(0, 0, 0, 0.8);
+}
+.body {
+  font-size: clamp(1rem, 0.95rem + 0.3vw, 1.2rem);
+  line-height: 1.7;
+  color: var(--color-smoke);
+  max-width: 56ch;
+  margin-block-start: 1.25rem;
+}
+.gold {
+  /* gold accent with a slow premium shimmer sweep */
+  background: linear-gradient(110deg, var(--color-gold) 38%, #fff3cf 50%, var(--color-gold) 62%);
+  background-size: 220% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  color: var(--color-gold);
+  animation: goldSweep 6s ease-in-out infinite;
+}
+@keyframes goldSweep {
+  0%, 100% { background-position: 130% 0; }
+  50% { background-position: -30% 0; }
+}
+.goldItalic {
+  color: var(--color-gold);
+  font-style: italic;
+}
+
+/* ---------- Buttons ---------- */
+.btnRow {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  margin-block-start: 2.5rem;
+}
+.btnGold,
+.btnGhost {
+  font-family: var(--font-heading, "Outfit", sans-serif);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-size: 0.85rem;
+  padding: 1.05rem 2.1rem;
+  border-radius: 12px;
+  cursor: pointer;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+  min-block-size: 52px;
+  transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.3s ease, background 0.3s ease, border-color 0.3s ease;
+}
+.btnGold {
+  background: linear-gradient(135deg, var(--color-gold) 0%, var(--color-gold-deep, #a97c2b) 100%);
+  color: #1a130a;
+  border: none;
+  box-shadow: 0 8px 28px rgba(214, 168, 79, 0.32);
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+}
+/* shine sweep on hover */
+.btnGold::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  left: -70%;
+  width: 50%;
+  height: 100%;
+  background: linear-gradient(105deg, transparent, rgba(255, 255, 255, 0.4), transparent);
+  transform: skewX(-20deg);
+  z-index: 1;
+}
+.btnGold:hover::after {
+  animation: btnShine 0.85s ease;
+}
+@keyframes btnShine {
+  from { left: -70%; }
+  to { left: 130%; }
+}
+.btnGold:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 12px 38px rgba(214, 168, 79, 0.5);
+}
+.btnGhost {
+  background: rgba(232, 227, 216, 0.04);
+  border: 1px solid rgba(232, 227, 216, 0.35);
+  color: var(--color-ivory);
+}
+.btnGhost:hover {
+  transform: translateY(-2px);
+  border-color: var(--color-ivory);
+  background: rgba(232, 227, 216, 0.1);
+}
+
+/* ---------- Navbar ---------- */
+.nav {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 100;
+  transition: background 0.4s ease, backdrop-filter 0.4s ease, border-color 0.4s ease;
+  border-bottom: 1px solid transparent;
+}
+.navScrolled {
+  background: rgba(5, 5, 5, 0.72);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border-bottom: 1px solid rgba(214, 168, 79, 0.14);
+}
+.navInner {
+  max-width: 1320px;
+  margin-inline: auto;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.85rem clamp(1.25rem, 4vw, 3rem);
+}
+.brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+  text-decoration: none;
+}
+.brandLogo {
+  /* the logo PNG has a near-black baked background; screen blend drops it on the dark navbar */
+  mix-blend-mode: screen;
+  border-radius: 50%;
+}
+.brandWord {
+  font-family: var(--font-serif);
+  font-weight: 800;
+  font-size: 1.2rem;
+  letter-spacing: 0.06em;
+  color: var(--color-ivory);
+}
+.brandWord b {
+  color: var(--color-gold);
+  font-weight: 800;
+}
+.navLinks {
+  display: flex;
+  align-items: center;
+  gap: 1.7rem;
+}
+.navLink {
+  font-family: var(--font-heading, "Outfit", sans-serif);
+  font-size: 0.82rem;
+  letter-spacing: 0.02em;
+  color: var(--color-ivory);
+  opacity: 0.78;
+  background: none;
+  border: none;
+  cursor: pointer;
+  text-decoration: none;
+  transition: opacity 0.2s, color 0.2s;
+}
+.navLink:hover {
+  opacity: 1;
+  color: var(--color-gold);
+}
+.navRight {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+.navSignin {
+  font-family: var(--font-heading, "Outfit", sans-serif);
+  font-size: 0.82rem;
+  letter-spacing: 0.03em;
+  color: var(--color-ivory);
+  text-decoration: none;
+  white-space: nowrap;
+  transition: color 0.2s ease;
+}
+.navSignin:hover {
+  color: var(--color-gold);
+}
+.navCta {
+  font-family: var(--font-heading, "Outfit", sans-serif);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-size: 0.76rem;
+  padding: 0.62rem 1.3rem;
+  border-radius: 10px;
+  background: linear-gradient(135deg, var(--color-gold), var(--color-gold-deep, #a97c2b));
+  color: #1a130a;
+  text-decoration: none;
+  white-space: nowrap;
+}
+.burger {
+  display: none;
+  background: none;
+  border: none;
+  color: var(--color-ivory);
+  cursor: pointer;
+}
+
+/* ---------- Hero (00) ---------- */
+.hero {
+  align-items: center;
+}
+.heroLines {
+  display: flex;
+  flex-direction: column;
+}
+.heroLine {
+  font-family: var(--font-serif);
+  font-weight: 800;
+  /* vh-aware: shrinks on short windows so the 3 lines + sub + CTAs never overflow ("cut off") */
+  font-size: clamp(2.6rem, min(7vw, 8.5vh), 6.4rem);
+  line-height: 1.02;
+  letter-spacing: -0.02em;
+  color: var(--color-ivory);
+  text-shadow: 0 4px 36px rgba(0, 0, 0, 0.85);
+}
+.heroSub {
+  font-size: clamp(1.15rem, 1rem + 0.7vw, 1.6rem);
+  line-height: 1.5;
+  color: var(--color-ivory);
+  max-width: 34ch;
+  margin-block: 1.75rem 0;
+  text-shadow: 0 1px 16px rgba(0, 0, 0, 0.85);
+}
+.scrollHint {
+  position: absolute;
+  bottom: 2rem;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 3;
+  color: var(--color-smoke);
+  font-family: var(--font-heading, "Outfit", sans-serif);
+  font-size: 0.72rem;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.5rem;
+  background: none;
+  border: none;
+  cursor: pointer;
+  animation: floatHint 2.4s ease-in-out infinite;
+}
+@keyframes floatHint {
+  0%, 100% { transform: translateX(-50%) translateY(0); }
+  50% { transform: translateX(-50%) translateY(6px); }
+}
+
+/* ---------- Reason (02) split ---------- */
+.reasonGrid {
+  display: grid;
+  grid-template-columns: 1.05fr 0.95fr;
+  gap: clamp(2rem, 5vw, 4.5rem);
+  align-items: center;
+}
+.reasonFrame {
+  position: relative;
+  aspect-ratio: 16 / 11;
+  border-radius: 16px;
+  overflow: hidden;
+  border: 1px solid rgba(214, 168, 79, 0.18);
+  box-shadow: 0 30px 70px rgba(0, 0, 0, 0.6);
+}
+
+/* ---------- Battle cards (03) ---------- */
+.cardGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+  gap: 1.1rem;
+  margin-block-start: 2.75rem;
+}
+.card {
+  display: block;
+  text-decoration: none;
+  background: rgba(12, 11, 9, 0.6);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  border: 1px solid rgba(214, 168, 79, 0.12);
+  border-radius: 16px;
+  padding: 1.5rem;
+  transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.3s ease, box-shadow 0.3s ease, background 0.3s ease;
+}
+.card:hover {
+  transform: translateY(-5px);
+  border-color: rgba(214, 168, 79, 0.5);
+  background: rgba(214, 168, 79, 0.05);
+  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.55), 0 0 26px rgba(214, 168, 79, 0.16);
+}
+.cardTitle {
+  font-family: var(--font-serif);
+  font-weight: 700;
+  font-size: 1.3rem;
+  color: var(--color-ivory);
+  margin-block-end: 0.5rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.cardTitle svg {
+  color: var(--color-gold);
+  opacity: 0;
+  transform: translateX(-4px);
+  transition: opacity 0.3s, transform 0.3s;
+}
+.card:hover .cardTitle svg {
+  opacity: 1;
+  transform: translateX(0);
+}
+.cardDesc {
+  font-size: 0.92rem;
+  line-height: 1.55;
+  color: var(--color-smoke);
+}
+
+/* ---------- Process timeline (04) ---------- */
+.timeline {
+  position: relative;
+  margin-block-start: 3rem;
+  padding-inline-start: 2.5rem;
+}
+.timelineRail {
+  position: absolute;
+  left: 0.55rem;
+  top: 0.4rem;
+  bottom: 0.4rem;
+  width: 2px;
+  background: linear-gradient(180deg, var(--color-gold), rgba(214, 168, 79, 0.05));
+  transform-origin: top;
+}
+.step {
+  position: relative;
+  padding-block: 1rem 1.6rem;
+}
+.step::before {
+  content: "";
+  position: absolute;
+  left: calc(-2.5rem + 0.2rem);
+  top: 1.5rem;
+  width: 0.8rem;
+  height: 0.8rem;
+  border-radius: 50%;
+  background: var(--color-gold);
+  box-shadow: 0 0 16px rgba(214, 168, 79, 0.6);
+}
+.stepNum {
+  font-family: var(--font-serif);
+  font-size: 1.1rem;
+  color: var(--color-gold-deep, #a97c2b);
+  letter-spacing: 0.1em;
+}
+.stepTitle {
+  font-family: var(--font-serif);
+  font-weight: 700;
+  font-size: clamp(1.3rem, 1rem + 1vw, 1.9rem);
+  color: var(--color-ivory);
+  margin-block: 0.2rem 0.4rem;
+}
+.stepDesc {
+  font-size: 1rem;
+  line-height: 1.6;
+  color: var(--color-smoke);
+  max-width: 52ch;
+}
+
+/* ---------- Depth (05) ---------- */
+.depthGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 1.25rem;
+  margin-block-start: 3rem;
+}
+.depthItem {
+  border: 1px solid rgba(214, 168, 79, 0.14);
+  border-radius: 16px;
+  padding: 1.75rem 1.5rem;
+  background: rgba(12, 11, 9, 0.5);
+}
+.depthNum {
+  font-family: var(--font-serif);
+  font-weight: 800;
+  font-size: clamp(2.4rem, 1.6rem + 2.5vw, 3.6rem);
+  line-height: 1;
+  background: linear-gradient(135deg, var(--color-gold), #fff3cf);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+.depthBarWrap {
+  height: 4px;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.08);
+  margin-block: 1rem;
+  overflow: hidden;
+}
+.depthBar {
+  height: 100%;
+  border-radius: 4px;
+  background: linear-gradient(90deg, var(--color-gold-deep, #a97c2b), var(--color-gold));
+  transform-origin: left;
+}
+.depthTitle {
+  font-family: var(--font-serif);
+  font-weight: 700;
+  font-size: 1.2rem;
+  color: var(--color-ivory);
+  margin-block-end: 0.5rem;
+}
+.depthDesc {
+  font-size: 0.9rem;
+  line-height: 1.55;
+  color: var(--color-smoke);
+}
+
+/* ---------- Language (06) ---------- */
+.langGrid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.85rem;
+  margin-block-start: 2.5rem;
+}
+.pill {
+  font-family: var(--font-heading, "Outfit", sans-serif);
+  font-size: 0.95rem;
+  letter-spacing: 0.03em;
+  color: var(--color-ivory);
+  padding: 0.7rem 1.4rem;
+  border-radius: 999px;
+  border: 1px solid rgba(214, 168, 79, 0.25);
+  background: rgba(214, 168, 79, 0.05);
+}
+.waveform {
+  display: flex;
+  align-items: flex-end;
+  gap: 5px;
+  height: 56px;
+  margin-block-start: 3rem;
+}
+.waveBar {
+  width: 5px;
+  border-radius: 3px;
+  background: linear-gradient(180deg, var(--color-gold), var(--color-gold-deep, #a97c2b));
+  animation: wave 1.4s ease-in-out infinite;
+}
+@keyframes wave {
+  0%, 100% { height: 18%; opacity: 0.5; }
+  50% { height: 100%; opacity: 1; }
+}
+
+/* ---------- Why / Not motivation (07) — sticky scrub, no pin spacer ---------- */
+.pinTall {
+  position: relative;
+  z-index: 1;
+  height: 220vh;
+}
+.pinSticky {
+  position: sticky;
+  top: 0;
+  height: 100svh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  padding: 0 clamp(1.5rem, 6vw, 7rem);
+}
+.whyQuote {
+  font-family: var(--font-serif);
+  font-weight: 700;
+  font-size: clamp(2rem, 1.1rem + 4vw, 4.4rem);
+  line-height: 1.18;
+  letter-spacing: -0.01em;
+  color: var(--color-ivory);
+  text-wrap: balance;
+  max-width: 18ch;
+  text-shadow: 0 2px 28px rgba(0, 0, 0, 0.7);
+}
+
+/* ---------- FAQ (08) ---------- */
+.faqList {
+  margin-block-start: 2.5rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  max-width: 820px;
+}
+.faqItem {
+  border: 1px solid rgba(214, 168, 79, 0.14);
+  border-radius: 14px;
+  background: rgba(12, 11, 9, 0.5);
+  overflow: hidden;
+}
+.faqButton {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1.25rem 1.5rem;
+  background: none;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  color: var(--color-ivory);
+  font-family: var(--font-serif);
+  font-weight: 600;
+  font-size: clamp(1.05rem, 0.95rem + 0.4vw, 1.3rem);
+}
+.faqIcon {
+  flex: 0 0 auto;
+  color: var(--color-gold);
+  transition: transform 0.3s ease;
+}
+.faqIconOpen {
+  transform: rotate(45deg);
+}
+.faqAnswer {
+  overflow: hidden;
+}
+.faqAnswerInner {
+  padding: 0 1.5rem 1.4rem;
+  color: var(--color-smoke);
+  font-size: 1rem;
+  line-height: 1.65;
+  max-width: 64ch;
+}
+
+/* ---------- Final (09) — scroll reveal: text fades out, the fighter's face is revealed ---------- */
+.finalTall {
+  position: relative;
+  z-index: 1;
+  height: 165vh;
+}
+.finalSticky {
+  position: sticky;
+  top: 0;
+  height: 100svh;
+  overflow: hidden;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding: 0 clamp(1.5rem, 6vw, 7rem) clamp(2.5rem, 8vh, 6rem);
+}
+.finalFace {
+  position: absolute;
+  inset: 0;
+  will-change: transform;
+}
+
+/* ---------- Final + footer ---------- */
+.finalQuote {
+  font-family: var(--font-serif);
+  font-weight: 800;
+  font-size: clamp(2.6rem, 1.4rem + 5vw, 6rem);
+  line-height: 1.05;
+  letter-spacing: -0.02em;
+  color: var(--color-ivory);
+  text-shadow: 0 3px 30px rgba(0, 0, 0, 0.85);
+}
+.footer {
+  position: relative;
+  z-index: 1;
+  background: rgba(5, 5, 5, 0.9);
+  border-top: 1px solid rgba(214, 168, 79, 0.12);
+  padding: 3rem clamp(1.5rem, 6vw, 7rem);
+  text-align: center;
+}
+.footerBrand {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin-block-end: 1.5rem;
+}
+.safeNote {
+  font-size: 0.82rem;
+  line-height: 1.6;
+  color: var(--color-text-muted, #8a8170);
+  max-width: 70ch;
+  margin: 0 auto 1.5rem;
+}
+.footerCopy {
+  font-size: 0.8rem;
+  color: var(--color-text-muted, #8a8170);
+}
+
+/* ---------- Scroll progress bar ---------- */
+.scrollProgress {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
+  z-index: 300;
+  transform: scaleX(0);
+  transform-origin: 0 50%;
+  background: linear-gradient(90deg, var(--color-gold-deep, #a97c2b), var(--color-gold), #fff3cf);
+  box-shadow: 0 0 12px rgba(214, 168, 79, 0.6);
+  will-change: transform;
+}
+
+/* ---------- Marquee band (battle words) ---------- */
+.marquee {
+  position: relative;
+  z-index: 1;
+  overflow: hidden;
+  padding: clamp(1.75rem, 5vh, 3.5rem) 0;
+  border-block: 1px solid var(--color-obsidian-border);
+  background: rgba(5, 5, 5, 0.55);
+  -webkit-mask-image: linear-gradient(90deg, transparent, #000 12%, #000 88%, transparent);
+  mask-image: linear-gradient(90deg, transparent, #000 12%, #000 88%, transparent);
+}
+.marqueeTrack {
+  display: flex;
+  width: max-content;
+  animation: marqueeScroll 32s linear infinite;
+}
+.marquee:hover .marqueeTrack {
+  animation-play-state: paused;
+}
+.marqueeItem {
+  display: inline-flex;
+  align-items: center;
+  gap: 2.5rem;
+  padding-inline-end: 2.5rem;
+  font-family: var(--font-serif);
+  font-weight: 700;
+  font-size: clamp(1.6rem, 1rem + 2.6vw, 3.4rem);
+  color: var(--color-ivory);
+  opacity: 0.45;
+  white-space: nowrap;
+}
+.marqueeItem::after {
+  content: "";
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--color-gold);
+  flex: 0 0 auto;
+}
+@keyframes marqueeScroll {
+  from { transform: translateX(0); }
+  to { transform: translateX(-50%); }
+}
+
+/* ---------- Card 3D tilt + cursor spotlight (battle cards) ---------- */
+.tiltGrid {
+  perspective: 1100px;
+}
+.card {
+  position: relative;
+  transform-style: preserve-3d;
+  transition: transform 0.18s ease, border-color 0.3s ease, box-shadow 0.3s ease, background 0.3s ease;
+}
+.card::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  opacity: 0;
+  background: radial-gradient(240px circle at var(--mx, 50%) var(--my, 50%), rgba(214, 168, 79, 0.22), transparent 60%);
+  transition: opacity 0.3s ease;
+  pointer-events: none;
+  z-index: 0;
+}
+.card:hover::before {
+  opacity: 1;
+}
+.cardTitle,
+.cardDesc {
+  position: relative;
+  z-index: 1;
+}
+
+/* ---------- Testimonials ---------- */
+.testiGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 1.5rem;
+  margin-block-start: 2.75rem;
+}
+.testiCard {
+  border: 1px solid var(--color-obsidian-border);
+  border-radius: 16px;
+  padding: 1.9rem;
+  background: rgba(12, 11, 9, 0.55);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  display: flex;
+  flex-direction: column;
+  gap: 1.1rem;
+}
+.testiStars {
+  color: var(--color-gold);
+  letter-spacing: 3px;
+  font-size: 0.9rem;
+}
+.testiQuote {
+  font-family: var(--font-serif);
+  font-size: 1.18rem;
+  line-height: 1.5;
+  color: var(--color-ivory);
+}
+.testiWho {
+  margin-block-start: auto;
+}
+.testiName {
+  font-family: var(--font-heading);
+  font-weight: 600;
+  color: var(--color-gold);
+  font-size: 0.92rem;
+}
+.testiRole {
+  font-size: 0.8rem;
+  color: var(--color-smoke);
+}
+
+/* ---------- Responsive ---------- */
+@media (max-width: 900px) {
+  .navLinks {
+    display: none;
+  }
+  .reasonGrid {
+    grid-template-columns: 1fr;
+  }
+  .reasonFrame {
+    order: -1;
+  }
+}
+@media (max-width: 600px) {
+  .chapter {
+    padding: 3.5rem 1.25rem;
+  }
+  .scrimLeft {
+    background: linear-gradient(180deg, rgba(5, 5, 5, 0.55) 0%, rgba(5, 5, 5, 0.4) 40%, rgba(5, 5, 5, 0.88) 100%);
+  }
+}
+
+/* Hide the scroll hint where it would crowd stacked CTAs (mobile / short viewports) */
+@media (max-width: 640px), (max-height: 760px) {
+  .scrollHint {
+    display: none;
+  }
+}
+
+/* Respect reduced motion: stop the looping CSS animations */
+@media (prefers-reduced-motion: reduce) {
+  .scrollHint,
+  .waveBar,
+  .marqueeTrack,
+  .gold {
+    animation: none;
+  }
+}

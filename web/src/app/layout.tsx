@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Playfair_Display } from "next/font/google";
 import "./globals.css";
+import CinematicAudioProvider from "@/components/audio/CinematicAudioProvider";
 
 // Self-hosted at build time → guaranteed to load (no runtime Google-CDN dependency).
 const playfair = Playfair_Display({
@@ -25,7 +26,9 @@ export default function RootLayout({
   return (
     <html lang="en" className={playfair.variable}>
       <body>
-        {children}
+        {/* App-wide so background music started on /story keeps playing into /create.
+            The unlock overlay only appears on /story; the mini-player persists once unlocked. */}
+        <CinematicAudioProvider>{children}</CinematicAudioProvider>
       </body>
     </html>
   );

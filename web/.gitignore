@@ -40,3 +40,10 @@ yarn-error.log*
 *.tsbuildinfo
 next-env.d.ts
 .env*.local
+
+# second dev server dist dir (story preview)
+.next-story/
+
+
+# instrumental audio (large/licensed/copyright — keep out of git; .gitkeep preserves the folder)
+public/audio/instrumentals/*.mp3

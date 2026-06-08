@@ -44,6 +44,30 @@ def sane_max_ms(slot_ms: int) -> int:
     return max(slot_ms * 3, 20_000)
 
 
+def _request_with_retry(method: str, url: str, attempts: int = 4, **kwargs):
+    """Wrap a requests call with exponential backoff + jitter. Retries ONLY on network errors and
+    HTTP 429/5xx (transient) — never on 4xx (validation/auth won't get better). Honors Retry-After.
+    Returns the (possibly still-bad) response so the caller can raise_for_status() on a 4xx. This is
+    the cog-side guard against ElevenLabs / Replicate rate-limits + blips when many runs hit at once.
+    NOTE: pass file uploads as bytes (not a file handle) so a retry can re-send the body."""
+    import random
+    resp = None
+    for attempt in range(attempts + 1):
+        try:
+            resp = requests.request(method, url, **kwargs)
+            if (resp.status_code == 429 or resp.status_code >= 500) and attempt < attempts:
+                ra = resp.headers.get("retry-after")
+                delay = min(15.0, float(ra)) if (ra and str(ra).isdigit()) else min(8.0, 0.4 * (2 ** attempt))
+                time.sleep(delay + random.random() * 0.25)
+                continue
+            return resp
+        except requests.exceptions.RequestException:
+            if attempt >= attempts:
+                raise
+            time.sleep(min(8.0, 0.4 * (2 ** attempt)) + random.random() * 0.25)
+    return resp
+
+
 # ──────────────────────────────────────────────────────────────────────────
 # Provider: Qwen3-TTS MLX (local Apple Silicon)
 # ──────────────────────────────────────────────────────────────────────────
@@ -129,7 +153,7 @@ def _replicate_model_latest_version() -> str:
     """Cache the F5-TTS latest version id so we don't refetch every call."""
     if hasattr(_replicate_model_latest_version, "_cached"):
         return _replicate_model_latest_version._cached
-    r = requests.get(f"{REPLICATE_API}/models/{F5_TTS_MODEL}", headers=_replicate_headers(), timeout=30)
+    r = _request_with_retry("GET", f"{REPLICATE_API}/models/{F5_TTS_MODEL}", headers=_replicate_headers(), timeout=30)
     r.raise_for_status()
     version = r.json()["latest_version"]["id"]
     _replicate_model_latest_version._cached = version
@@ -152,8 +176,8 @@ def synthesize_replicate(text: str, ref_path: Path, ref_text: str, slot_ms: int,
 
     # 2. Create prediction
     version = _replicate_model_latest_version()
-    create = requests.post(
-        f"{REPLICATE_API}/predictions",
+    create = _request_with_retry(
+        "POST", f"{REPLICATE_API}/predictions",
         headers=_replicate_headers(),
         json={
             "version": version,
@@ -174,7 +198,7 @@ def synthesize_replicate(text: str, ref_path: Path, ref_text: str, slot_ms: int,
     # 3. Poll until done (typical 5-15s)
     deadline = time.time() + 180
     while time.time() < deadline:
-        r = requests.get(f"{REPLICATE_API}/predictions/{prediction_id}", headers=_replicate_headers(), timeout=30)
+        r = _request_with_retry("GET", f"{REPLICATE_API}/predictions/{prediction_id}", headers=_replicate_headers(), timeout=30)
         r.raise_for_status()
         status = r.json()
         if status["status"] == "succeeded":
@@ -190,7 +214,7 @@ def synthesize_replicate(text: str, ref_path: Path, ref_text: str, slot_ms: int,
         raise TimeoutError(f"Replicate prediction {prediction_id} did not finish within 180s")
 
     # 4. Download the output audio
-    audio_response = requests.get(output_url, timeout=60)
+    audio_response = _request_with_retry("GET", output_url, timeout=60)
     audio_response.raise_for_status()
     clone = AudioSegment.from_file(io.BytesIO(audio_response.content))
     clone = trim_silence(clone)
@@ -218,20 +242,20 @@ def _el_headers():
 def elevenlabs_clone(ref_wav: Path, name: str = "rb_clone") -> str:
     """Instant Voice Clone from a reference WAV → voice_id. Clone ONCE per speaker (best timbre +
     avoids hitting the account's voice limit); reuse the id for every line, then delete it."""
-    with open(ref_wav, "rb") as f:
-        r = requests.post(
-            f"{ELEVENLABS_API}/voices/add",
-            headers=_el_headers(),
-            data={"name": name, "remove_background_noise": "true"},
-            files={"files": (Path(ref_wav).name, f, "audio/wav")},
-            timeout=120,
-        )
+    ref_bytes = Path(ref_wav).read_bytes()  # bytes (not a handle) so a retry can re-send the body
+    r = _request_with_retry(
+        "POST", f"{ELEVENLABS_API}/voices/add",
+        headers=_el_headers(),
+        data={"name": name, "remove_background_noise": "true"},
+        files={"files": (Path(ref_wav).name, ref_bytes, "audio/wav")},
+        timeout=120,
+    )
     r.raise_for_status()
     return r.json()["voice_id"]
 
 def elevenlabs_tts(text: str, voice_id: str) -> AudioSegment:
-    r = requests.post(
-        f"{ELEVENLABS_API}/text-to-speech/{voice_id}?output_format=mp3_44100_128",
+    r = _request_with_retry(
+        "POST", f"{ELEVENLABS_API}/text-to-speech/{voice_id}?output_format=mp3_44100_128",
         headers={**_el_headers(), "Content-Type": "application/json"},
         json={"text": text, "model_id": EL_MODEL},
         timeout=180,

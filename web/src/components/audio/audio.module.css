@@ -1,0 +1,385 @@
+/* ===========================================================================
+   Cinematic audio layer — scoped CSS Modules, reuses the global :root palette.
+   "Ancient gold on black": dark glass panels, gold borders, cinematic glow.
+   =========================================================================== */
+
+/* ---------- Unlock overlay ---------- */
+.overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 400;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1.5rem;
+  background: radial-gradient(120% 90% at 50% 40%, rgba(8, 9, 13, 0.86), rgba(5, 5, 5, 0.96));
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+}
+.overlayInner {
+  max-width: 540px;
+  text-align: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+}
+.overlayBars {
+  display: flex;
+  align-items: flex-end;
+  gap: 6px;
+  height: 44px;
+  margin-block-end: 1.75rem;
+}
+.overlayTitle {
+  font-family: var(--font-serif);
+  font-weight: 800;
+  font-size: clamp(2.2rem, 1.4rem + 3vw, 3.6rem);
+  line-height: 1.05;
+  color: var(--color-ivory);
+  margin-block-end: 0.85rem;
+}
+.overlaySub {
+  font-size: clamp(1rem, 0.95rem + 0.4vw, 1.25rem);
+  color: var(--color-smoke);
+  margin-block-end: 2.25rem;
+}
+.overlayBtns {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1rem;
+  justify-content: center;
+}
+.btnGold,
+.btnGhost {
+  font-family: var(--font-heading, "Outfit", sans-serif);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-size: 0.85rem;
+  padding: 1rem 2rem;
+  border-radius: 12px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+  min-block-size: 52px;
+  transition: transform 0.3s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.3s ease, background 0.3s ease, border-color 0.3s ease;
+}
+.btnGold {
+  background: linear-gradient(135deg, var(--color-gold), var(--color-gold-deep, #a97c2b));
+  color: #1a130a;
+  border: none;
+  box-shadow: 0 8px 28px rgba(214, 168, 79, 0.32);
+}
+.btnGold:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 12px 38px rgba(214, 168, 79, 0.5);
+}
+.btnGhost {
+  background: rgba(232, 227, 216, 0.04);
+  border: 1px solid rgba(232, 227, 216, 0.35);
+  color: var(--color-ivory);
+}
+.btnGhost:hover {
+  transform: translateY(-2px);
+  border-color: var(--color-ivory);
+  background: rgba(232, 227, 216, 0.1);
+}
+
+/* ---------- Sound bars (shared) ---------- */
+.bars {
+  display: flex;
+  align-items: flex-end;
+  gap: 3px;
+  height: 22px;
+}
+.bar {
+  width: 3px;
+  border-radius: 2px;
+  background: linear-gradient(180deg, var(--color-gold), var(--color-gold-deep, #a97c2b));
+  height: 30%;
+}
+.barsPlaying .bar {
+  animation: barPulse 0.9s ease-in-out infinite;
+}
+.overlayBars .bar {
+  width: 5px;
+  animation: barPulse 1s ease-in-out infinite;
+}
+@keyframes barPulse {
+  0%, 100% { height: 22%; opacity: 0.6; }
+  50% { height: 100%; opacity: 1; }
+}
+
+/* ---------- Global mini-player (bottom-right) ---------- */
+.player {
+  position: fixed;
+  right: clamp(1rem, 2.5vw, 1.75rem);
+  bottom: clamp(1rem, 2.5vw, 1.75rem);
+  z-index: 250;
+  width: min(340px, calc(100vw - 2rem));
+  background: rgba(10, 9, 7, 0.82);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(214, 168, 79, 0.28);
+  border-radius: 16px;
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.55), 0 0 26px rgba(214, 168, 79, 0.08);
+  padding: 0.9rem 1rem;
+  color: var(--color-ivory);
+}
+.playerTop {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+.playBtn {
+  flex: 0 0 auto;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  border: none;
+  cursor: pointer;
+  background: linear-gradient(135deg, var(--color-gold), var(--color-gold-deep, #a97c2b));
+  color: #1a130a;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform 0.2s ease;
+}
+.playBtn:hover { transform: scale(1.07); }
+.meta {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.metaLabel {
+  font-family: var(--font-heading, "Outfit", sans-serif);
+  font-size: 0.62rem;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--color-gold);
+}
+.metaTitle {
+  font-family: var(--font-serif);
+  font-weight: 700;
+  font-size: 1rem;
+  color: var(--color-ivory);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.iconBtn {
+  flex: 0 0 auto;
+  width: 34px;
+  height: 34px;
+  border-radius: 9px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--color-ivory);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.2s ease, border-color 0.2s ease;
+}
+.iconBtn:hover {
+  background: rgba(214, 168, 79, 0.12);
+  border-color: rgba(214, 168, 79, 0.4);
+}
+.playerBottom {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-block-start: 0.8rem;
+}
+.volume {
+  flex: 1 1 auto;
+  accent-color: var(--color-gold);
+  height: 4px;
+  cursor: pointer;
+}
+.changeBtn {
+  background: none;
+  border: none;
+  color: var(--color-smoke);
+  font-family: var(--font-heading, "Outfit", sans-serif);
+  font-size: 0.72rem;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  padding: 0;
+  transition: color 0.2s ease;
+}
+.changeBtn:hover { color: var(--color-gold); }
+.playerError {
+  font-size: 0.72rem;
+  color: var(--color-text-muted, #8a8170);
+  margin-block-start: 0.6rem;
+  line-height: 1.4;
+}
+
+/* ---------- "Choose Your Sound" cards ---------- */
+.soundGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 1.25rem;
+  margin-block-start: 2.75rem;
+}
+.soundCard {
+  position: relative;
+  border: 1px solid rgba(214, 168, 79, 0.16);
+  border-radius: 18px;
+  padding: 1.6rem;
+  background: rgba(12, 11, 9, 0.6);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  transition: border-color 0.3s ease, box-shadow 0.3s ease, transform 0.3s cubic-bezier(0.16, 1, 0.3, 1), background 0.3s ease;
+}
+.soundCard:hover {
+  transform: translateY(-4px);
+  border-color: rgba(214, 168, 79, 0.45);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.5), 0 0 26px rgba(214, 168, 79, 0.14);
+}
+.soundCardSelected {
+  border-color: var(--color-gold);
+  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.55), 0 0 30px rgba(214, 168, 79, 0.22);
+  background: rgba(214, 168, 79, 0.06);
+}
+.soundHead {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+}
+.soundTitle {
+  font-family: var(--font-serif);
+  font-weight: 700;
+  font-size: 1.35rem;
+  color: var(--color-ivory);
+}
+.soundMood {
+  font-size: 0.9rem;
+  color: var(--color-smoke);
+}
+.intensity {
+  flex: 0 0 auto;
+  font-family: var(--font-heading, "Outfit", sans-serif);
+  font-size: 0.62rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  padding: 0.35rem 0.6rem;
+  border-radius: 999px;
+  border: 1px solid rgba(214, 168, 79, 0.3);
+  color: var(--color-gold);
+  background: rgba(214, 168, 79, 0.06);
+}
+.intensityEpic { color: #fff3cf; border-color: rgba(255, 243, 207, 0.5); background: rgba(214, 168, 79, 0.14); }
+.recFor {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+.recTag {
+  font-size: 0.72rem;
+  color: var(--color-smoke);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 999px;
+  padding: 0.25rem 0.6rem;
+}
+.cardActions {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin-block-start: auto;
+  padding-block-start: 0.5rem;
+}
+.previewBtn {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-family: var(--font-heading, "Outfit", sans-serif);
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  padding: 0.6rem 0.9rem;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--color-ivory);
+  cursor: pointer;
+  transition: background 0.2s ease, border-color 0.2s ease;
+}
+.previewBtn:hover { background: rgba(214, 168, 79, 0.12); border-color: rgba(214, 168, 79, 0.4); }
+.selectBtn {
+  flex: 1 1 auto;
+  font-family: var(--font-heading, "Outfit", sans-serif);
+  font-size: 0.78rem;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  padding: 0.65rem 1rem;
+  border-radius: 10px;
+  border: 1px solid rgba(214, 168, 79, 0.35);
+  background: transparent;
+  color: var(--color-gold);
+  cursor: pointer;
+  transition: background 0.2s ease, color 0.2s ease;
+}
+.selectBtn:hover { background: rgba(214, 168, 79, 0.1); }
+.selectBtnActive {
+  background: linear-gradient(135deg, var(--color-gold), var(--color-gold-deep, #a97c2b));
+  color: #1a130a;
+  border-color: transparent;
+}
+.selectedTag {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-family: var(--font-heading, "Outfit", sans-serif);
+  font-size: 0.7rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-gold);
+}
+
+/* upload-your-own card */
+.uploadCard {
+  border-style: dashed;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+}
+.uploadBtn {
+  font-family: var(--font-heading, "Outfit", sans-serif);
+  font-size: 0.76rem;
+  font-weight: 600;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  padding: 0.6rem 1.2rem;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--color-smoke);
+  cursor: not-allowed;
+  margin-block-start: 0.5rem;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .barsPlaying .bar,
+  .overlayBars .bar {
+    animation: none;
+  }
+}
+
+@media (max-width: 560px) {
+  .player {
+    left: 1rem;
+    right: 1rem;
+    width: auto;
+  }
+}

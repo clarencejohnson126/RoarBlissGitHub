@@ -244,11 +244,23 @@ export default function AudioVisualizer({ formData, sessionId }: AudioVisualizer
     e.preventDefault();
     if (!authEmail.includes("@")) return;
     setAuthMsg("Sending…");
-    const { error } = await supabaseBrowser().auth.signInWithOtp({
-      email: authEmail,
-      options: { emailRedirectTo: typeof window !== "undefined" ? window.location.href : undefined },
-    });
-    setAuthMsg(error ? error.message : "Check your email — open the link, then hit Download again.");
+    // Use the Resend-backed endpoint — Supabase's built-in SMTP is unconfigured and 500s on
+    // signInWithOtp ("Error sending magic link email"). /api/auth/magic-link generates the link
+    // via the admin API and delivers it through Resend (same path AccountPanel uses).
+    try {
+      const res = await fetch("/api/auth/magic-link", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          email: authEmail,
+          redirectTo: typeof window !== "undefined" ? window.location.href : undefined,
+        }),
+      });
+      const j = await res.json().catch(() => ({}));
+      setAuthMsg(res.ok ? "Check your email — open the link, then hit Download again." : j.error || "Could not send the link.");
+    } catch {
+      setAuthMsg("Could not send the link. Please try again.");
+    }
   };
 
   // Auto-close the gate once the user is authenticated (e.g. returns from the magic link).

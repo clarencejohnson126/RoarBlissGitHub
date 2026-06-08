@@ -1,0 +1,16 @@
+# Keep deploys small + safe. NOTE: when this file exists, Vercel CLI uses IT (not .gitignore),
+# so secrets + build dirs MUST be listed here explicitly.
+node_modules
+.next
+.next-story
+.next-prodtest
+.vercel
+.env
+.env.local
+.env.*.local
+*.tsbuildinfo
+.npm-local
+
+# heavy runtime session audio from /create runs — never needed in the deploy
+public/output
+public/uploads
