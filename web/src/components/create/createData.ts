@@ -75,7 +75,7 @@ export const TONES: { title: string; desc: string }[] = [
   { title: "Comeback Energy", desc: "Down, not done. Rising." },
 ];
 
-export const LANGUAGES = ["English", "German", "Spanish", "French", "Italian", "Portuguese", "Dutch", "Polish"];
+export const LANGUAGES = ["English", "German", "Spanish", "French", "Italian", "Portuguese", "Dutch", "Polish", "Chinese"];
 
 export const DEPTHS: { value: Depth; label: string; hint: string }[] = [
   { value: 25, label: "25%", hint: "Light personalization" },
