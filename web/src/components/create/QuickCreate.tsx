@@ -142,7 +142,7 @@ export default function QuickCreate({ onFullSetup }: { onFullSetup?: () => void 
           {/* Per-speech prompt (optional, not saved to the profile) */}
           <div className={styles.qcField}>
             <label className={styles.qcLabel}>
-              Anything specific this time? <span className={styles.qcHint}>(optional)</span>
+              Anything specific this time? <span className={styles.qcHint}>(recommended)</span>
             </label>
             <textarea
               className={styles.qcInput}

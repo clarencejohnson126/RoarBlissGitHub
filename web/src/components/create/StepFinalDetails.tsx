@@ -22,7 +22,7 @@ export default function StepFinalDetails() {
     >
       <div className={styles.field}>
         <label className={styles.label} htmlFor="rb-custom">
-          Your story, in your words
+          Your story, in your words <span style={{ color: "var(--color-text-muted)", fontWeight: 400, fontSize: "0.85rem" }}>(recommended)</span>
         </label>
         <textarea
           id="rb-custom"
