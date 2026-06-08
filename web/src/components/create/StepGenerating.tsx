@@ -125,7 +125,10 @@ export default function StepGenerating() {
               }, 800);
             } else if (s.status === "failed") {
               if (poll) clearInterval(poll);
-              setError(s.error || "The pipeline failed. Try again with different audio.");
+              setError(
+                (s.error ? s.error + " " : "") +
+                  "You weren't charged — your credit has been refunded automatically. Try again with the same or different audio.",
+              );
             }
           } catch {
             /* keep polling */

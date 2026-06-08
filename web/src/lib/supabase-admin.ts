@@ -112,3 +112,12 @@ export async function recordFreeUsage(fingerprint: string, ip: string, predictio
     console.warn("recordFreeUsage skipped:", (e as Error).message);
   }
 }
+
+/** Give a device/IP its free track back if the run didn't deliver (failed runs must never burn the free try). */
+export async function clearFreeUsageForPrediction(predictionId: string): Promise<void> {
+  try {
+    await supabaseAdmin().from("free_usage").delete().eq("prediction_id", predictionId);
+  } catch (e) {
+    console.warn("clearFreeUsageForPrediction skipped:", (e as Error).message);
+  }
+}

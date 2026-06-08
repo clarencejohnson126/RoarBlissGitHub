@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { createPrediction, type PredictionInput } from "@/lib/replicate";
 import { baseUrl } from "@/lib/base-url";
-import { verifyUser, paidCredits, consumeCredit, freeUsageExists, recordFreeUsage } from "@/lib/supabase-admin";
+import { verifyUser, paidCredits, consumeCredit, grantCredits, freeUsageExists, recordFreeUsage } from "@/lib/supabase-admin";
 import { bearerToken } from "@/lib/stripe";
 import {
   limits,
@@ -186,7 +186,21 @@ export async function POST(request: Request) {
       return NextResponse.json({ id: jobId, status: "queued", queued: true });
     }
 
-    const pred = await createPrediction(input, httpsWebhook);
+    let pred;
+    try {
+      pred = await createPrediction(input, httpsWebhook);
+    } catch (e) {
+      // The run never even started (Replicate error/429 after retries) — give the reserved credit back
+      // immediately, since there'll be no webhook to refund it later.
+      if (paidGranted && jobUserId) {
+        try {
+          await grantCredits(jobUserId, 1);
+        } catch {
+          /* best effort */
+        }
+      }
+      throw e;
+    }
     await recordRunningJob(pred.id, meta);
 
     // Burn this device/IP's one free track only once the prediction actually started.

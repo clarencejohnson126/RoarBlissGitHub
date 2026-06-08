@@ -4,6 +4,7 @@ import { del, put } from "@vercel/blob";
 import { outputUrl } from "@/lib/replicate";
 import { baseUrl } from "@/lib/base-url";
 import { markJobTerminal } from "@/lib/scale-guard";
+import { clearFreeUsageForPrediction } from "@/lib/supabase-admin";
 import { drainQueue } from "@/lib/drain";
 
 /**
@@ -30,6 +31,11 @@ export async function POST(request: Request) {
     const name = payload.input?.name || "Warrior";
     const base = baseUrl(request);
 
+    // A run only "delivered" if it succeeded AND produced an output file the user can actually play —
+    // a succeeded-but-empty result counts as a non-delivery (so the credit gets refunded below).
+    const produced = !!outputUrl({ output: payload.output ?? null });
+    const delivered = status === "succeeded" && produced;
+
     // Durable copy of the result, so the email link never expires.
     let listen = id ? `${base}/api/audio?id=${id}` : base;
     if (status === "succeeded" && process.env.BLOB_READ_WRITE_TOKEN) {
@@ -55,14 +61,14 @@ export async function POST(request: Request) {
     if (email && process.env.RESEND_API_KEY) {
       const resend = new Resend(process.env.RESEND_API_KEY);
       const from = process.env.RESEND_FROM_EMAIL || "Roar Bliss <onboarding@resend.dev>";
-      if (status === "succeeded") {
+      if (delivered) {
         await resend.emails.send({
           from,
           to: email,
           subject: `Your personalized Roar Bliss track is ready, ${name}`,
           html: doneHtml(name, listen, base),
         });
-      } else if (status === "failed" || status === "canceled") {
+      } else if (status === "failed" || status === "canceled" || status === "succeeded") {
         await resend.emails.send({
           from,
           to: email,
@@ -74,7 +80,11 @@ export async function POST(request: Request) {
 
     // Bookkeeping + backpressure: mark this run terminal and promote the next queued job, if any.
     if (id && (status === "succeeded" || status === "failed" || status === "canceled")) {
-      await markJobTerminal(id, status === "succeeded");
+      // Marks terminal once + refunds the reserved credit if a PAID run didn't deliver a file.
+      const settle = await markJobTerminal(id, delivered);
+      if (settle.refunded) console.warn(`[credit] refunded 1 credit for non-delivered run ${id} (status=${status})`);
+      // Free runs that didn't deliver: give the one free track back too (no-op for paid runs).
+      if (!delivered) await clearFreeUsageForPrediction(id);
       try {
         await drainQueue();
       } catch (e) {
