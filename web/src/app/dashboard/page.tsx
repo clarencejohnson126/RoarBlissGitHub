@@ -199,6 +199,10 @@ export default function DashboardPage() {
         </h1>
         <p className={styles.sub}>Pick up where you left off — or forge a new speech.</p>
 
+        <Link href="/create" className={styles.btnGold} style={{ display: "inline-flex", marginTop: "1.2rem", justifyContent: "center" }}>
+          + New speech
+        </Link>
+
         <div className={styles.tabs}>
           {(["overview", "profile", "settings"] as Tab[]).map((t) => (
             <button key={t} className={`${styles.tab} ${tab === t ? styles.tabActive : ""}`} onClick={() => setTab(t)}>

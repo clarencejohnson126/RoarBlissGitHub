@@ -75,6 +75,30 @@ export default function StepGenerating() {
           throw new Error(e.error || `The server rejected the run (${res.status}).`);
         }
         const resp = await res.json();
+
+        // remember this setup so a returning, signed-in user lands straight in Quick Create next time
+        if (token) {
+          fetch("/api/profile", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+            body: JSON.stringify({
+              profile: {
+                nickname: data.userName,
+                people: data.reasonForFighting.join(", "),
+                battles: data.selectedBattles,
+                tone: data.primaryTone,
+                language: data.language,
+                secondaryTone: data.secondaryTone,
+                intensity: data.intensity,
+                depth: data.personalizationDepth,
+                reasonForFighting: data.reasonForFighting,
+                neededEmotions: data.neededEmotions,
+                lifePressure: data.lifePressure,
+              },
+            }),
+          }).catch(() => {});
+        }
+
         const id = resp.id;
         const jobFlag = resp.queued ? "&job=1" : ""; // queued → poll by job id until a slot frees
         if (resp.queued) setQueued(true);

@@ -719,3 +719,144 @@
     animation: none;
   }
 }
+
+/* ════════════ Quick Create (returning users) ════════════ */
+.qcStage {
+  position: relative;
+  z-index: 1;
+  min-height: 100vh;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  padding: clamp(5rem, 10vh, 7rem) 1.25rem 4rem;
+}
+.qcCard {
+  width: 100%;
+  max-width: 620px;
+  background: rgba(12, 11, 9, 0.78);
+  border: 1px solid rgba(214, 168, 79, 0.22);
+  border-radius: 20px;
+  box-shadow: 0 30px 90px rgba(0, 0, 0, 0.55);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  padding: clamp(1.6rem, 4vw, 2.6rem);
+}
+.qcField {
+  margin-block-start: 1.4rem;
+}
+.qcLabel {
+  display: block;
+  font-family: var(--font-heading, "Outfit", sans-serif);
+  font-size: 0.82rem;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  color: var(--color-gold);
+  margin-block-end: 0.6rem;
+}
+.qcHint {
+  color: var(--color-smoke);
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: 0;
+}
+.qcInput,
+.qcSelect {
+  width: 100%;
+  background: rgba(0, 0, 0, 0.4);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 11px;
+  padding: 0.8rem 1rem;
+  color: #fff;
+  font-size: 1rem;
+  font-family: inherit;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+.qcSelect {
+  appearance: none;
+  cursor: pointer;
+  background-image: linear-gradient(45deg, transparent 50%, var(--color-gold) 50%), linear-gradient(135deg, var(--color-gold) 50%, transparent 50%);
+  background-position: calc(100% - 20px) center, calc(100% - 15px) center;
+  background-size: 5px 5px, 5px 5px;
+  background-repeat: no-repeat;
+}
+.qcInput:focus,
+.qcSelect:focus {
+  outline: none;
+  border-color: var(--color-gold);
+  box-shadow: 0 0 14px rgba(214, 168, 79, 0.18);
+}
+.qcSelect option {
+  background: #15140f;
+  color: #fff;
+}
+.qcChips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+.qcChip {
+  font-family: var(--font-heading, "Outfit", sans-serif);
+  font-size: 0.85rem;
+  color: var(--color-ivory);
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(214, 168, 79, 0.28);
+  border-radius: 999px;
+  padding: 0.5rem 1rem;
+  cursor: pointer;
+  transition: background 0.18s ease, border-color 0.18s ease, color 0.18s ease;
+}
+.qcChip:hover {
+  border-color: var(--color-gold);
+}
+.qcChipOn {
+  background: var(--color-gold);
+  border-color: var(--color-gold);
+  color: #1a130a;
+  font-weight: 600;
+}
+.qcRow {
+  display: flex;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+.qcSeg {
+  display: flex;
+  gap: 0.5rem;
+}
+.qcSegBtn {
+  flex: 1;
+  font-family: var(--font-heading, "Outfit", sans-serif);
+  font-size: 0.9rem;
+  color: var(--color-ivory);
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 11px;
+  padding: 0.7rem 0.5rem;
+  cursor: pointer;
+  transition: background 0.18s ease, border-color 0.18s ease, color 0.18s ease;
+}
+.qcSegBtn:hover {
+  border-color: rgba(214, 168, 79, 0.5);
+}
+.qcSegBtnOn {
+  background: rgba(214, 168, 79, 0.16);
+  border-color: var(--color-gold);
+  color: var(--color-gold);
+  font-weight: 600;
+}
+.qcStartOver {
+  display: block;
+  width: 100%;
+  text-align: center;
+  margin-block-start: 1.2rem;
+  background: none;
+  border: none;
+  color: var(--color-smoke);
+  font-size: 0.85rem;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.qcStartOver:hover {
+  color: var(--color-ivory);
+}
