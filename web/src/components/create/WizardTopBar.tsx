@@ -10,7 +10,7 @@ export default function WizardTopBar() {
   return (
     <>
       <Link href="/" className={styles.wizHome} aria-label="Back to home">
-        <Image src="/images/logo-symbol.png" alt="" width={50} height={50} style={{ display: "block" }} />
+        <Image src="/images/logo-symbol.png" alt="" width={40} height={40} style={{ display: "block", flexShrink: 0 }} />
         <span className={styles.wizWord}>ROAR<b>BLISS</b></span>
       </Link>
       <div style={{ position: "fixed", top: "0.85rem", right: "clamp(1rem, 4vw, 2rem)", zIndex: 60 }}>

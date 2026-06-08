@@ -43,7 +43,7 @@ export default function StoryPage() {
 
       <footer className={styles.footer}>
         <div className={styles.footerBrand}>
-          <Image src="/images/story/logo.png" alt="Roar Bliss" width={44} height={44} className={styles.brandLogo} />
+          <Image src="/images/logo-symbol.png" alt="Roar Bliss" width={72} height={72} className={styles.brandLogo} />
           <span className={styles.brandWord}>ROAR<b>BLISS</b></span>
         </div>
         <p className={styles.safeNote}>{SAFE_NOTE}</p>

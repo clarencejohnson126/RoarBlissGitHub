@@ -37,7 +37,8 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  padding: clamp(5rem, 9vh, 7rem) clamp(1.25rem, 5vw, 3rem) clamp(2rem, 6vh, 4rem);
+  /* generous bottom space so the Continue/nav row always clears the fixed audio mini-player */
+  padding: clamp(5rem, 9vh, 7rem) clamp(1.25rem, 5vw, 3rem) clamp(8.5rem, 16vh, 10rem);
 }
 .inner {
   width: 100%;
@@ -728,7 +729,8 @@
   display: flex;
   align-items: flex-start;
   justify-content: center;
-  padding: clamp(5rem, 10vh, 7rem) 1.25rem 4rem;
+  /* bottom space so the Generate button clears the fixed audio mini-player */
+  padding: clamp(5rem, 10vh, 7rem) 1.25rem clamp(8.5rem, 16vh, 10rem);
 }
 .qcCard {
   width: 100%;
