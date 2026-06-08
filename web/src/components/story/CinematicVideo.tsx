@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import Image from "next/image";
 import { gsap, ScrollTrigger, useGSAP } from "./hooks/useGSAPScrollTrigger";
 import { usePrefersReducedMotion } from "./hooks/usePrefersReducedMotion";
@@ -12,6 +12,7 @@ type Props = {
   objectPosition?: string;
   parallax?: number; // usually 0 — the clip already carries motion
   once?: boolean; // play once on load, then cross-fade to the still poster (no loop, no frozen last frame)
+  playWhen?: boolean; // gate playback (e.g. hero waits until the audio-unlock overlay is dismissed)
   className?: string;
 };
 
@@ -28,12 +29,32 @@ export default function CinematicVideo({
   objectPosition = "center center",
   parallax = 0,
   once = false,
+  playWhen = true,
   className,
 }: Props) {
   const wrap = useRef<HTMLDivElement>(null);
   const inner = useRef<HTMLDivElement>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
   const reduced = usePrefersReducedMotion();
   const [ended, setEnded] = useState(false);
+
+  // Gate playback: when playWhen flips true (e.g. the hero overlay is dismissed), start from frame 0
+  // so the user sees the full animation — not the tail end that played behind the overlay.
+  useEffect(() => {
+    const v = videoRef.current;
+    if (!v || reduced) return;
+    if (playWhen) {
+      try {
+        v.currentTime = 0;
+      } catch {
+        /* ignore */
+      }
+      setEnded(false);
+      v.play().catch(() => {});
+    } else {
+      v.pause();
+    }
+  }, [playWhen, reduced]);
 
   useGSAP(
     () => {
@@ -55,7 +76,8 @@ export default function CinematicVideo({
         ) : (
           <>
             <video
-              autoPlay
+              ref={videoRef}
+              autoPlay={playWhen}
               loop={!once}
               muted
               playsInline

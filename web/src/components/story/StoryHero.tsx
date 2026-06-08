@@ -7,11 +7,13 @@ import type Lenis from "lenis";
 import ChapterSection from "./ChapterSection";
 import CinematicVideo from "./CinematicVideo";
 import MagneticButton from "./MagneticButton";
+import { useAudio } from "@/components/audio/CinematicAudioProvider";
 import { HERO } from "./content";
 import styles from "./story.module.css";
 
 export default function StoryHero() {
   const reduced = useReducedMotion();
+  const { unlocked } = useAudio();
 
   const container: Variants = {
     hidden: {},
@@ -45,6 +47,7 @@ export default function StoryHero() {
           alt="A weathered warrior before a vast battlefield; a snarling lion lunges to attack"
           objectPosition="center center"
           once
+          playWhen={unlocked}
         />
       }
     >

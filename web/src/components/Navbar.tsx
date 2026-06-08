@@ -2,7 +2,7 @@
 
 import React, { useState } from "react";
 import Link from "next/link";
-import AccountPanel from "@/components/AccountPanel";
+import LoginButton from "@/components/LoginButton";
 
 const LINKS = [
   { label: "Pricing", href: "/pricing" },
@@ -41,8 +41,8 @@ export default function Navbar() {
               {l.label}
             </Link>
           ))}
-          <div onClick={() => setOpen(false)} style={{ display: "flex", alignItems: "center" }}>
-            <AccountPanel />
+          <div style={{ display: "flex", alignItems: "center" }}>
+            <LoginButton />
           </div>
           <Link
             href="/create"

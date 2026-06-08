@@ -4,13 +4,12 @@ import { useEffect, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import type Lenis from "lenis";
-import { supabaseBrowser } from "@/lib/supabase-browser";
+import LoginButton from "@/components/LoginButton";
 import { NAV } from "./content";
 import styles from "./story.module.css";
 
 export default function StoryNavbar() {
   const [scrolled, setScrolled] = useState(false);
-  const [signedIn, setSignedIn] = useState(false);
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 40);
@@ -18,18 +17,6 @@ export default function StoryNavbar() {
     window.addEventListener("scroll", onScroll, { passive: true });
     return () => window.removeEventListener("scroll", onScroll);
   }, []);
-
-  useEffect(() => {
-    const sb = supabaseBrowser();
-    sb.auth.getSession().then(({ data }) => setSignedIn(!!data.session));
-    const { data: sub } = sb.auth.onAuthStateChange((_e, s) => setSignedIn(!!s));
-    return () => sub.subscription.unsubscribe();
-  }, []);
-
-  const signOut = async () => {
-    await supabaseBrowser().auth.signOut();
-    setSignedIn(false);
-  };
 
   const jump = (e: React.MouseEvent<HTMLAnchorElement>, href: string) => {
     if (!href.startsWith("#")) return;
@@ -58,16 +45,7 @@ export default function StoryNavbar() {
         </nav>
 
         <div className={styles.navRight}>
-          {signedIn ? (
-            <>
-              <Link href="/dashboard" className={styles.navSignin}>Dashboard</Link>
-              <button type="button" className={styles.navSignin} style={{ background: "none", border: "none", cursor: "pointer" }} onClick={signOut}>
-                Sign out
-              </button>
-            </>
-          ) : (
-            <Link href="/dashboard" className={styles.navSignin}>Sign in</Link>
-          )}
+          <LoginButton />
           <Link href={NAV.cta.href} className={styles.navCta}>
             {NAV.cta.label}
           </Link>

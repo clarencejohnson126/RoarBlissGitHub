@@ -1,0 +1,169 @@
+/* Standalone Login button + side popup (modal, no page change). Reuses the global :root palette. */
+.wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+.trigger {
+  font-family: var(--font-heading, "Outfit", sans-serif);
+  font-weight: 600;
+  font-size: 0.82rem;
+  letter-spacing: 0.04em;
+  color: var(--color-ivory);
+  background: rgba(232, 227, 216, 0.06);
+  border: 1px solid rgba(232, 227, 216, 0.3);
+  border-radius: 10px;
+  padding: 0.5rem 1.1rem;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: border-color 0.2s ease, color 0.2s ease, background 0.2s ease;
+}
+.trigger:hover {
+  border-color: var(--color-gold);
+  color: var(--color-gold);
+}
+.account {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.6rem;
+  font-family: var(--font-heading, "Outfit", sans-serif);
+  font-size: 0.8rem;
+  color: var(--color-smoke);
+}
+.email {
+  color: var(--color-gold);
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.signout {
+  background: none;
+  border: none;
+  color: var(--color-smoke);
+  cursor: pointer;
+  font-size: 0.8rem;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  padding: 0;
+  white-space: nowrap;
+}
+.signout:hover { color: var(--color-ivory); }
+
+/* ---------- popup ---------- */
+.backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 500;
+  background: rgba(5, 5, 5, 0.55);
+  backdrop-filter: blur(3px);
+  -webkit-backdrop-filter: blur(3px);
+}
+.panel {
+  position: fixed;
+  top: clamp(64px, 9vh, 84px);
+  right: clamp(1rem, 3vw, 1.75rem);
+  z-index: 501;
+  width: min(360px, calc(100vw - 2rem));
+  background: rgba(12, 11, 9, 0.96);
+  border: 1px solid rgba(214, 168, 79, 0.3);
+  border-radius: 16px;
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.6), 0 0 30px rgba(214, 168, 79, 0.1);
+  padding: 1.5rem;
+  color: var(--color-ivory);
+  animation: popIn 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+}
+@keyframes popIn {
+  from { opacity: 0; transform: translateY(-8px) scale(0.98); }
+  to { opacity: 1; transform: none; }
+}
+.head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-block-end: 1.1rem;
+}
+.title {
+  font-family: var(--font-serif);
+  font-weight: 700;
+  font-size: 1.3rem;
+  color: var(--color-ivory);
+}
+.close {
+  background: none;
+  border: none;
+  color: var(--color-smoke);
+  cursor: pointer;
+  display: flex;
+  padding: 0.25rem;
+  border-radius: 6px;
+}
+.close:hover { color: var(--color-ivory); }
+.label {
+  display: block;
+  font-family: var(--font-heading, "Outfit", sans-serif);
+  font-size: 0.78rem;
+  color: var(--color-text-secondary);
+  margin-block-end: 0.4rem;
+}
+.input {
+  width: 100%;
+  background: rgba(0, 0, 0, 0.45);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 10px;
+  padding: 0.8rem 1rem;
+  color: #fff;
+  font-size: 1rem;
+  margin-block-end: 0.85rem;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+.input:focus {
+  outline: none;
+  border-color: var(--color-gold);
+  box-shadow: 0 0 14px rgba(214, 168, 79, 0.18);
+}
+.submit {
+  width: 100%;
+  font-family: var(--font-heading, "Outfit", sans-serif);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-size: 0.85rem;
+  padding: 0.85rem 1rem;
+  border-radius: 11px;
+  border: none;
+  cursor: pointer;
+  background: linear-gradient(135deg, var(--color-gold), var(--color-gold-deep, #a97c2b));
+  color: #1a130a;
+  box-shadow: 0 8px 22px rgba(214, 168, 79, 0.28);
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+  margin-block-start: 0.25rem;
+}
+.submit:hover:not(:disabled) { transform: translateY(-1px); box-shadow: 0 12px 30px rgba(214, 168, 79, 0.42); }
+.submit:disabled { opacity: 0.5; cursor: not-allowed; }
+.row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-block-start: 1rem;
+  font-size: 0.82rem;
+  color: var(--color-smoke);
+}
+.link {
+  background: none;
+  border: none;
+  color: var(--color-gold);
+  cursor: pointer;
+  font-size: 0.82rem;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  padding: 0;
+}
+.link:hover { color: #fff3cf; }
+.msg {
+  margin-block-start: 0.9rem;
+  font-size: 0.85rem;
+  line-height: 1.4;
+  color: var(--color-smoke);
+  min-height: 1.2em;
+}

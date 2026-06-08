@@ -1,77 +1,58 @@
-# Roar Bliss — Go-Live Runbook
+# Roar Bliss — Go-Live Runbook (living copy)
 
-One ordered roadmap to production. Work top to bottom. **[A]** = agent can do it, **[C]** = only Clarence
-can supply it. Don't run `vercel --prod` until every phase below is checked.
-Companion docs: `SCALE_READINESS.md` (hardening detail), `HANDOFF_PROMPT_2026-06-07.md` (context).
-Secrets live only in `web/.env.local` (local) and Vercel env (prod) — never in code or commits.
+Annotated with current status (updated 2026-06-08, evening). Source: `GO_LIVE_RUNBOOK.pdf`.
+**[A]** = agent can do · **[C]** = only Clarence. Don't run `vercel --prod` until every phase is checked.
+Secrets live only in `web/.env.local` (local) + Vercel env (prod) — never in code/commits.
+
+Status: ✅ done · 🟡 partial · 🔴 open · ⚠️ changed since the PDF.
 
 ---
 
 ## Phase 1 — Cog version pin
-- [ ] **[A]** Verify-run on `c3c973dc` (the build that has ALL fixes incl. "never read JSON aloud"):
-      1× translation + 1× clone through the real Replicate cog (~$0.10). Clarence listens to the MP3s.
-- [ ] **[C]** Approve the MP3s.
-- [ ] **[A]** Set `REPLICATE_MODEL_VERSION=c3c973dc…` in `web/.env.local` **and** Vercel **production**
-      (currently EMPTY in Vercel → would otherwise pull `latest` blindly).
-- [ ] **[A]** Do NOT pin `94c1272` (stale — missing the translation + JSON-aloud fixes).
-- Acceptance: both envs pinned to the approved version; `replicate.ts` resolves it (not `latest`).
+- ✅ **[A] Pin — DONE, beyond the PDF.** PDF targeted `c3c973dc`. We then built more cog fixes (tier 25/50/75/100 honored on free, **sentence-boundary slot cuts**, ElevenLabs/Anthropic/Replicate retries + clone re-attempt), redeployed → **`32a69490…`**, pinned in `web/.env.local` **and** Vercel production.
+- 🔴 **[C] Approve the NEW version's output.** You approved c3c973dc; you have **not** verify-run/approved `32a69490`'s MP3s. One real run recommended before launch.
 
 ## Phase 2 — Stripe (LIVE)
-- [ ] **[C]** Provide LIVE keys: `STRIPE_SECRET_KEY` (live), webhook signing secret, and the **price ID**
-      (`STRIPE_PRICE_ID` is currently missing entirely).
-- [ ] **[A]** Set them in `web/.env.local` + Vercel production. Register the live webhook endpoint
-      (`/api/stripe-webhook`) in the Stripe dashboard.
-- [ ] **[A]** End-to-end test: checkout → webhook → `app_metadata.paid_credits` incremented → paid
-      (6-min) run unlocks. Test in Stripe test mode first, then confirm live keys are wired.
-- Acceptance: a real purchase grants credits and a paid run succeeds.
+- 🔴 **[C] Provide LIVE keys** (`STRIPE_SECRET_KEY` live + webhook signing secret). ⚠️ `STRIPE_PRICE_ID` **not needed** — inline `price_data` (pack + recurring tiers).
+- 🔴 **[A] Set live keys** in `.env.local` + Vercel prod, register live `/api/stripe-webhook`. (waiting on keys)
+- ✅ **[A] Subscription flow wired + TEST-verified** (checkout → webhook → `paid_credits` + tier).
 
 ## Phase 3 — Resend / Supabase auth email
-- [ ] **[A]** Confirm `RESEND_FROM_EMAIL` = verified-domain sender (`roar@thinkbig.rebelz-ai.com`) in
-      BOTH `web/.env.local` and Vercel production (was EMPTY in Vercel prod).
-- [ ] **[A]** In the Supabase dashboard → Auth → URL Configuration: add redirect URLs (prod domain +
-      localhost) so the magic link redirects back.
-- [ ] **[A]** Verify the `free_usage` table exists (project `eoahpwciwttfavzpqfnz`) and the free gate
-      (1 track / device+IP, download gated by registration) works.
-- Acceptance: sign-in magic link arrives to an external address and logs the user in; free gate holds.
+- 🟡 **[A] `RESEND_FROM_EMAIL`/`RESEND_API_KEY` in Vercel prod** — confirm set (was empty per PDF). **To verify.**
+- 🔴 **[A/C] Supabase Auth → URL Configuration: redirect URLs** (prod domain + `localhost:3010/**`). Dashboard task; only :3009 added.
+- ✅ **[A] `free_usage` + `jobs` tables exist** (`eoahpwciwttfavzpqfnz`); free gate verified. ⚠️ Auth now **password-login + magic-link fallback**.
 
-## Phase 4 — Scale hardening (see SCALE_READINESS.md)
-- [ ] **[A]** Spend-cap / budget guard (`MAX_RUNS_PER_DAY`, `MAX_SPEND_USD_PER_DAY` + per-user) checked
-      before `createPrediction`; over-limit → block/queue + Resend alert.
-- [ ] **[A]** Concurrency queue / backpressure (in-flight counter, `MAX_CONCURRENCY` tied to ElevenLabs
-      cap; excess → `queued`, drained by callback/cron).
-- [ ] **[A]** Retry-with-backoff: `replicate.ts` (createPrediction/version-resolve, 429/5xx only) +
-      `predict.py` (every ElevenLabs & Anthropic call, + sanity-check clone ≤ 3× slot + seed retry).
-- [ ] **[A]** Idempotency key per submit; Supabase transaction pooler server-side.
-- [ ] **[A/C]** Fill external limits into SCALE_READINESS.md: ElevenLabs concurrency+quota (#1
-      bottleneck), Anthropic tier/RPM/TPM, Replicate max instances. Raise plans/limits as needed.
-- Acceptance: forced over-limit blocks + alerts; ≤ MAX_CONCURRENCY parallel predictions; simulated 429
-      auto-retries with no lost slot.
+## Phase 4 — Scale hardening — ✅ DONE
+- ✅ Spend-cap (runs/spend/per-user) before `createPrediction` → block + Resend alert.
+- ✅ Concurrency queue (`MAX_CONCURRENCY=3` = ElevenLabs Starter cap; excess `queued`, drained by callback + `/api/jobs/drain` cron).
+- ✅ Retry-with-backoff: `replicate.ts` + `tts.py`/`llm.py`/`predict.py` (live in `32a69490`).
+- ✅ Idempotency key. ✅ Pooler = N/A (supabase-js/PostgREST REST, inherently pooled).
+- ✅ External limits in `SCALE_READINESS.md`. **🔴 #1 launch blocker: ElevenLabs = Starter** (cap 3, ~48k chars left) — upgrade before real traffic.
 
-## Phase 5 — Load test (`web/scripts/load-test.mjs`)
-- [ ] **[A]** `--mode web --n 300 --concurrency 100` (web/Supabase tier) → success rate, p95 latency.
-- [ ] **[A]** `--mode accept --n 100 --concurrency 50` (route + free gate + new queue/spend logic).
-- [ ] **[A]** Optional `--mode generate --confirm` on STAGING only (free gate off) for true e2e numbers.
-- [ ] **[A]** Record results; no climbing 429/5xx at target concurrency.
-- Acceptance: green numbers at the concurrency you expect at launch.
+## Phase 5 — Load test
+- ✅ **[A] web 300/100** → 100% 2xx, 0 429/5xx, p95 ~2.3s (dev).
+- 🔴 **[A] accept 200/100** — pending (now safe: tables exist).
+- 🔴 **[A] generate --confirm on STAGING** — pending, costs money.
 
 ## Phase 6 — Deploy
-- [ ] **[A]** Final `cd web && npm run build` clean (tsc + lint).
-- [ ] **[C]** Give the go-ahead.
-- [ ] **[C]** `cd web && vercel --prod` (Clarence's trigger).
-- [ ] **[A]** Smoke-test prod: landing loads, /create flow runs one free track end-to-end, sign-in,
-      a paid purchase, the completion email. Verify in an incognito window (Turbopack/CDN cache gotcha).
-- Acceptance: a real user can create, register, pay, and download on the live domain.
+- ✅ **[A] `npm run build` clean.**
+- 🔴 **[C] Go-ahead** → 🔴 **[C] `vercel --prod`** → 🔴 **[A] Smoke-test prod** (incognito).
+
+## Parallel / polish
+- ⚠️ **OBSOLETE — 6 section bg images:** old section-landing **retired** (`/` → `/story`); replaced by cinematic homepage + bliss imagery + 3 animations.
+- 🟡 **[A] Responsive sweep** — story + wizard mostly done; final pass pending.
+
+## Hard rules
+- Production pipeline = Replicate Cog only. Custom CSS (no Tailwind). `champion` "Eric Thomas"/"Les Brown" = opaque keys. Always verify in incognito (Turbopack stale-CSS cache).
 
 ---
 
-## Parallel / polish (not blocking, but before heavy marketing)
-- [ ] **[C]** Provide the 6 better section background images (landscape, ≥1600px) → drop at
-      `web/public/images/sec-{howitworks,templates,depth,languages,why,faq}.jpg` (same names = no code change).
-- [ ] **[A]** Responsive/polish pass across mobile/tablet/laptop/desktop/ultrawide (verify in incognito).
-- [ ] Note: the laptop "hero cut off" was the Turbopack dev CSS cache, not a code bug — resolved.
+### TL;DR — what's left for go-live
+1. 🔴 **[C] Stripe LIVE keys**
+2. 🔴 **[C] ElevenLabs plan upgrade** (real throughput/quota blocker)
+3. 🔴 **[A/C] Supabase redirect URLs** (prod + :3010) + confirm Resend env in Vercel
+4. 🔴 **[C] Approve a verify-run of cog `32a69490`**
+5. 🟡 **[A] accept-mode load test + final responsive sweep**
+6. 🔴 **[C] go-ahead → `vercel --prod` → smoke test**
 
-## Hard rules
-- Production pipeline = Replicate Cog only (not Mac, not Hetzner — stay on managed autoscale).
-- Custom CSS (no Tailwind utilities); next/font needs `className={playfair.variable}` on `<html>`.
-- `champion` values "Eric Thomas"/"Les Brown" are opaque keys (AudioVisualizer + cog depend on them).
-- Always verify in incognito / hard-refresh (Turbopack stable-chunk CSS cache serves stale CSS).
+Phases 1 (mostly) + 4 done. Rest gated on your inputs (keys, plan upgrade, dashboard config, go-ahead).
