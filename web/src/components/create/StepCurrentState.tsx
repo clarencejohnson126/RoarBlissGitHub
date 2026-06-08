@@ -75,6 +75,9 @@ export default function StepCurrentState() {
           placeholder="Remind me that I still have time, that my children are watching, and that I cannot quit now."
           maxLength={600}
         />
+        <div style={{ textAlign: "right", fontSize: "0.75rem", color: data.reminderText.length >= 600 ? "var(--color-gold)" : "var(--color-smoke)", marginTop: "0.35rem" }}>
+          {data.reminderText.length}/600
+        </div>
       </div>
     </StepShell>
   );

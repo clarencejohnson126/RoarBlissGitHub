@@ -59,6 +59,7 @@ export default function QuickCreate({ onFullSetup }: { onFullSetup?: () => void 
               value={data.userName}
               onChange={(e) => update({ userName: e.target.value })}
               placeholder="you"
+              maxLength={40}
             />
           </div>
 
