@@ -40,6 +40,18 @@ export default function ProcessTimeline() {
       <RevealText as="h2" text={PLAN.heading} className={styles.headlineHuge} />
       <p className={styles.lead}>{PLAN.sub}</p>
 
+      {/* 60-second explainer (Remotion: animated walkthrough + VO) */}
+      <div className={styles.demoVideoWrap}>
+        <video
+          className={styles.demoVideo}
+          src="/how-it-works.mp4"
+          poster="/how-it-works-poster.jpg"
+          controls
+          preload="none"
+          playsInline
+        />
+      </div>
+
       <motion.div
         className={styles.timeline}
         variants={list}

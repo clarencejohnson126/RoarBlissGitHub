@@ -893,3 +893,21 @@
     animation: none;
   }
 }
+
+/* ── 60-second explainer video (How It Works) ── */
+.demoVideoWrap {
+  margin: 2.75rem auto 0;
+  max-width: 980px;
+  width: 100%;
+  border-radius: 16px;
+  overflow: hidden;
+  border: 1px solid rgba(214, 168, 79, 0.3);
+  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.55), 0 0 40px rgba(214, 168, 79, 0.08);
+  background: #000;
+}
+.demoVideo {
+  display: block;
+  width: 100%;
+  aspect-ratio: 16 / 9;
+  height: auto;
+}
