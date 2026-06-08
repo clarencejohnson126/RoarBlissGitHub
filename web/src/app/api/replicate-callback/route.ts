@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { Resend } from "resend";
-import { put } from "@vercel/blob";
+import { del, put } from "@vercel/blob";
 import { outputUrl } from "@/lib/replicate";
 import { baseUrl } from "@/lib/base-url";
 import { markJobTerminal } from "@/lib/scale-guard";
@@ -22,7 +22,7 @@ export async function POST(request: Request) {
       status?: string;
       error?: string | null;
       output?: string | string[] | null;
-      input?: { name?: string };
+      input?: { name?: string; audio?: string };
     };
 
     const id = payload.id || "";
@@ -79,6 +79,17 @@ export async function POST(request: Request) {
         await drainQueue();
       } catch (e) {
         console.error("drain after callback failed:", e);
+      }
+
+      // Privacy + storage: keep ONLY the finished output — delete the user's uploaded source now that
+      // the run is done (it's already been processed/trimmed by the cog; we never persist the upload).
+      const srcAudio = payload.input?.audio;
+      if (srcAudio && /blob\.vercel-storage\.com/.test(srcAudio) && process.env.BLOB_READ_WRITE_TOKEN) {
+        try {
+          await del(srcAudio);
+        } catch (e) {
+          console.error("input blob delete failed:", e);
+        }
       }
     }
 

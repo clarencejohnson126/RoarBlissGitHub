@@ -86,7 +86,8 @@ export default function StepAudioUpload() {
 
       <p className={styles.disclaimer}>
         Maximum file size <strong>100 MB</strong>. Audio longer than <strong>6 minutes</strong> will be trimmed to the
-        first 6 minutes. Your free preview is the first <strong>45 seconds</strong>.
+        first 6 minutes. Your free preview is the first <strong>45 seconds</strong>. We process your file and keep only
+        the finished result — <strong>your upload is deleted right after</strong>.
       </p>
       <p className={styles.safeNote}>
         Only upload audio you own or have permission to use. RoarBliss is built for permitted audio adaptation and

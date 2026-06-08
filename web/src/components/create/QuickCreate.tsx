@@ -185,6 +185,9 @@ export default function QuickCreate({ onFullSetup }: { onFullSetup?: () => void 
               )}
               <input ref={inputRef} type="file" accept="audio/*,.mp3,.wav,.m4a,.aac,.ogg" hidden onChange={(e) => pick(e.target.files?.[0])} />
             </div>
+            <p style={{ fontSize: "0.8rem", color: "var(--color-smoke)", marginTop: "0.6rem", lineHeight: 1.5 }}>
+              Max 100 MB. Audio over <strong style={{ color: "var(--color-ivory)" }}>6 minutes</strong> is trimmed to the first 6 min. We process it and <strong style={{ color: "var(--color-ivory)" }}>keep only the finished result</strong> — your upload is deleted right after.
+            </p>
           </div>
 
           {error && <p className={styles.errorMsg}>{error}</p>}
