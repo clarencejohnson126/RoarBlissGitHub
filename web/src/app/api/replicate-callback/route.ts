@@ -4,7 +4,7 @@ import { del, put } from "@vercel/blob";
 import { outputUrl } from "@/lib/replicate";
 import { baseUrl } from "@/lib/base-url";
 import { markJobTerminal } from "@/lib/scale-guard";
-import { clearFreeUsageForPrediction } from "@/lib/supabase-admin";
+import { chargeMinutes, clearFreeUsageForPrediction } from "@/lib/supabase-admin";
 import { drainQueue } from "@/lib/drain";
 
 /**
@@ -81,9 +81,15 @@ export async function POST(request: Request) {
     // Bookkeeping + backpressure: mark this run terminal and promote the next queued job, if any.
     if (id && (status === "succeeded" || status === "failed" || status === "canceled")) {
       // Marks terminal once + refunds the reserved credit if a PAID run didn't deliver a file.
-      const settle = await markJobTerminal(id, delivered);
-      if (settle.refunded) console.warn(`[credit] refunded 1 credit for non-delivered run ${id} (status=${status})`);
-      // Free runs that didn't deliver: give the one free track back too (no-op for paid runs).
+      const firstTransition = await markJobTerminal(id, delivered);
+      // Charge-on-delivery: bill the run's minutes ONLY when a file was actually delivered, and only
+      // once (firstTransition guards against duplicate webhooks). A failed run bills nothing.
+      if (firstTransition && delivered) {
+        const uid = searchParams.get("uid");
+        const min = Number(searchParams.get("min"));
+        if (uid && min > 0) await chargeMinutes(uid, min);
+      }
+      // Free runs that didn't deliver: give the one free track back (no-op for paid; nothing was billed).
       if (!delivered) await clearFreeUsageForPrediction(id);
       try {
         await drainQueue();

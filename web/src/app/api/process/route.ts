@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { createPrediction, type PredictionInput } from "@/lib/replicate";
 import { baseUrl } from "@/lib/base-url";
-import { verifyUser, paidCredits, consumeCredit, grantCredits, freeUsageExists, recordFreeUsage } from "@/lib/supabase-admin";
+import { verifyUser, usageState, freeUsageExists, recordFreeUsage } from "@/lib/supabase-admin";
 import { bearerToken } from "@/lib/stripe";
 import {
   limits,
@@ -46,6 +46,7 @@ export async function POST(request: Request) {
       prompt,
       tone,
       deviceId,
+      durationSec,
     } = (data ?? {}) as Record<string, unknown>;
 
     // Device + IP identity for the free-tier abuse gate (1 free track per device/IP). Sanitize both
@@ -107,26 +108,33 @@ export async function POST(request: Request) {
     // needs no auth. The cog hard-caps the window either way, so this is the billing gate, not the cap.
     let paidGranted = false;
     let jobUserId: string | null = null;
+    let runMinutes = 0;
     if (paid === true) {
       const user = await verifyUser(bearerToken(request));
       if (!user) {
         return NextResponse.json(
-          { error: "Sign in and buy credits to unlock paid (6-min) tracks.", needsAuth: true },
+          { error: "Sign in and pick a plan to unlock paid (6-min) tracks.", needsAuth: true },
           { status: 401 },
         );
       }
-      if (paidCredits(user) <= 0) {
+      // Minutes-based, no rollover: a paid run needs minutes left this period. We DON'T deduct here —
+      // the audio's runtime is billed only on delivery (so a failed run never costs the user a minute).
+      const u = usageState(user);
+      if (u.remaining <= 0) {
         return NextResponse.json(
-          { error: "No credits left — buy a pack to unlock 6-min tracks.", needsPurchase: true },
+          {
+            error: u.tier
+              ? `You've used all ${u.allowance} minutes for this month — they reset on your renewal date.`
+              : "Pick a plan to unlock 6-minute tracks.",
+            needsPurchase: true,
+            outOfMinutes: true,
+          },
           { status: 402 },
         );
       }
-      if (!(await consumeCredit(user.id))) {
-        return NextResponse.json(
-          { error: "No credits left.", needsPurchase: true },
-          { status: 402 },
-        );
-      }
+      // The minutes this run will cost when it delivers = the upload's runtime, capped at the 6-min output.
+      const dur = Number(durationSec);
+      runMinutes = Math.round((Math.min(dur > 0 ? dur : 180, 360) / 60) * 100) / 100;
       paidGranted = true;
       jobUserId = user.id;
     }
@@ -173,8 +181,14 @@ export async function POST(request: Request) {
 
     // Replicate requires an https webhook. On https deployments we attach one so we can email the
     // user when they've navigated away; on http (local dev) we skip it and rely on client polling.
-    const emailQ = typeof email === "string" && email ? `?email=${encodeURIComponent(email)}` : "";
-    const webhook = `${base}/api/replicate-callback${emailQ}`;
+    const params = new URLSearchParams();
+    if (typeof email === "string" && email) params.set("email", email);
+    if (paidGranted && jobUserId) {
+      params.set("uid", jobUserId);
+      params.set("min", String(runMinutes)); // billed only when the callback sees a delivered file
+    }
+    const qs = params.toString();
+    const webhook = `${base}/api/replicate-callback${qs ? `?${qs}` : ""}`;
     const httpsWebhook = webhook.startsWith("https://") ? webhook : undefined;
     const meta = { idempotencyKey: idemKey, userId: jobUserId, fingerprint, ip, paid: paidGranted, estCostCents };
 
@@ -186,21 +200,8 @@ export async function POST(request: Request) {
       return NextResponse.json({ id: jobId, status: "queued", queued: true });
     }
 
-    let pred;
-    try {
-      pred = await createPrediction(input, httpsWebhook);
-    } catch (e) {
-      // The run never even started (Replicate error/429 after retries) — give the reserved credit back
-      // immediately, since there'll be no webhook to refund it later.
-      if (paidGranted && jobUserId) {
-        try {
-          await grantCredits(jobUserId, 1);
-        } catch {
-          /* best effort */
-        }
-      }
-      throw e;
-    }
+    // Charge-on-delivery: nothing is billed at submit, so a failed start costs the user nothing.
+    const pred = await createPrediction(input, httpsWebhook);
     await recordRunningJob(pred.id, meta);
 
     // Burn this device/IP's one free track only once the prediction actually started.

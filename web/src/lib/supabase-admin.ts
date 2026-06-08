@@ -1,4 +1,5 @@
 import { createClient, type User } from "@supabase/supabase-js";
+import { tierById } from "./tiers";
 
 /**
  * SERVER-ONLY Supabase helpers. Never import this from a client component — it uses the service_role
@@ -30,8 +31,28 @@ export async function verifyUser(accessToken: string | null | undefined): Promis
   return data.user;
 }
 
-export function paidCredits(user: User | null): number {
-  return Number((user?.app_metadata as Record<string, unknown>)?.paid_credits ?? 0);
+export type Usage = {
+  tier: string | null;
+  allowance: number; // minutes/month for the tier
+  used: number; // minutes used this period
+  remaining: number; // minutes left this period (never < 0)
+  periodEnd: string | null;
+};
+
+/**
+ * Minutes-based entitlement for the CURRENT billing period (no rollover). Allowance comes from the
+ * tier; `minutes_used` + `period_end` live in app_metadata. If the period has rolled past period_end
+ * we treat usage as fresh (the Stripe webhook formalizes the reset on the next invoice).
+ */
+export function usageState(user: User | null): Usage {
+  const app = (user?.app_metadata as Record<string, unknown>) ?? {};
+  const tier = typeof app.tier === "string" && app.tier ? app.tier : null;
+  const allowance = tierById(tier)?.minutes ?? 0;
+  const periodEnd = typeof app.period_end === "string" ? app.period_end : null;
+  let used = Number(app.minutes_used ?? 0);
+  if (periodEnd && Date.now() > new Date(periodEnd).getTime()) used = 0;
+  const remaining = Math.max(0, allowance - used);
+  return { tier, allowance, used: Math.min(Math.max(used, 0), allowance), remaining, periodEnd };
 }
 
 /** The user's subscription tier id (set by the Stripe webhook), or null if none. */
@@ -50,30 +71,33 @@ export async function setUserTier(userId: string, tier: string): Promise<void> {
   });
 }
 
-/** Add N paid credits to a user (called by the Stripe webhook after a successful TEST payment). */
-export async function grantCredits(userId: string, n: number): Promise<number> {
+/** Deduct minutes of FINISHED audio from the monthly allowance (called on delivery, charge-on-success). */
+export async function chargeMinutes(userId: string, minutes: number): Promise<void> {
+  if (!(minutes > 0)) return;
   const admin = supabaseAdmin();
   const { data, error } = await admin.auth.admin.getUserById(userId);
-  if (error || !data?.user) throw new Error(`grantCredits: user ${userId} not found`);
-  const cur = Number((data.user.app_metadata as Record<string, unknown>)?.paid_credits ?? 0);
-  const next = cur + n;
+  if (error || !data?.user) return;
+  const app = (data.user.app_metadata as Record<string, unknown>) ?? {};
+  const periodEnd = typeof app.period_end === "string" ? app.period_end : null;
+  let used = Number(app.minutes_used ?? 0);
+  if (periodEnd && Date.now() > new Date(periodEnd).getTime()) used = 0;
   await admin.auth.admin.updateUserById(userId, {
-    app_metadata: { ...data.user.app_metadata, paid_credits: next },
+    app_metadata: { ...app, minutes_used: Math.round((used + minutes) * 100) / 100 },
   });
-  return next;
 }
 
-/** Consume one paid credit. Returns true if a credit was available and spent. */
-export async function consumeCredit(userId: string): Promise<boolean> {
+/**
+ * Begin a new monthly billing period: set the tier, RESET used minutes to 0 (no rollover), and anchor
+ * the period end (= Stripe subscription's current_period_end). Called by the Stripe webhook on the
+ * initial checkout and every renewal.
+ */
+export async function startBillingPeriod(userId: string, tier: string, periodEndISO: string): Promise<void> {
   const admin = supabaseAdmin();
   const { data, error } = await admin.auth.admin.getUserById(userId);
-  if (error || !data?.user) return false;
-  const cur = Number((data.user.app_metadata as Record<string, unknown>)?.paid_credits ?? 0);
-  if (cur <= 0) return false;
+  if (error || !data?.user) return;
   await admin.auth.admin.updateUserById(userId, {
-    app_metadata: { ...data.user.app_metadata, paid_credits: cur - 1 },
+    app_metadata: { ...data.user.app_metadata, tier, minutes_used: 0, period_end: periodEndISO },
   });
-  return true;
 }
 
 /**

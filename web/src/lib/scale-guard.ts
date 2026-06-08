@@ -10,7 +10,7 @@
  */
 import { createHash } from "crypto";
 import { Resend } from "resend";
-import { grantCredits, supabaseAdmin } from "./supabase-admin";
+import { supabaseAdmin } from "./supabase-admin";
 import type { PredictionInput } from "./replicate";
 
 const num = (v: string | undefined, d: number) => {
@@ -169,31 +169,21 @@ export async function enqueueJob(
 
 /**
  * Mark the job for a finished prediction terminal (called from the webhook). Transitions ATOMICALLY
- * (running/queued → done/failed) so a retried/duplicate webhook can't double-process. On a NEW failure
- * of a PAID run, REFUND the reserved credit — a user is never charged for a generation that didn't
- * deliver a finished file. Returns `{ refunded }` so the caller can log/alert.
+ * (running/queued → done/failed) so a retried/duplicate webhook can't double-process (the callback's
+ * minute billing keys off `delivered`, and only the first transition should bill).
  */
-export async function markJobTerminal(predictionId: string, ok: boolean): Promise<{ refunded: boolean }> {
+export async function markJobTerminal(predictionId: string, ok: boolean): Promise<boolean> {
   try {
     const { data } = await supabaseAdmin()
       .from("jobs")
       .update({ status: ok ? "done" : "failed", updated_at: new Date().toISOString() })
       .eq("prediction_id", predictionId)
       .in("status", ["running", "queued"]) // guard: only the FIRST terminal webhook transitions it
-      .select("user_id,paid");
-    const row = data?.[0] as { user_id: string | null; paid: boolean } | undefined;
-    if (!ok && row?.paid && row.user_id) {
-      try {
-        await grantCredits(row.user_id, 1); // refund the credit reserved at submit time
-        return { refunded: true };
-      } catch (e) {
-        console.error("credit refund failed for", predictionId, (e as Error).message);
-      }
-    }
-    return { refunded: false };
+      .select("id");
+    return (data?.length ?? 0) > 0; // true only on the first transition
   } catch (e) {
     console.warn("markJobTerminal skipped:", (e as Error).message);
-    return { refunded: false };
+    return true; // fail-open: if the jobs table is unavailable, don't block billing
   }
 }
 

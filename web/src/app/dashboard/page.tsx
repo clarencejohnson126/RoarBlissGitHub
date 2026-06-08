@@ -8,7 +8,7 @@ import { TIERS, tierById } from "@/lib/tiers";
 import { BATTLES, TONES, LANGUAGES } from "@/components/create/createData";
 import styles from "./dashboard.module.css";
 
-type Me = { authenticated: boolean; email?: string; credits?: number; tier?: string | null; profile?: Profile | null };
+type Me = { authenticated: boolean; email?: string; minutesRemaining?: number; minutesAllowance?: number; tier?: string | null; profile?: Profile | null };
 type Profile = { nickname?: string; people?: string; battles?: string[]; tone?: string; language?: string };
 type Tab = "overview" | "profile" | "settings";
 
@@ -220,9 +220,13 @@ export default function DashboardPage() {
                 <div className={styles.cardSub}>{tier ? `${tier.minutes} min / month` : "45-second previews, 1 per device"}</div>
               </div>
               <div className={styles.card}>
-                <div className={styles.cardLabel}>Credits</div>
-                <div className={`${styles.cardValue} ${styles.cardValueGold}`}>{me?.credits ?? 0}</div>
-                <div className={styles.cardSub}>Each credit = one full speech (up to 6 min).</div>
+                <div className={styles.cardLabel}>Minutes left</div>
+                <div className={`${styles.cardValue} ${styles.cardValueGold}`}>{me?.minutesRemaining ?? 0}</div>
+                <div className={styles.cardSub}>
+                  {me?.tier
+                    ? `of ${me?.minutesAllowance ?? 0} this month · resets on renewal (no rollover)`
+                    : "Pick a plan for monthly minutes."}
+                </div>
               </div>
               <div className={styles.card}>
                 <div className={styles.cardLabel}>Email</div>
@@ -317,10 +321,12 @@ export default function DashboardPage() {
             </div>
             <div className={styles.row}>
               <div>
-                <div className={styles.rowLabel}>Credits</div>
-                <div className={styles.rowSub}>{me?.credits ?? 0} available</div>
+                <div className={styles.rowLabel}>Minutes this month</div>
+                <div className={styles.rowSub}>
+                  {me?.minutesRemaining ?? 0} of {me?.minutesAllowance ?? 0} left · no rollover
+                </div>
               </div>
-              <Link href="/pricing" className={styles.btnGhost}>Buy more</Link>
+              <Link href="/pricing" className={styles.btnGhost}>{tier ? "Change plan" : "Get minutes"}</Link>
             </div>
             <div className={styles.actions}>
               <button className={styles.btnDanger} onClick={signOut}>Sign out</button>

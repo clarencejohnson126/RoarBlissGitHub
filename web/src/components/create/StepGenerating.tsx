@@ -45,6 +45,29 @@ export default function StepGenerating() {
           audioUrl = blob.url;
         }
 
+        // Measure the upload's runtime so paid runs bill by minutes (capped at 6 min server-side).
+        let durationSec = 0;
+        if (file) {
+          durationSec = await new Promise<number>((resolve) => {
+            try {
+              const url = URL.createObjectURL(file);
+              const a = document.createElement("audio");
+              a.preload = "metadata";
+              a.onloadedmetadata = () => {
+                URL.revokeObjectURL(url);
+                resolve(Number.isFinite(a.duration) ? a.duration : 0);
+              };
+              a.onerror = () => {
+                URL.revokeObjectURL(url);
+                resolve(0);
+              };
+              a.src = url;
+            } catch {
+              resolve(0);
+            }
+          });
+        }
+
         // 2) start the run (attach token for paid; free is device/IP gated)
         const { data: sess } = await supabaseBrowser().auth.getSession();
         const token = sess.session?.access_token;
@@ -65,7 +88,7 @@ export default function StepGenerating() {
         const res = await fetch("/api/process", {
           method: "POST",
           headers,
-          body: JSON.stringify({ audioUrl, ...composePayload(data), email: "", deviceId }),
+          body: JSON.stringify({ audioUrl, ...composePayload(data), email: "", deviceId, durationSec }),
         });
         if (!res.ok) {
           const e = await res.json().catch(() => ({}));
@@ -127,7 +150,7 @@ export default function StepGenerating() {
               if (poll) clearInterval(poll);
               setError(
                 (s.error ? s.error + " " : "") +
-                  "You weren't charged — your credit has been refunded automatically. Try again with the same or different audio.",
+                  "You weren't charged — no minutes were used (you only pay for finished tracks). Try again with the same or different audio.",
               );
             }
           } catch {
