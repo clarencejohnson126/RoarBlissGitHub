@@ -34,6 +34,7 @@ export const REASON = {
 export const BATTLE = {
   eyebrow: "Chapter III — Choose your battle",
   heading: "Every man carries a different war.",
+  headingLines: ["Every man", "carries a different", "war."],
   sub: "Choose yours. Then turn it into words that move you.",
   templates: [
     { title: "Discipline", desc: "For the grind nobody sees — the reps, the early mornings, the quiet work." },

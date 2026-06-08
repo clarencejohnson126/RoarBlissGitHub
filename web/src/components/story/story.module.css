@@ -894,20 +894,93 @@
   }
 }
 
-/* ── 60-second explainer video (How It Works) ── */
-.demoVideoWrap {
-  margin: 2.75rem auto 0;
-  max-width: 980px;
-  width: 100%;
-  border-radius: 16px;
-  overflow: hidden;
-  border: 1px solid rgba(214, 168, 79, 0.3);
-  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.55), 0 0 40px rgba(214, 168, 79, 0.08);
-  background: #000;
+/* ── "Watch the 60-second story" button + video overlay (keeps the bg animation visible) ── */
+.watchVideoBtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.7rem;
+  margin-block-start: 1.8rem;
+  font-family: var(--font-heading, "Outfit", sans-serif);
+  font-weight: 600;
+  font-size: 0.95rem;
+  letter-spacing: 0.02em;
+  color: var(--color-ivory);
+  background: rgba(214, 168, 79, 0.1);
+  border: 1px solid rgba(214, 168, 79, 0.45);
+  border-radius: 999px;
+  padding: 0.8rem 1.6rem;
+  cursor: pointer;
+  transition: background 0.2s ease, border-color 0.2s ease, transform 0.2s ease;
 }
-.demoVideo {
+.watchVideoBtn:hover {
+  background: rgba(214, 168, 79, 0.2);
+  border-color: var(--color-gold);
+  transform: translateY(-1px);
+}
+.watchVideoIcon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, var(--color-gold), var(--color-gold-deep));
+  color: #1a130a;
+}
+.videoModalBackdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  background: rgba(4, 4, 6, 0.86);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem;
+  animation: videoModalIn 0.25s ease;
+}
+@keyframes videoModalIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.videoModalInner {
+  position: relative;
+  width: min(1040px, 94vw);
+}
+.videoModalVideo {
   display: block;
   width: 100%;
   aspect-ratio: 16 / 9;
-  height: auto;
+  border-radius: 14px;
+  border: 1px solid rgba(214, 168, 79, 0.3);
+  box-shadow: 0 40px 100px rgba(0, 0, 0, 0.7);
+  background: #000;
+}
+.videoModalClose {
+  position: absolute;
+  top: -52px;
+  right: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.25);
+  color: #fff;
+  cursor: pointer;
+}
+.videoModalClose:hover {
+  background: rgba(255, 255, 255, 0.2);
+}
+
+/* ── Choose Your Battle: keep the intro on the left so the fighter (center/right) stays visible ── */
+.battleIntro {
+  max-width: 600px;
+  text-align: left;
+}
+.battleIntro h2 {
+  font-size: clamp(2.2rem, 1rem + 3vw, 3.7rem);
 }

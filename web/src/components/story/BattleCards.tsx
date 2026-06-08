@@ -38,20 +38,22 @@ export default function BattleCards() {
   return (
     <ChapterSection
       id="chapter-03"
-      scrim="bottom"
+      scrim="left"
       full={false}
       background={
         <CinematicVideo
           src="/images/bliss/bliss-training.mp4"
           poster="/images/bliss/bliss-training.png"
           alt="Sparring practice in a misty forest — growth, not just battle"
-          objectPosition="center center"
+          objectPosition="68% center"
         />
       }
     >
-      <span className={styles.eyebrow}>{BATTLE.eyebrow}</span>
-      <RevealText as="h2" text={BATTLE.heading} className={styles.headlineHuge} />
-      <p className={styles.lead}>{BATTLE.sub}</p>
+      <div className={styles.battleIntro}>
+        <span className={styles.eyebrow}>{BATTLE.eyebrow}</span>
+        <RevealText as="h2" text={BATTLE.headingLines} className={styles.headlineHuge} />
+        <p className={styles.lead}>{BATTLE.sub}</p>
+      </div>
 
       <motion.div
         className={`${styles.cardGrid} ${styles.tiltGrid}`}
