@@ -265,9 +265,9 @@
   text-decoration: none;
 }
 .brandLogo {
-  /* the logo PNG has a near-black baked background; screen blend drops it on the dark navbar */
-  mix-blend-mode: screen;
-  border-radius: 50%;
+  /* transparent PNG — renders clean on any header background, no blend needed */
+  display: block;
+  object-fit: contain;
 }
 .brandWord {
   font-family: var(--font-serif);

@@ -32,7 +32,7 @@ export default function StoryNavbar() {
     <header className={`${styles.nav} ${scrolled ? styles.navScrolled : ""}`}>
       <div className={styles.navInner}>
         <Link href="/" className={styles.brand} aria-label="Roar Bliss home">
-          <Image src="/images/story/logo.png" alt="Roar Bliss" width={40} height={40} className={styles.brandLogo} />
+          <Image src="/images/logo-symbol.png" alt="Roar Bliss" width={58} height={58} className={styles.brandLogo} />
           <span className={styles.brandWord}>ROAR<b>BLISS</b></span>
         </Link>
 

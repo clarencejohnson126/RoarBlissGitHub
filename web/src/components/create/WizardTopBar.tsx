@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import Image from "next/image";
 import LoginButton from "@/components/LoginButton";
 import styles from "./create.module.css";
 
@@ -9,7 +10,7 @@ export default function WizardTopBar() {
   return (
     <>
       <Link href="/" className={styles.wizHome} aria-label="Back to home">
-        <span className={styles.wizLogo}>R</span>
+        <Image src="/images/logo-symbol.png" alt="" width={50} height={50} style={{ display: "block" }} />
         <span className={styles.wizWord}>ROAR<b>BLISS</b></span>
       </Link>
       <div style={{ position: "fixed", top: "0.85rem", right: "clamp(1rem, 4vw, 2rem)", zIndex: 60 }}>

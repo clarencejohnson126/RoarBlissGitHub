@@ -2,6 +2,7 @@
 
 import React, { useState } from "react";
 import Link from "next/link";
+import Image from "next/image";
 import LoginButton from "@/components/LoginButton";
 
 const LINKS = [
@@ -20,18 +21,14 @@ export default function Navbar() {
           className="brand-mark"
           style={{ display: "flex", alignItems: "center", gap: "0.6rem", textDecoration: "none" }}
         >
-          <span
+          <Image
+            src="/images/logo-symbol.png"
+            alt=""
+            width={52}
+            height={52}
             aria-hidden
-            style={{
-              width: 32, height: 32, borderRadius: "50%",
-              display: "inline-flex", alignItems: "center", justifyContent: "center",
-              background: "linear-gradient(135deg, var(--color-gold), var(--color-gold-deep))",
-              color: "#1a130a", fontFamily: "var(--font-serif)", fontWeight: 800, fontSize: "1.05rem",
-              boxShadow: "0 0 14px rgba(214,168,79,0.45)",
-            }}
-          >
-            R
-          </span>
+            style={{ display: "block" }}
+          />
           <span>ROAR<span className="bm-gold">BLISS</span></span>
         </Link>
 
