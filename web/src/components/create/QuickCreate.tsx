@@ -139,6 +139,24 @@ export default function QuickCreate({ onFullSetup }: { onFullSetup?: () => void 
             </select>
           </div>
 
+          {/* Per-speech prompt (optional, not saved to the profile) */}
+          <div className={styles.qcField}>
+            <label className={styles.qcLabel}>
+              Anything specific this time? <span className={styles.qcHint}>(optional)</span>
+            </label>
+            <textarea
+              className={styles.qcInput}
+              style={{ minHeight: 96, resize: "vertical", lineHeight: 1.5 }}
+              value={data.customPrompt}
+              onChange={(e) => update({ customPrompt: e.target.value })}
+              placeholder="A name to mention, a line that matters, everything weighing on you right now — write as much as you need."
+              maxLength={1500}
+            />
+            <div style={{ textAlign: "right", fontSize: "0.75rem", color: data.customPrompt.length >= 1500 ? "var(--color-gold)" : "var(--color-smoke)", marginTop: "0.35rem" }}>
+              {data.customPrompt.length}/1500
+            </div>
+          </div>
+
           {/* Audio upload */}
           <div className={styles.qcField}>
             <label className={styles.qcLabel}>Your audio</label>

@@ -31,10 +31,10 @@ export default function StepFinalDetails() {
           value={data.customPrompt}
           onChange={(e) => update({ customPrompt: e.target.value })}
           placeholder="I lost my job and I'm rebuilding my business. I need the speech to remind me that pressure is not punishment — it is training, and my kids are watching."
-          maxLength={800}
+          maxLength={1500}
         />
-        <div style={{ textAlign: "right", fontSize: "0.75rem", color: data.customPrompt.length >= 800 ? "var(--color-gold)" : "var(--color-smoke)", marginTop: "0.35rem" }}>
-          {data.customPrompt.length}/800
+        <div style={{ textAlign: "right", fontSize: "0.75rem", color: data.customPrompt.length >= 1500 ? "var(--color-gold)" : "var(--color-smoke)", marginTop: "0.35rem" }}>
+          {data.customPrompt.length}/1500
         </div>
       </div>
 
