@@ -23,8 +23,8 @@ export default function LanguageSection() {
       scrim="bottom"
       background={
         <CinematicImage
-          src="/images/story/empty-hall.png"
-          alt="An empty stone hall, candlelit, opening onto distant mountains"
+          src="/images/bliss/bliss-terrace.png"
+          alt="A cliff-top stone terrace with a Roar Bliss banner, overlooking a river valley at golden hour"
           parallax={12}
           objectPosition="center center"
         />

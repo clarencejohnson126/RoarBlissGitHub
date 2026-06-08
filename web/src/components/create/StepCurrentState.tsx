@@ -47,7 +47,7 @@ export default function StepCurrentState() {
 
   return (
     <StepShell
-      image="warrior-prayer"
+      image="father-daughter"
       eyebrow="03 · Your state"
       headline={
         <>

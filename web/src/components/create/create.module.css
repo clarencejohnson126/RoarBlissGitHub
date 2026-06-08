@@ -20,13 +20,13 @@
   position: absolute;
   inset: 0;
   object-fit: cover;
-  opacity: 0.62;
+  opacity: 0.92;
 }
 .bgScrim {
   position: absolute;
   inset: 0;
   background:
-    radial-gradient(130% 100% at 50% 22%, rgba(5, 5, 5, 0.28) 0%, rgba(5, 5, 5, 0.62) 55%, rgba(5, 5, 5, 0.86) 100%),
+    radial-gradient(130% 100% at 50% 22%, rgba(5, 5, 5, 0.1) 0%, rgba(5, 5, 5, 0.32) 55%, rgba(5, 5, 5, 0.62) 100%),
     linear-gradient(180deg, rgba(5, 5, 5, 0.2) 0%, transparent 30%, rgba(5, 5, 5, 0.55) 100%);
 }
 
@@ -146,10 +146,10 @@
 .sub {
   font-size: clamp(1rem, 0.95rem + 0.4vw, 1.2rem);
   line-height: 1.6;
-  color: var(--color-smoke);
+  color: var(--color-gold);
   margin-block-start: 1rem;
   max-width: 54ch;
-  text-shadow: 0 1px 12px rgba(0, 0, 0, 0.85);
+  text-shadow: 0 2px 16px rgba(0, 0, 0, 0.92), 0 0 2px rgba(0, 0, 0, 0.8);
 }
 .hint {
   font-size: 0.85rem;

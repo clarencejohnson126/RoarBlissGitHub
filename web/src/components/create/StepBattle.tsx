@@ -14,7 +14,7 @@ export default function StepBattle() {
 
   return (
     <StepShell
-      image="planning-table"
+      image="bliss-building"
       eyebrow="02 · Battle"
       headline={
         <>

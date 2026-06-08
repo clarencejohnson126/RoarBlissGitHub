@@ -10,7 +10,7 @@ export default function StepName() {
 
   return (
     <StepShell
-      image="closeup-warrior"
+      image="bliss-portrait"
       eyebrow="01 · Name"
       headline={
         <>

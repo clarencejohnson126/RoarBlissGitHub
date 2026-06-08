@@ -29,7 +29,7 @@ export default function StepAudioUpload() {
 
   return (
     <StepShell
-      image="warrior-prayer"
+      image="bliss-path"
       eyebrow="06 · Audio"
       headline={
         <>

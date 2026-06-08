@@ -19,11 +19,9 @@ export default function StepSpeechStyle() {
     else update({ secondaryTone: title });
   };
 
-  const idx = INTENSITIES.indexOf(data.intensity);
-
   return (
     <StepShell
-      image="empty-hall"
+      image="bliss-valley"
       eyebrow="04 · Style"
       headline={
         <>
@@ -57,22 +55,24 @@ export default function StepSpeechStyle() {
       </div>
 
       <div className={styles.blockLabel}>Intensity</div>
-      <input
-        className={styles.slider}
-        type="range"
-        min={0}
-        max={2}
-        step={1}
-        value={idx}
-        onChange={(e) => update({ intensity: INTENSITIES[parseInt(e.target.value, 10)] })}
-        aria-label="Intensity"
-      />
-      <div className={styles.sliderLabels}>
-        {INTENSITY_LABELS.map((l, i) => (
-          <span key={l} style={{ color: i === idx ? "var(--color-gold)" : undefined }}>
-            {l}
-          </span>
-        ))}
+      <div className={styles.depthRow} style={{ gridTemplateColumns: "repeat(3, 1fr)" }}>
+        {INTENSITIES.map((lvl, i) => {
+          const on = data.intensity === lvl;
+          return (
+            <button
+              key={lvl}
+              type="button"
+              className={`${styles.depthBtn} ${on ? styles.depthBtnOn : ""}`}
+              onClick={() => update({ intensity: lvl })}
+              aria-pressed={on}
+            >
+              <div style={{ fontFamily: "var(--font-serif)", fontWeight: 700, fontSize: "1.1rem", color: on ? "var(--color-gold)" : "var(--color-ivory)" }}>
+                {["Low", "Medium", "High"][i]}
+              </div>
+              <div className={styles.depthHint}>{INTENSITY_LABELS[i]}</div>
+            </button>
+          );
+        })}
       </div>
 
       <div className={styles.blockLabel}>How much becomes yours?</div>

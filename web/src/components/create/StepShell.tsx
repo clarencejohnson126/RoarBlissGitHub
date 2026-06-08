@@ -34,7 +34,7 @@ export default function StepShell({
   return (
     <div className={styles.wrap}>
       <div className={styles.bg} aria-hidden>
-        <Image src={`/images/story/${image}.png`} alt="" fill priority sizes="100vw" className={styles.bgImg} />
+        <Image src={image.startsWith("bliss-") ? `/images/bliss/${image}.png` : `/images/story/${image}.png`} alt="" fill priority sizes="100vw" className={styles.bgImg} />
         <div className={styles.bgScrim} />
       </div>
 

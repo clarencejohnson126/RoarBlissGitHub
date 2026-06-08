@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, type CSSProperties } from "react";
 import Link from "next/link";
 import Navbar from "@/components/Navbar";
 import { supabaseBrowser } from "@/lib/supabase-browser";
@@ -14,12 +14,33 @@ type Tab = "overview" | "profile" | "settings";
 
 const EMPTY_PROFILE: Profile = { nickname: "", people: "", battles: [], tone: "", language: "English" };
 
+const authInputStyle: CSSProperties = {
+  background: "rgba(0,0,0,0.4)",
+  border: "1px solid var(--color-obsidian-border)",
+  borderRadius: "10px",
+  padding: "0.85rem 1rem",
+  color: "#fff",
+  fontSize: "1rem",
+  outline: "none",
+};
+const linkBtnStyle: CSSProperties = {
+  background: "none",
+  border: "none",
+  color: "var(--color-gold)",
+  textDecoration: "underline",
+  cursor: "pointer",
+  fontSize: "inherit",
+  padding: 0,
+};
+
 export default function DashboardPage() {
   const [token, setToken] = useState<string | null>(null);
   const [ready, setReady] = useState(false);
   const [me, setMe] = useState<Me | null>(null);
   const [tab, setTab] = useState<Tab>("overview");
   const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [authMode, setAuthMode] = useState<"signin" | "register">("signin");
   const [msg, setMsg] = useState("");
   const [profile, setProfile] = useState<Profile>(EMPTY_PROFILE);
   const [saved, setSaved] = useState("");
@@ -54,10 +75,40 @@ export default function DashboardPage() {
     return () => sub.subscription.unsubscribe();
   }, [loadMe]);
 
-  const signIn = async (e: React.FormEvent) => {
+  const passwordAuth = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!email.includes("@")) return;
-    setMsg("Sending sign-in link…");
+    if (!email.includes("@") || password.length < 8) {
+      setMsg("Enter your email and a password (at least 8 characters).");
+      return;
+    }
+    setMsg(authMode === "register" ? "Creating your account…" : "Signing in…");
+    try {
+      if (authMode === "register") {
+        const r = await fetch("/api/auth/register", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ email, password }),
+        });
+        const j = await r.json();
+        if (!r.ok) {
+          setMsg(j.exists ? "That email already has an account — switch to Sign in." : j.error || "Could not create the account.");
+          return;
+        }
+      }
+      const { error } = await supabaseBrowser().auth.signInWithPassword({ email, password });
+      if (error) setMsg(/invalid/i.test(error.message) ? "Wrong email or password." : error.message);
+    } catch {
+      setMsg("Network error — please try again.");
+    }
+  };
+
+  // Magic link kept only as a fallback (e.g. forgot password) — not the everyday login.
+  const magicLink = async () => {
+    if (!email.includes("@")) {
+      setMsg("Enter your email first.");
+      return;
+    }
+    setMsg("Sending a one-time sign-in link…");
     try {
       const r = await fetch("/api/auth/magic-link", {
         method: "POST",
@@ -65,7 +116,7 @@ export default function DashboardPage() {
         body: JSON.stringify({ email, redirectTo: typeof window !== "undefined" ? window.location.href : undefined }),
       });
       const j = await r.json();
-      setMsg(r.ok ? "Check your email for the sign-in link." : j.error || "Sign-in failed.");
+      setMsg(r.ok ? "Check your email for the one-time link." : j.error || "Could not send the link.");
     } catch {
       setMsg("Network error — please try again.");
     }
@@ -81,10 +132,20 @@ export default function DashboardPage() {
     setProfile((p) => ({ ...p, battles: (p.battles || []).includes(b) ? (p.battles || []).filter((x) => x !== b) : [...(p.battles || []), b] }));
 
   const saveProfile = async () => {
+    if (!token) return;
     setSaved("Saving…");
-    const { error } = await supabaseBrowser().auth.updateUser({ data: { profile } });
-    setSaved(error ? error.message : "Saved ✓");
-    if (!error && token) loadMe(token);
+    try {
+      const r = await fetch("/api/profile", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ profile }),
+      });
+      const j = await r.json();
+      setSaved(r.ok ? "Saved ✓" : j.error || "Could not save.");
+      if (r.ok) loadMe(token);
+    } catch {
+      setSaved("Network error — please try again.");
+    }
   };
 
   // ── not signed in ────────────────────────────────────────────────────────
@@ -96,10 +157,23 @@ export default function DashboardPage() {
           <span className={styles.eyebrow}>Your dashboard</span>
           <h1 className={styles.h1}>Sign in to your roar.</h1>
           <p className={styles.sub}>Your speeches, your profile and your plan — all in one place.</p>
-          <form className={styles.signin} onSubmit={signIn}>
-            <input className={styles.signinInput} type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@email.com" />
-            <button className={styles.signinBtn} type="submit">Send link</button>
+          <form onSubmit={passwordAuth} style={{ display: "flex", flexDirection: "column", gap: "0.6rem", marginTop: "1.5rem", textAlign: "left" }}>
+            <input style={authInputStyle} type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@email.com" autoComplete="email" />
+            <input style={authInputStyle} type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="Password (min 8 characters)" autoComplete={authMode === "register" ? "new-password" : "current-password"} />
+            <button className={styles.btnGold} type="submit" style={{ justifyContent: "center" }}>
+              {authMode === "register" ? "Create account" : "Sign in"}
+            </button>
           </form>
+          <p className={styles.sub} style={{ marginTop: "0.9rem", fontSize: "0.9rem" }}>
+            {authMode === "signin" ? (
+              <>New here?{" "}<button style={linkBtnStyle} onClick={() => { setAuthMode("register"); setMsg(""); }}>Create an account</button></>
+            ) : (
+              <>Already have an account?{" "}<button style={linkBtnStyle} onClick={() => { setAuthMode("signin"); setMsg(""); }}>Sign in</button></>
+            )}
+          </p>
+          <button style={{ ...linkBtnStyle, marginTop: "0.2rem", fontSize: "0.82rem", color: "var(--color-smoke)" }} onClick={magicLink}>
+            Email me a one-time sign-in link instead
+          </button>
           {msg && <p className={styles.sub} style={{ marginTop: "0.75rem" }}>{msg}</p>}
         </div>
       </div>
@@ -114,7 +188,12 @@ export default function DashboardPage() {
     <div className={styles.wrap}>
       <Navbar />
       <div className={styles.inner}>
-        <span className={styles.eyebrow}>Your dashboard</span>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: "1rem" }}>
+          <span className={styles.eyebrow}>Your dashboard</span>
+          <button className={styles.btnGhost} style={{ minBlockSize: "auto", padding: "0.5rem 1.1rem", fontSize: "0.78rem" }} onClick={signOut}>
+            Sign out
+          </button>
+        </div>
         <h1 className={styles.h1}>
           Welcome back, <span className={styles.gold}>{firstName}.</span>
         </h1>

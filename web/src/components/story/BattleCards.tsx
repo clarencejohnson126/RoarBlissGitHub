@@ -4,6 +4,7 @@ import Link from "next/link";
 import { motion, useReducedMotion, type Variants } from "framer-motion";
 import { ArrowRight } from "lucide-react";
 import ChapterSection from "./ChapterSection";
+import CinematicVideo from "./CinematicVideo";
 import RevealText from "./RevealText";
 import { BATTLE } from "./content";
 import styles from "./story.module.css";
@@ -35,7 +36,19 @@ export default function BattleCards() {
   };
 
   return (
-    <ChapterSection id="chapter-03" scrim="soft" full={false}>
+    <ChapterSection
+      id="chapter-03"
+      scrim="bottom"
+      full={false}
+      background={
+        <CinematicVideo
+          src="/images/bliss/bliss-training.mp4"
+          poster="/images/bliss/bliss-training.png"
+          alt="Sparring practice in a misty forest — growth, not just battle"
+          objectPosition="center center"
+        />
+      }
+    >
       <span className={styles.eyebrow}>{BATTLE.eyebrow}</span>
       <RevealText as="h2" text={BATTLE.heading} className={styles.headlineHuge} />
       <p className={styles.lead}>{BATTLE.sub}</p>

@@ -2,7 +2,7 @@
 
 import { motion, useReducedMotion, type Variants } from "framer-motion";
 import ChapterSection from "./ChapterSection";
-import CinematicImage from "./CinematicImage";
+import CinematicVideo from "./CinematicVideo";
 import RevealText from "./RevealText";
 import { PLAN } from "./content";
 import styles from "./story.module.css";
@@ -28,10 +28,10 @@ export default function ProcessTimeline() {
       scrim="bottom"
       full={false}
       background={
-        <CinematicImage
-          src="/images/story/planning-council.png"
-          alt="A war council studying maps by candlelight around a heavy wooden table"
-          parallax={10}
+        <CinematicVideo
+          src="/images/bliss/bliss-plans.mp4"
+          poster="/images/bliss/bliss-plans.png"
+          alt="A man studying building plans by lantern light at a wooden table"
           objectPosition="center center"
         />
       }

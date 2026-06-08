@@ -24,7 +24,7 @@ export default function StepPreviewResult() {
     <div className={styles.wrap}>
       <div className={styles.bg} aria-hidden>
         {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img src="/images/story/empty-hall.png" alt="" className={styles.bgImg} />
+        <img src="/images/bliss/bliss-caring.png" alt="" className={styles.bgImg} />
         <div className={styles.bgScrim} />
       </div>
 

@@ -1,5 +1,6 @@
 "use client";
 
+import Image from "next/image";
 import ChapterSection from "./ChapterSection";
 import CinematicVideo from "./CinematicVideo";
 import RevealText from "./RevealText";
@@ -9,16 +10,17 @@ import styles from "./story.module.css";
 export default function ReasonChapter() {
   return (
     <>
-      {/* 02 — mountain-family, full-bleed, text overlay (no nested image) */}
+      {/* 02 — push-ups with daughter (the WHY): warm, family, joy. Animated (Higgsfield) — the
+          CinematicVideo plays the .mp4 then settles on the .png; until the clip renders the poster shows. */}
       <ChapterSection
         id="chapter-02"
         scrim="radial-gold"
         background={
           <CinematicVideo
-            src="/images/story/mountain-family.mp4"
-            poster="/images/story/mountain-family.png"
-            alt="A father and his children watching a golden sunset over a mountain valley"
-            objectPosition="center center"
+            src="/images/bliss/bliss-pushups.mp4"
+            poster="/images/bliss/bliss-pushups.png"
+            alt="A father doing push-ups in a sunlit field, his daughter laughing on his back, kids playing"
+            objectPosition="center 40%"
           />
         }
       >
@@ -38,16 +40,19 @@ export default function ReasonChapter() {
         </div>
       </ChapterSection>
 
-      {/* 02b — father-daughter, its OWN full-bleed page */}
+      {/* 02b — strength, its OWN full-bleed page (non-family image gives a deliberate offset after the
+          push-ups kids; fits the line "someone is learning what strength looks like"). */}
       <ChapterSection
         id="chapter-02b"
         scrim="left"
         background={
-          <CinematicVideo
-            src="/images/story/father-daughter.mp4"
-            poster="/images/story/father-daughter.png"
-            alt="A father holding his daughter, foreheads together, at sunset"
-            objectPosition="center 30%"
+          <Image
+            src="/images/bliss/bliss-carry.png"
+            alt="A man carrying a heavy timber beam on his shoulder at a build site"
+            fill
+            priority
+            sizes="100vw"
+            style={{ objectFit: "cover", objectPosition: "center center" }}
           />
         }
       >
