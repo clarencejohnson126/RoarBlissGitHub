@@ -13,6 +13,8 @@ import {
   countInFlight,
   recordRunningJob,
   enqueueJob,
+  claimIdempotency,
+  failClaim,
   stripSecrets,
   sendBudgetAlert,
 } from "@/lib/scale-guard";
@@ -205,11 +207,23 @@ export async function POST(request: Request) {
     }
     const meta = { idempotencyKey: idemKey, userId: jobUserId, fingerprint, ip, paid: paidGranted, estCostCents, reservationId };
 
+    // #6: atomically claim the idempotency key BEFORE starting. A simultaneous identical submit (double-
+    // click) loses the claim → it's deduped here (no 2nd prediction, no double charge); the loser releases
+    // the minutes it reserved a moment ago.
+    if (!(await claimIdempotency(meta))) {
+      if (reservationId) await releaseReservationById(reservationId);
+      const dup2 = await findByIdempotencyKey(idemKey);
+      return NextResponse.json({ id: dup2?.prediction_id ?? null, status: "processing", dedup: true });
+    }
+
     // Concurrency / backpressure: over the cap → queue. The reservation already holds the minutes; the
     // drain links it to the prediction once a slot frees.
     if ((await countInFlight()) >= lim.maxConcurrency) {
       const jobId = await enqueueJob(meta, stripSecrets(input), httpsWebhook);
-      if (!jobId && reservationId) await releaseReservationById(reservationId); // couldn't queue → drop the hold
+      if (!jobId) {
+        await failClaim(idemKey); // couldn't queue → drop the claim row + the minute hold
+        if (reservationId) await releaseReservationById(reservationId);
+      }
       if (!paidGranted && !freeGateOff) await recordFreeUsage(fingerprint, ip, jobId || "queued");
       return NextResponse.json({ id: jobId, status: "queued", queued: true });
     }
@@ -218,7 +232,8 @@ export async function POST(request: Request) {
     try {
       pred = await createPrediction(input, httpsWebhook);
     } catch (e) {
-      if (reservationId) await releaseReservationById(reservationId); // run never started → release the hold
+      await failClaim(idemKey); // run never started → drop the claim row
+      if (reservationId) await releaseReservationById(reservationId); // release the hold
       throw e;
     }
     if (reservationId) await linkReservation(reservationId, pred.id); // delivery/failure resolves by prediction_id

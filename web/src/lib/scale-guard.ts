@@ -126,18 +126,63 @@ export function stripSecrets(input: PredictionInput): Partial<PredictionInput> {
   return clone as Partial<PredictionInput>;
 }
 
-export async function recordRunningJob(predictionId: string, meta: JobMeta): Promise<void> {
+/**
+ * #6 double-submit guard: atomically claim this idempotency key by inserting a 'reserving' placeholder
+ * BEFORE starting a prediction. The UNIQUE index on idempotency_key means a simultaneous identical submit
+ * loses the insert → returns false → the caller dedups instead of starting a 2nd run + double-charging.
+ * Fails OPEN on a transient (non-conflict) error.
+ */
+export async function claimIdempotency(meta: JobMeta): Promise<boolean> {
   try {
-    await supabaseAdmin().from("jobs").insert({
-      prediction_id: predictionId,
+    const { error } = await supabaseAdmin().from("jobs").insert({
       idempotency_key: meta.idempotencyKey,
       user_id: meta.userId,
       fingerprint: meta.fingerprint,
       ip: meta.ip,
-      status: "running",
+      status: "reserving",
       paid: meta.paid,
       est_cost_cents: meta.estCostCents,
     });
+    if (error) return !/duplicate|unique|conflict/i.test(error.message); // unique conflict → dup; else fail open
+    return true;
+  } catch {
+    return true; // fail open
+  }
+}
+
+/** Drop a 'reserving' claim that never became a real run (a gate rejected, or the prediction failed to start). */
+export async function failClaim(idempotencyKey: string): Promise<void> {
+  try {
+    await supabaseAdmin().from("jobs").delete().eq("idempotency_key", idempotencyKey).eq("status", "reserving");
+  } catch (e) {
+    console.warn("failClaim skipped:", (e as Error).message);
+  }
+}
+
+export async function recordRunningJob(predictionId: string, meta: JobMeta): Promise<void> {
+  try {
+    const admin = supabaseAdmin();
+    // Promote the 'reserving' claim row (from claimIdempotency) → running with the prediction id.
+    const { data } = await admin
+      .from("jobs")
+      .update({ prediction_id: predictionId, status: "running", user_id: meta.userId, reservation_id: meta.reservationId ?? null, updated_at: new Date().toISOString() })
+      .eq("idempotency_key", meta.idempotencyKey)
+      .eq("status", "reserving")
+      .select("id");
+    if (!data?.length) {
+      // No claim row (claim failed open) → insert directly so concurrency/billing still track this run.
+      await admin.from("jobs").insert({
+        prediction_id: predictionId,
+        idempotency_key: meta.idempotencyKey,
+        user_id: meta.userId,
+        fingerprint: meta.fingerprint,
+        ip: meta.ip,
+        status: "running",
+        paid: meta.paid,
+        est_cost_cents: meta.estCostCents,
+        reservation_id: meta.reservationId ?? null,
+      });
+    }
   } catch (e) {
     console.warn("recordRunningJob skipped:", (e as Error).message);
   }
@@ -150,7 +195,17 @@ export async function enqueueJob(
   webhookUrl: string | undefined,
 ): Promise<string | null> {
   try {
-    const { data, error } = await supabaseAdmin()
+    const admin = supabaseAdmin();
+    // Promote the 'reserving' claim row (from claimIdempotency) → queued.
+    const upd = await admin
+      .from("jobs")
+      .update({ status: "queued", user_id: meta.userId, reservation_id: meta.reservationId ?? null, input, webhook_url: webhookUrl ?? null, updated_at: new Date().toISOString() })
+      .eq("idempotency_key", meta.idempotencyKey)
+      .eq("status", "reserving")
+      .select("id");
+    if (upd.data?.length) return (upd.data[0] as { id: string }).id;
+    // No claim row (claim failed open) → insert directly.
+    const { data, error } = await admin
       .from("jobs")
       .insert({
         idempotency_key: meta.idempotencyKey,
