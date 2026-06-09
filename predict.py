@@ -144,61 +144,92 @@ class Predictor(BasePredictor):
         #    a time, so the ElevenLabs custom-voice slot cap is never hit (this fixed the 3/5 400 errors).
         self._purge_orphan_clones()
         rendered, used = {}, 0
+        # Honor the selected TTS_PROVIDER. ElevenLabs needs a persistent cloned voice (clone→TTS→delete,
+        # one at a time, to respect its custom-voice slot cap). Zero-shot providers (chatterbox/qwen3/F5)
+        # have no persistent voice — they synthesize each line directly from the reference, so they ALSO
+        # cover the 100%/translation path (no per-op ElevenLabs cap → scales).
+        provider = os.environ.get("TTS_PROVIDER", "elevenlabs").lower()
+        _el = provider == "elevenlabs"
+        fv_cache = work / "tts_cache"
+        fv_cache.mkdir(parents=True, exist_ok=True)
+        FV_SLOT_MS = 20_000  # generous sanity cap for full-voice lines (sane_max ≈ 60s catches ~90s garbage)
         for vi, (kind, ident) in enumerate(pool):
             idxs = by_voice.get(vi, [])
             if not idxs:
                 continue
-            vid, created = ident, False
-            if kind == "clone":
-                # Clone with a one-shot re-attempt (fresh name + slot purge) before giving up — a failed
-                # clone drops ALL of this voice's lines. elevenlabs_clone already retries transient
-                # 429/5xx at the HTTP layer; this second attempt covers a stale-slot / name-collision
-                # blip (the most common non-transient clone failure under load).
-                for attempt in range(2):
-                    try:
-                        vid = tts.elevenlabs_clone(ident, name=f"rb_fv_{vi}_{attempt}"); created = True
-                        break
-                    except Exception as ex:
-                        print(f"  clone failed (voice {vi}, attempt {attempt + 1}/2): {ex}")
-                        if attempt == 0:
-                            self._purge_orphan_clones()  # free a custom-voice slot in case the cap was the cause
-                if not created:
+            if _el:
+                vid, created = ident, False
+                if kind == "clone":
+                    # Clone with a one-shot re-attempt (fresh name + slot purge) before giving up — a failed
+                    # clone drops ALL of this voice's lines. elevenlabs_clone already retries transient
+                    # 429/5xx at the HTTP layer; this second attempt covers a stale-slot / name-collision blip.
+                    for attempt in range(2):
+                        try:
+                            vid = tts.elevenlabs_clone(ident, name=f"rb_fv_{vi}_{attempt}"); created = True
+                            break
+                        except Exception as ex:
+                            print(f"  clone failed (voice {vi}, attempt {attempt + 1}/2): {ex}")
+                            if attempt == 0:
+                                self._purge_orphan_clones()  # free a custom-voice slot in case the cap was the cause
+                    if not created:
+                        continue
+                used += 1
+                try:
+                    for idx in idxs:
+                        txt = (lines[idx].get("text") or "").strip()
+                        if not txt:
+                            continue
+                        try:
+                            rendered[idx] = self._norm(tts.elevenlabs_tts(txt, vid))
+                        except Exception as ex:
+                            print(f"  tts failed ({txt[:30]}…): {ex}")
+                finally:
+                    if created:
+                        tts.elevenlabs_delete(vid)
+            else:
+                # Zero-shot provider: 'fixed' permanent EL voice-ids don't apply — only clone references.
+                if kind != "clone":
                     continue
-            used += 1
-            try:
+                ref = _P(ident)
+                used += 1
                 for idx in idxs:
                     txt = (lines[idx].get("text") or "").strip()
                     if not txt:
                         continue
                     try:
-                        rendered[idx] = self._norm(tts.elevenlabs_tts(txt, vid))
+                        rendered[idx] = self._norm(tts.synthesize_clone(txt, ref, "", FV_SLOT_MS, fv_cache))
                     except Exception as ex:
-                        print(f"  tts failed ({txt[:30]}…): {ex}")
-            finally:
-                if created:
-                    tts.elevenlabs_delete(vid)
-        print(f"full_voice: used {used}/{n} voices, rendered {len(rendered)}/{len(lines)} lines")
+                        print(f"  {provider} tts failed ({txt[:30]}…): {ex}")
+        print(f"full_voice: used {used}/{n} voices, rendered {len(rendered)}/{len(lines)} lines [provider={provider}]")
 
-        # 5) re-voice any line whose voice failed, with a guaranteed voice (a permanent one if available)
+        # 5) re-voice any line whose voice failed, with a guaranteed voice.
         leftover = [i for i in range(len(lines))
                     if i not in rendered and (lines[i].get("text") or "").strip()]
         if leftover:
-            fb_vid, fb_created = (fixed[0] if fixed else None), False
-            if not fb_vid and track_refs:
-                try:
-                    fb_vid = tts.elevenlabs_clone(str(track_refs[0][1]), name="rb_fv_fb"); fb_created = True
-                except Exception as ex:
-                    print("  fallback clone failed:", ex)
-            if fb_vid:
-                try:
-                    for idx in leftover:
-                        try:
-                            rendered[idx] = self._norm(tts.elevenlabs_tts(lines[idx]["text"].strip(), fb_vid))
-                        except Exception:
-                            pass
-                finally:
-                    if fb_created:
-                        tts.elevenlabs_delete(fb_vid)
+            if _el:
+                fb_vid, fb_created = (fixed[0] if fixed else None), False
+                if not fb_vid and track_refs:
+                    try:
+                        fb_vid = tts.elevenlabs_clone(str(track_refs[0][1]), name="rb_fv_fb"); fb_created = True
+                    except Exception as ex:
+                        print("  fallback clone failed:", ex)
+                if fb_vid:
+                    try:
+                        for idx in leftover:
+                            try:
+                                rendered[idx] = self._norm(tts.elevenlabs_tts(lines[idx]["text"].strip(), fb_vid))
+                            except Exception:
+                                pass
+                    finally:
+                        if fb_created:
+                            tts.elevenlabs_delete(fb_vid)
+            elif track_refs:
+                ref = _P(track_refs[0][1])
+                for idx in leftover:
+                    try:
+                        rendered[idx] = self._norm(tts.synthesize_clone(lines[idx]["text"].strip(), ref, "", FV_SLOT_MS, fv_cache))
+                    except Exception:
+                        pass
         if not rendered:
             raise RuntimeError("full_voice: nothing could be synthesized")
 
