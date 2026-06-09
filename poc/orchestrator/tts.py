@@ -242,8 +242,22 @@ def synthesize_chatterbox(text: str, ref_path: Path, ref_text: str, slot_ms: int
         if len(cached) <= max_ms:
             return cached
         os.unlink(cache_file)
+    # Chatterbox-Turbo REQUIRES reference audio > 5s ("Audio prompt must be longer than 5 seconds!").
+    # Per-emotion reference clips can be shorter (a short defiant burst), which would fail the slot — loop
+    # the clip up to ~6.5s so the clone always has enough timbre to work from (looping is fine: Chatterbox
+    # clones the voice colour, not the words).
+    ref_for_upload = ref_path
+    try:
+        seg = AudioSegment.from_file(ref_path)
+        if len(seg) < 5500:
+            reps = (6500 // max(len(seg), 1)) + 1
+            seg = (seg * reps)[:6500]
+            ref_for_upload = cache_dir / f"cbref_{cache_key('cbref', '', ref_path)}.wav"
+            seg.export(str(ref_for_upload), format="wav")
+    except Exception as ex:
+        print(f"    [chatterbox ref-pad skipped: {ex}]")
     # Public ref url — Replicate fetches reference_audio without auth (same reason as F5; see _blob_upload_file).
-    ref_url = _blob_upload_file(ref_path)
+    ref_url = _blob_upload_file(ref_for_upload)
     last_ms = None
     for attempt in range(1, 4):
         create = _request_with_retry(
