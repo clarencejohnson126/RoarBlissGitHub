@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { createPrediction, type PredictionInput } from "@/lib/replicate";
 import { baseUrl } from "@/lib/base-url";
-import { verifyUser, usageState, freeUsageExists, recordFreeUsage } from "@/lib/supabase-admin";
+import { verifyUser, tierState, reserveMinutes, linkReservation, releaseReservationById, freeUsageExists, recordFreeUsage } from "@/lib/supabase-admin";
 import { bearerToken } from "@/lib/stripe";
 import {
   limits,
@@ -109,6 +109,7 @@ export async function POST(request: Request) {
     let paidGranted = false;
     let jobUserId: string | null = null;
     let runMinutes = 0;
+    let reservationId: string | null = null;
     if (paid === true) {
       const user = await verifyUser(bearerToken(request));
       if (!user) {
@@ -117,25 +118,23 @@ export async function POST(request: Request) {
           { status: 401 },
         );
       }
-      // Minutes-based, no rollover: a paid run needs minutes left this period. We DON'T deduct here —
-      // the audio's runtime is billed only on delivery (so a failed run never costs the user a minute).
-      const u = usageState(user);
-      if (u.remaining <= 0) {
+      const { tier, allowance, periodEnd } = tierState(user);
+      if (!tier) {
+        return NextResponse.json({ error: "Pick a plan to unlock 6-minute tracks.", needsPurchase: true }, { status: 402 });
+      }
+      // The minutes this run will cost = the upload's runtime, capped at the 6-min output. Unknown
+      // duration (client couldn't measure) → charge the cap, never under-bill.
+      const dur = Number(durationSec);
+      runMinutes = Math.round((Math.min(dur > 0 ? dur : 360, 360) / 60) * 100) / 100;
+      // ATOMIC reserve (per-user lock + allowance check inside the DB) — prevents the concurrent
+      // over-delivery race. The minutes count immediately; they're charged on delivery, released on failure.
+      reservationId = await reserveMinutes(user.id, runMinutes, periodEnd, allowance);
+      if (!reservationId) {
         return NextResponse.json(
-          {
-            error: u.tier
-              ? `You've used all ${u.allowance} minutes for this month — they reset on your renewal date.`
-              : "Pick a plan to unlock 6-minute tracks.",
-            needsPurchase: true,
-            outOfMinutes: true,
-          },
+          { error: `You've used all ${allowance} minutes for this month — they reset on your renewal date.`, needsPurchase: true, outOfMinutes: true },
           { status: 402 },
         );
       }
-      // The minutes this run will cost when it delivers = the upload's runtime, capped at the 6-min output.
-      // If the client couldn't measure the duration (0), charge the CAP (6 min) rather than under-bill.
-      const dur = Number(durationSec);
-      runMinutes = Math.round((Math.min(dur > 0 ? dur : 360, 360) / 60) * 100) / 100;
       paidGranted = true;
       jobUserId = user.id;
     }
@@ -188,31 +187,33 @@ export async function POST(request: Request) {
 
     // Replicate requires an https webhook. On https deployments we attach one so we can email the
     // user when they've navigated away; on http (local dev) we skip it and rely on client polling.
-    const params = new URLSearchParams();
-    if (typeof email === "string" && email) params.set("email", email);
-    if (paidGranted && jobUserId) {
-      params.set("uid", jobUserId);
-      params.set("min", String(runMinutes)); // billed only when the callback sees a delivered file
-    }
-    const qs = params.toString();
-    const webhook = `${base}/api/replicate-callback${qs ? `?${qs}` : ""}`;
+    // Replicate requires an https webhook (prod). The callback charges/releases the reservation by
+    // prediction_id, so no billing data needs to ride in the URL.
+    const emailQ = typeof email === "string" && email ? `?email=${encodeURIComponent(email)}` : "";
+    const webhook = `${base}/api/replicate-callback${emailQ}`;
     const httpsWebhook = webhook.startsWith("https://") ? webhook : undefined;
     if (paidGranted && !httpsWebhook) {
-      // No https webhook → the callback never fires → the paid run never bills/terminates. Prod must be https.
       console.warn("[billing] paid run started WITHOUT an https webhook — minutes won't auto-bill:", base);
     }
-    const meta = { idempotencyKey: idemKey, userId: jobUserId, fingerprint, ip, paid: paidGranted, estCostCents };
+    const meta = { idempotencyKey: idemKey, userId: jobUserId, fingerprint, ip, paid: paidGranted, estCostCents, reservationId };
 
-    // Concurrency / backpressure: at or over the cap → queue instead of starting now. A finishing run
-    // (replicate-callback) or the /api/jobs/drain cron promotes the oldest queued job when a slot frees.
+    // Concurrency / backpressure: over the cap → queue. The reservation already holds the minutes; the
+    // drain links it to the prediction once a slot frees.
     if ((await countInFlight()) >= lim.maxConcurrency) {
       const jobId = await enqueueJob(meta, stripSecrets(input), httpsWebhook);
+      if (!jobId && reservationId) await releaseReservationById(reservationId); // couldn't queue → drop the hold
       if (!paidGranted && !freeGateOff) await recordFreeUsage(fingerprint, ip, jobId || "queued");
       return NextResponse.json({ id: jobId, status: "queued", queued: true });
     }
 
-    // Charge-on-delivery: nothing is billed at submit, so a failed start costs the user nothing.
-    const pred = await createPrediction(input, httpsWebhook);
+    let pred;
+    try {
+      pred = await createPrediction(input, httpsWebhook);
+    } catch (e) {
+      if (reservationId) await releaseReservationById(reservationId); // run never started → release the hold
+      throw e;
+    }
+    if (reservationId) await linkReservation(reservationId, pred.id); // delivery/failure resolves by prediction_id
     await recordRunningJob(pred.id, meta);
 
     // Burn this device/IP's one free track only once the prediction actually started.

@@ -6,6 +6,7 @@
  */
 import { createPrediction, type PredictionInput } from "./replicate";
 import { claimNextQueued, attachPredictionId, failJob, countInFlight, limits } from "./scale-guard";
+import { linkReservation, releaseReservationById } from "./supabase-admin";
 
 function secrets() {
   return {
@@ -29,10 +30,12 @@ export async function drainQueue(): Promise<number> {
       const input = { ...(job.input as Partial<PredictionInput>), ...secrets() } as PredictionInput;
       const pred = await createPrediction(input, job.webhook_url || undefined);
       await attachPredictionId(job.id, pred.id);
+      if (job.reservation_id) await linkReservation(job.reservation_id, pred.id); // delivery/failure resolves it
       started++;
     } catch (e) {
       console.error("drainQueue: failed to start job", job.id, e);
       await failJob(job.id); // never let a bad job wedge the queue (it's claimed 'running')
+      if (job.reservation_id) await releaseReservationById(job.reservation_id); // never started → release the hold
     }
   }
   return started;

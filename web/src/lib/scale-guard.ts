@@ -109,6 +109,7 @@ type JobMeta = {
   ip: string;
   paid: boolean;
   estCostCents: number;
+  reservationId?: string | null; // minute_ledger reservation to link once the prediction starts
 };
 
 /** Strip per-prediction secrets before persisting input (never store secrets in the DB). */
@@ -154,6 +155,7 @@ export async function enqueueJob(
         status: "queued",
         paid: meta.paid,
         est_cost_cents: meta.estCostCents,
+        reservation_id: meta.reservationId ?? null,
         input,
         webhook_url: webhookUrl ?? null,
       })
@@ -189,17 +191,17 @@ export async function markJobTerminal(predictionId: string, ok: boolean): Promis
 
 /** Atomically claim the oldest queued job (flip queued→running). Returns it, or null if none/lost race. */
 export async function claimNextQueued(): Promise<
-  { id: string; input: Partial<PredictionInput>; webhook_url: string | null } | null
+  { id: string; input: Partial<PredictionInput>; webhook_url: string | null; reservation_id: string | null } | null
 > {
   try {
     const { data: rows, error } = await supabaseAdmin()
       .from("jobs")
-      .select("id,input,webhook_url")
+      .select("id,input,webhook_url,reservation_id")
       .eq("status", "queued")
       .order("created_at", { ascending: true })
       .limit(1);
     if (error || !rows?.length) return null;
-    const row = rows[0] as { id: string; input: Partial<PredictionInput>; webhook_url: string | null };
+    const row = rows[0] as { id: string; input: Partial<PredictionInput>; webhook_url: string | null; reservation_id: string | null };
     const { data: claimed } = await supabaseAdmin()
       .from("jobs")
       .update({ status: "running", updated_at: new Date().toISOString() })

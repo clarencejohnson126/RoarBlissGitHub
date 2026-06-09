@@ -34,25 +34,38 @@ export async function verifyUser(accessToken: string | null | undefined): Promis
 export type Usage = {
   tier: string | null;
   allowance: number; // minutes/month for the tier
-  used: number; // minutes used this period
+  used: number; // minutes used this period (reserved + charged)
   remaining: number; // minutes left this period (never < 0)
   periodEnd: string | null;
 };
 
-/**
- * Minutes-based entitlement for the CURRENT billing period (no rollover). Allowance comes from the
- * tier; `minutes_used` + `period_end` live in app_metadata. If the period has rolled past period_end
- * we treat usage as fresh (the Stripe webhook formalizes the reset on the next invoice).
- */
-export function usageState(user: User | null): Usage {
+/** Tier + allowance + period end from app_metadata (sync; no DB). */
+export function tierState(user: User | null): { tier: string | null; allowance: number; periodEnd: string | null } {
   const app = (user?.app_metadata as Record<string, unknown>) ?? {};
   const tier = typeof app.tier === "string" && app.tier ? app.tier : null;
   const allowance = tierById(tier)?.minutes ?? 0;
   const periodEnd = typeof app.period_end === "string" ? app.period_end : null;
-  let used = Number(app.minutes_used ?? 0);
-  if (periodEnd && Date.now() > new Date(periodEnd).getTime()) used = 0;
-  const remaining = Math.max(0, allowance - used);
-  return { tier, allowance, used: Math.min(Math.max(used, 0), allowance), remaining, periodEnd };
+  return { tier, allowance, periodEnd };
+}
+
+/** Minutes used this period = SUM(reserved + charged) in the ledger — the single source of truth. */
+export async function usedMinutes(userId: string, periodEnd: string | null): Promise<number> {
+  try {
+    let q = supabaseAdmin().from("minute_ledger").select("minutes").eq("user_id", userId).in("status", ["reserved", "charged"]);
+    q = periodEnd ? q.eq("period_end", periodEnd) : q.is("period_end", null);
+    const { data, error } = await q;
+    if (error || !data) return 0;
+    return Math.round(data.reduce((s, r) => s + Number((r as { minutes: number }).minutes || 0), 0) * 100) / 100;
+  } catch {
+    return 0;
+  }
+}
+
+/** Full usage snapshot for the current period (async — reads the ledger). No rollover. */
+export async function usageState(user: User | null): Promise<Usage> {
+  const { tier, allowance, periodEnd } = tierState(user);
+  const used = user ? await usedMinutes(user.id, periodEnd) : 0;
+  return { tier, allowance, used: Math.min(used, allowance), remaining: Math.max(0, allowance - used), periodEnd };
 }
 
 /** The user's subscription tier id (set by the Stripe webhook), or null if none. */
@@ -71,27 +84,80 @@ export async function setUserTier(userId: string, tier: string): Promise<void> {
   });
 }
 
-/** Deduct minutes of FINISHED audio from the monthly allowance (called on delivery, charge-on-success). */
-export async function chargeMinutes(userId: string, minutes: number): Promise<void> {
-  if (!(minutes > 0)) return;
+/**
+ * Atomically reserve minutes for the current period via the reserve_minutes RPC (per-user advisory
+ * lock + allowance check + insert). Returns the reservation id, or null if it would exceed the
+ * allowance. Fails CLOSED (null) on error — never hand out free minutes on a billing fault.
+ */
+export async function reserveMinutes(userId: string, minutes: number, periodEnd: string | null, allowance: number): Promise<string | null> {
+  const m = minutes > 0 ? minutes : 0;
   try {
-    const admin = supabaseAdmin();
-    const { data, error } = await admin.auth.admin.getUserById(userId);
-    if (error || !data?.user) {
-      console.error("chargeMinutes: user lookup failed", userId, error?.message);
-      return;
-    }
-    const app = (data.user.app_metadata as Record<string, unknown>) ?? {};
-    const periodEnd = typeof app.period_end === "string" ? app.period_end : null;
-    let used = Number(app.minutes_used ?? 0);
-    if (periodEnd && Date.now() > new Date(periodEnd).getTime()) used = 0;
-    await admin.auth.admin.updateUserById(userId, {
-      app_metadata: { ...app, minutes_used: Math.round((used + minutes) * 100) / 100 },
+    const { data, error } = await supabaseAdmin().rpc("reserve_minutes", {
+      p_user: userId,
+      p_minutes: m,
+      p_period_end: periodEnd,
+      p_allowance: allowance,
     });
+    if (error) {
+      console.error("reserveMinutes rpc error:", error.message);
+      return null;
+    }
+    return (data as string | null) ?? null;
   } catch (e) {
-    // Never let a billing-write failure bubble into the webhook handler (it would ack 200 → no Replicate
-    // retry → silently unbilled). Log loudly; the charge_log migration (B1) makes this idempotent + retryable.
-    console.error("chargeMinutes FAILED — UNBILLED minutes for", userId, minutes, (e as Error).message);
+    console.error("reserveMinutes failed:", (e as Error).message);
+    return null;
+  }
+}
+
+/** Attach the prediction id to a reservation so delivery/failure can resolve it. */
+export async function linkReservation(reservationId: string, predictionId: string): Promise<void> {
+  try {
+    await supabaseAdmin().from("minute_ledger").update({ prediction_id: predictionId, updated_at: new Date().toISOString() }).eq("id", reservationId);
+  } catch (e) {
+    console.warn("linkReservation skipped:", (e as Error).message);
+  }
+}
+
+/** Delivered run: reserved → charged (atomic + idempotent via the status guard; duplicate webhooks no-op). */
+export async function chargeReservation(predictionId: string): Promise<void> {
+  try {
+    await supabaseAdmin().from("minute_ledger").update({ status: "charged", updated_at: new Date().toISOString() }).eq("prediction_id", predictionId).eq("status", "reserved");
+  } catch (e) {
+    console.error("chargeReservation FAILED for", predictionId, (e as Error).message);
+  }
+}
+
+/** Non-delivered run: reserved → released (the minutes return to the allowance; no charge). */
+export async function releaseReservation(predictionId: string): Promise<void> {
+  try {
+    await supabaseAdmin().from("minute_ledger").update({ status: "released", updated_at: new Date().toISOString() }).eq("prediction_id", predictionId).eq("status", "reserved");
+  } catch (e) {
+    console.warn("releaseReservation skipped:", (e as Error).message);
+  }
+}
+
+/** Release a reservation by its id (used when a queued job fails to ever start). */
+export async function releaseReservationById(reservationId: string): Promise<void> {
+  try {
+    await supabaseAdmin().from("minute_ledger").update({ status: "released", updated_at: new Date().toISOString() }).eq("id", reservationId).eq("status", "reserved");
+  } catch (e) {
+    console.warn("releaseReservationById skipped:", (e as Error).message);
+  }
+}
+
+/** Process a Stripe event at most once. Returns true if NEW (proceed), false if already handled. */
+export async function processStripeEventOnce(eventId: string): Promise<boolean> {
+  try {
+    const { error } = await supabaseAdmin().from("stripe_events").insert({ event_id: eventId });
+    if (error) {
+      if (/duplicate|unique|conflict/i.test(error.message)) return false; // already processed
+      console.error("processStripeEventOnce error:", error.message);
+      return true; // transient error → don't drop a paid event
+    }
+    return true;
+  } catch (e) {
+    console.error("processStripeEventOnce failed:", (e as Error).message);
+    return true;
   }
 }
 
@@ -104,8 +170,10 @@ export async function startBillingPeriod(userId: string, tier: string, periodEnd
   const admin = supabaseAdmin();
   const { data, error } = await admin.auth.admin.getUserById(userId);
   if (error || !data?.user) return;
+  // No minutes_used reset needed: usage is summed from the ledger BY period_end, so a new period_end
+  // automatically means 0 used this period (true no-rollover, no race).
   await admin.auth.admin.updateUserById(userId, {
-    app_metadata: { ...data.user.app_metadata, tier, minutes_used: 0, period_end: periodEndISO },
+    app_metadata: { ...data.user.app_metadata, tier, period_end: periodEndISO },
   });
 }
 

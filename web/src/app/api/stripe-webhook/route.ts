@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import type Stripe from "stripe";
 import { stripe } from "@/lib/stripe";
-import { startBillingPeriod, setUserTier } from "@/lib/supabase-admin";
+import { startBillingPeriod, setUserTier, processStripeEventOnce } from "@/lib/supabase-admin";
 
 // Stripe signature verification needs the raw body + Node crypto.
 export const runtime = "nodejs";
@@ -33,6 +33,11 @@ export async function POST(req: Request) {
   }
 
   try {
+    // Idempotency: Stripe retries events. Process each at most once so a retry can't reset the
+    // billing period (and the minute allowance) a second time.
+    if (!(await processStripeEventOnce(event.id))) {
+      return NextResponse.json({ received: true, duplicate: true });
+    }
     if (event.type === "checkout.session.completed") {
       // Initial subscription purchase → start the first monthly period (tier + 0 used + period end).
       const s = event.data.object as Stripe.Checkout.Session;

@@ -17,7 +17,7 @@ export async function GET(req: Request) {
     /* fall back to the token's user */
   }
 
-  const u = usageState(fresh);
+  const u = await usageState(fresh);
   return NextResponse.json({
     authenticated: true,
     email: fresh.email,
