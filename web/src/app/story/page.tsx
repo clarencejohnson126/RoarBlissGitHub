@@ -49,11 +49,11 @@ export default function StoryPage() {
         </div>
         <p className={styles.safeNote}>{SAFE_NOTE}</p>
         <p className={styles.footerCopy}>
-          <Link href="/terms" style={{ color: "inherit" }}>Impressum &amp; AGB</Link>
+          <Link href="/terms" style={{ color: "inherit" }}>Terms</Link>
           {"  ·  "}
-          <Link href="/privacy" style={{ color: "inherit" }}>Datenschutz</Link>
+          <Link href="/privacy" style={{ color: "inherit" }}>Privacy</Link>
         </p>
-        <p className={styles.footerCopy}>© 2026 Roar Bliss · eine App von Rebelz AI. Your story, your battle, your roar.</p>
+        <p className={styles.footerCopy}>© 2026 Roar Bliss · an app by Rebelz AI. Your story, your battle, your roar.</p>
       </footer>
     </div>
   );
