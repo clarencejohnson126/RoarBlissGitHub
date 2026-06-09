@@ -1,6 +1,7 @@
 "use client";
 
 import Image from "next/image";
+import Link from "next/link";
 import ScrollProgress from "@/components/story/ScrollProgress";
 import StoryNavbar from "@/components/story/StoryNavbar";
 import StoryHero from "@/components/story/StoryHero";
@@ -47,7 +48,12 @@ export default function StoryPage() {
           <span className={styles.brandWord}>ROAR<b>BLISS</b></span>
         </div>
         <p className={styles.safeNote}>{SAFE_NOTE}</p>
-        <p className={styles.footerCopy}>© 2026 RoarBliss. Your story, your battle, your roar.</p>
+        <p className={styles.footerCopy}>
+          <Link href="/terms" style={{ color: "inherit" }}>Impressum &amp; AGB</Link>
+          {"  ·  "}
+          <Link href="/privacy" style={{ color: "inherit" }}>Datenschutz</Link>
+        </p>
+        <p className={styles.footerCopy}>© 2026 Roar Bliss · eine App von Rebelz AI. Your story, your battle, your roar.</p>
       </footer>
     </div>
   );
