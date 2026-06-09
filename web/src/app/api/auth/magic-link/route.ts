@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { Resend } from "resend";
-import { supabaseAdmin } from "@/lib/supabase-admin";
+import { supabaseAdmin, rateLimit } from "@/lib/supabase-admin";
 
 /**
  * Passwordless sign-in WITHOUT Supabase's email sender (its SMTP is unconfigured → it 500s on
@@ -15,6 +15,12 @@ export async function POST(request: Request) {
     };
     if (!email || typeof email !== "string" || !email.includes("@")) {
       return NextResponse.json({ error: "A valid email is required." }, { status: 400 });
+    }
+
+    // B9: throttle by IP + email (spam / enumeration / Resend-quota abuse).
+    const ip = (request.headers.get("x-vercel-forwarded-for") || request.headers.get("x-forwarded-for") || "").split(",")[0].trim();
+    if (!(await rateLimit(`ml:ip:${ip}`, 8, 3600)) || !(await rateLimit(`ml:em:${email.toLowerCase()}`, 4, 3600))) {
+      return NextResponse.json({ error: "Too many sign-in attempts — please try again in a little while." }, { status: 429 });
     }
 
     const admin = supabaseAdmin();

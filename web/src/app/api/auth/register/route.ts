@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { Resend } from "resend";
-import { supabaseAdmin } from "@/lib/supabase-admin";
+import { supabaseAdmin, rateLimit } from "@/lib/supabase-admin";
 
 /**
  * POST /api/auth/register — create a password account that must be CONFIRMED via an emailed link
@@ -19,6 +19,12 @@ export async function POST(request: Request) {
   }
   if (!password || password.length < 8) {
     return NextResponse.json({ error: "Password must be at least 8 characters." }, { status: 400 });
+  }
+
+  // B9: throttle by IP + email (spam / enumeration / Resend-quota abuse).
+  const ip = (request.headers.get("x-vercel-forwarded-for") || request.headers.get("x-forwarded-for") || "").split(",")[0].trim();
+  if (!(await rateLimit(`rg:ip:${ip}`, 6, 3600)) || !(await rateLimit(`rg:em:${email.toLowerCase()}`, 4, 3600))) {
+    return NextResponse.json({ error: "Too many attempts — please try again in a little while." }, { status: 429 });
   }
 
   try {

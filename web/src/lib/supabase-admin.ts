@@ -224,3 +224,33 @@ export async function clearFreeUsageForPrediction(predictionId: string): Promise
     console.warn("clearFreeUsageForPrediction skipped:", (e as Error).message);
   }
 }
+
+/**
+ * B14: a queued free run records its free_usage with the JOB id (no prediction yet). When the drain
+ * starts it, re-key the row to the real prediction id so clearFreeUsageForPrediction can refund it on
+ * failure (otherwise the device would be locked forever). No-op for paid jobs / immediate runs.
+ */
+export async function relinkFreeUsage(oldKey: string, predictionId: string): Promise<void> {
+  try {
+    await supabaseAdmin().from("free_usage").update({ prediction_id: predictionId }).eq("prediction_id", oldKey);
+  } catch (e) {
+    console.warn("relinkFreeUsage skipped:", (e as Error).message);
+  }
+}
+
+/**
+ * B9: sliding-window rate limit backed by `auth_throttle`. Returns true if the action is ALLOWED
+ * (fewer than `max` hits for `key` in the last `windowSec`), false if throttled. Fails OPEN.
+ */
+export async function rateLimit(key: string, max: number, windowSec: number): Promise<boolean> {
+  try {
+    const since = new Date(Date.now() - windowSec * 1000).toISOString();
+    const admin = supabaseAdmin();
+    const { count } = await admin.from("auth_throttle").select("id", { count: "exact", head: true }).eq("key", key).gte("created_at", since);
+    if ((count ?? 0) >= max) return false;
+    await admin.from("auth_throttle").insert({ key });
+    return true;
+  } catch {
+    return true; // fail open — never lock out real users on a throttle-store hiccup
+  }
+}
