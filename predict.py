@@ -462,6 +462,7 @@ class Predictor(BasePredictor):
         voice_speed: float = Input(default=1.0, description="Speaking pace of the generated voice. 1.0 = natural; <1 = slower/more deliberate (e.g. 0.93), >1 = faster. Applied to the voice only — the music is untouched."),
         breath_ms: int = Input(default=700, description="Partial tiers (25/50/75): deliberate pause (ms) before + after each personalized snippet so it never glues straight onto the surrounding original sentence (which sounds rushed/choppy/fake). ~700 = a natural breath; 0 = off. Tune per run — no rebuild needed."),
         language: str = Input(default="English", description="Target language for the generated lines (e.g. 'German', 'Spanish', 'French'). ElevenLabs multilingual_v2 keeps the cloned timbre and the writer composes natively; the source audio can be any language."),
+        tts_provider: str = Input(default="auto", choices=["auto", "elevenlabs", "chatterbox", "replicate"], description="Voice engine. 'auto' = ElevenLabs if its key is set, else Replicate F5. 'chatterbox' = Resemble Chatterbox-Turbo on Replicate (zero-shot clone, NO per-op limit — scales to 1000s of users). 'replicate' = F5-TTS."),
     ) -> Path:
         from auto_synthesizer import auto_synthesize
 
@@ -484,8 +485,10 @@ class Predictor(BasePredictor):
             if val:
                 os.environ[var] = val
 
-        # Prefer ElevenLabs whenever its key is supplied — far better timbre/clarity than F5.
-        if os.environ.get("ELEVENLABS_API_KEY"):
+        # Explicit provider choice wins; otherwise prefer ElevenLabs when its key is supplied.
+        if tts_provider and tts_provider != "auto":
+            os.environ["TTS_PROVIDER"] = tts_provider
+        elif os.environ.get("ELEVENLABS_API_KEY"):
             os.environ["TTS_PROVIDER"] = "elevenlabs"
 
         work = _P(tempfile.mkdtemp())

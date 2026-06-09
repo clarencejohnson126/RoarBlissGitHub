@@ -228,6 +228,60 @@ def synthesize_replicate(text: str, ref_path: Path, ref_text: str, slot_ms: int,
 
 
 # ──────────────────────────────────────────────────────────────────────────
+# Provider: Chatterbox-Turbo (Resemble AI) on Replicate — zero-shot clone, NO per-op limit (scales to
+# 1000s of users; cost = GPU-seconds, not metered voice-add ops like ElevenLabs). Beat EL in blind tests.
+# ──────────────────────────────────────────────────────────────────────────
+CHATTERBOX_MODEL = "resemble-ai/chatterbox-turbo"
+
+def synthesize_chatterbox(text: str, ref_path: Path, ref_text: str, slot_ms: int, cache_dir: Path) -> AudioSegment:
+    key = cache_key("chatterbox-turbo", text, ref_path)
+    cache_file = cache_dir / f"clone_{key}.wav"
+    max_ms = sane_max_ms(slot_ms)
+    if cache_file.exists():
+        cached = AudioSegment.from_wav(str(cache_file))
+        if len(cached) <= max_ms:
+            return cached
+        os.unlink(cache_file)
+    # Public ref url — Replicate fetches reference_audio without auth (same reason as F5; see _blob_upload_file).
+    ref_url = _blob_upload_file(ref_path)
+    last_ms = None
+    for attempt in range(1, 4):
+        create = _request_with_retry(
+            "POST", f"{REPLICATE_API}/models/{CHATTERBOX_MODEL}/predictions",
+            headers=_replicate_headers(),
+            json={"input": {"text": text[:500], "reference_audio": ref_url}},  # turbo caps text at 500 chars
+            timeout=30,
+        )
+        create.raise_for_status()
+        pid = create.json()["id"]
+        deadline = time.time() + 180
+        out_url = None
+        while time.time() < deadline:
+            r = _request_with_retry("GET", f"{REPLICATE_API}/predictions/{pid}", headers=_replicate_headers(), timeout=30)
+            r.raise_for_status()
+            st = r.json()
+            if st["status"] == "succeeded":
+                out_url = st["output"]
+                if isinstance(out_url, list):
+                    out_url = out_url[0]
+                break
+            if st["status"] in ("failed", "canceled"):
+                raise RuntimeError(f"Chatterbox {pid} {st['status']}: {st.get('error')}")
+            time.sleep(1.5)
+        if not out_url:
+            raise TimeoutError(f"Chatterbox {pid} did not finish within 180s")
+        ar = _request_with_retry("GET", out_url, timeout=60)
+        ar.raise_for_status()
+        clone = trim_silence(AudioSegment.from_file(io.BytesIO(ar.content)))
+        if len(clone) <= max_ms:
+            clone.export(str(cache_file), format="wav")
+            return clone
+        last_ms = len(clone)
+        print(f"    [chatterbox attempt {attempt}: clone {len(clone)}ms > sane {max_ms}ms — retry]")
+    raise RuntimeError(f"Chatterbox returned clone {last_ms}ms > sane {max_ms}ms after 3 attempts")
+
+
+# ──────────────────────────────────────────────────────────────────────────
 # Provider: ElevenLabs (premium voice cloning — far better timbre + clarity than F5)
 # ──────────────────────────────────────────────────────────────────────────
 ELEVENLABS_API = "https://api.elevenlabs.io/v1"
@@ -295,10 +349,12 @@ def synthesize_clone(text: str, ref_path: Path, ref_text: str, slot_ms: int, cac
         return synthesize_elevenlabs(text, ref_path, ref_text, slot_ms, cache_dir, voice_id=voice_id)
     elif provider == "replicate":
         return synthesize_replicate(text, ref_path, ref_text, slot_ms, cache_dir)
+    elif provider == "chatterbox":
+        return synthesize_chatterbox(text, ref_path, ref_text, slot_ms, cache_dir)
     elif provider == "qwen3_mlx" or provider == "qwen3":
         return synthesize_qwen3(text, ref_path, ref_text, slot_ms, cache_dir)
     else:
-        raise ValueError(f"Unknown TTS_PROVIDER: {provider!r}. Use 'elevenlabs', 'replicate' or 'qwen3_mlx'.")
+        raise ValueError(f"Unknown TTS_PROVIDER: {provider!r}. Use 'elevenlabs', 'chatterbox', 'replicate' or 'qwen3_mlx'.")
 
 
 def current_provider_label() -> str:
