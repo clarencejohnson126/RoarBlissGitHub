@@ -74,16 +74,25 @@ export async function setUserTier(userId: string, tier: string): Promise<void> {
 /** Deduct minutes of FINISHED audio from the monthly allowance (called on delivery, charge-on-success). */
 export async function chargeMinutes(userId: string, minutes: number): Promise<void> {
   if (!(minutes > 0)) return;
-  const admin = supabaseAdmin();
-  const { data, error } = await admin.auth.admin.getUserById(userId);
-  if (error || !data?.user) return;
-  const app = (data.user.app_metadata as Record<string, unknown>) ?? {};
-  const periodEnd = typeof app.period_end === "string" ? app.period_end : null;
-  let used = Number(app.minutes_used ?? 0);
-  if (periodEnd && Date.now() > new Date(periodEnd).getTime()) used = 0;
-  await admin.auth.admin.updateUserById(userId, {
-    app_metadata: { ...app, minutes_used: Math.round((used + minutes) * 100) / 100 },
-  });
+  try {
+    const admin = supabaseAdmin();
+    const { data, error } = await admin.auth.admin.getUserById(userId);
+    if (error || !data?.user) {
+      console.error("chargeMinutes: user lookup failed", userId, error?.message);
+      return;
+    }
+    const app = (data.user.app_metadata as Record<string, unknown>) ?? {};
+    const periodEnd = typeof app.period_end === "string" ? app.period_end : null;
+    let used = Number(app.minutes_used ?? 0);
+    if (periodEnd && Date.now() > new Date(periodEnd).getTime()) used = 0;
+    await admin.auth.admin.updateUserById(userId, {
+      app_metadata: { ...app, minutes_used: Math.round((used + minutes) * 100) / 100 },
+    });
+  } catch (e) {
+    // Never let a billing-write failure bubble into the webhook handler (it would ack 200 → no Replicate
+    // retry → silently unbilled). Log loudly; the charge_log migration (B1) makes this idempotent + retryable.
+    console.error("chargeMinutes FAILED — UNBILLED minutes for", userId, minutes, (e as Error).message);
+  }
 }
 
 /**
@@ -107,7 +116,7 @@ export async function startBillingPeriod(userId: string, tier: string, periodEnd
  * migration never blocks legitimate users; abuse protection just isn't active until the table exists.
  */
 export async function freeUsageExists(fingerprint: string, ip: string): Promise<boolean> {
-  if (!fingerprint && !ip) return false;
+  if (!fingerprint?.trim() && !ip?.trim()) return false;
   try {
     const ors: string[] = [];
     if (fingerprint) ors.push(`fingerprint.eq.${fingerprint}`);

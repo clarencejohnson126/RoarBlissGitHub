@@ -9,7 +9,8 @@ import { drainQueue } from "@/lib/drain";
  */
 export async function GET(request: Request) {
   const secret = process.env.CRON_SECRET;
-  if (secret && request.headers.get("authorization") !== `Bearer ${secret}`) {
+  if (!secret) return NextResponse.json({ error: "cron disabled (CRON_SECRET unset)" }, { status: 403 });
+  if (request.headers.get("authorization") !== `Bearer ${secret}`) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
   try {

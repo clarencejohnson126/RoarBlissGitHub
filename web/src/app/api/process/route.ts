@@ -133,10 +133,17 @@ export async function POST(request: Request) {
         );
       }
       // The minutes this run will cost when it delivers = the upload's runtime, capped at the 6-min output.
+      // If the client couldn't measure the duration (0), charge the CAP (6 min) rather than under-bill.
       const dur = Number(durationSec);
-      runMinutes = Math.round((Math.min(dur > 0 ? dur : 180, 360) / 60) * 100) / 100;
+      runMinutes = Math.round((Math.min(dur > 0 ? dur : 360, 360) / 60) * 100) / 100;
       paidGranted = true;
       jobUserId = user.id;
+    }
+
+    // No anonymous-identity free runs: without a device fingerprint OR an IP we can't enforce the
+    // 1-free-per-device gate, so reject rather than hand out unlimited free tracks (Replicate spend).
+    if (!paidGranted && !freeGateOff && !fingerprint?.trim() && !ip?.trim()) {
+      return NextResponse.json({ error: "Could not verify your device. Please try again." }, { status: 400 });
     }
 
     // Free-tier abuse gate: one free track per device fingerprint OR IP. Generation needs no login
@@ -190,6 +197,10 @@ export async function POST(request: Request) {
     const qs = params.toString();
     const webhook = `${base}/api/replicate-callback${qs ? `?${qs}` : ""}`;
     const httpsWebhook = webhook.startsWith("https://") ? webhook : undefined;
+    if (paidGranted && !httpsWebhook) {
+      // No https webhook → the callback never fires → the paid run never bills/terminates. Prod must be https.
+      console.warn("[billing] paid run started WITHOUT an https webhook — minutes won't auto-bill:", base);
+    }
     const meta = { idempotencyKey: idemKey, userId: jobUserId, fingerprint, ip, paid: paidGranted, estCostCents };
 
     // Concurrency / backpressure: at or over the cap → queue instead of starting now. A finishing run
