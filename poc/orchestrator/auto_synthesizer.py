@@ -354,16 +354,14 @@ def auto_synthesize(audio_path: str, user_context: str,
         _lead = min(_trail // 3, 250)
         fitted = AudioSegment.silent(duration=_lead) + fitted + AudioSegment.silent(duration=_trail)
 
-        # Silence exactly the clone's length from the slot start (this may reach past the slot into
-        # the following original vocal, since we're replacing a whole sentence) and overlay the clone.
-        # Total canvas length is unchanged, so the separate music stem stays perfectly in sync.
+        # REPLACE the original sentence ENTIRELY with the clone (hard rule: snippets replace original speech,
+        # they never overlay it). Remove AT LEAST the full original slot and fill it with SILENCE — not a
+        # muffled copy of the original. The old "continuity bed" leaked the original under the clone AND filled
+        # the breath padding so it never actually breathed (the snippet glued onto the original). The music
+        # stem (added in the final mix) carries continuity; on dry speech the leftover is a real pause/breath.
         place_ms = len(fitted)
-        # Instead of replacing the original with DIGITAL SILENCE under the clone (which makes dry, no-music
-        # sections go dead-silent between the clone's words — the 0:36 "sound gone" dropout), keep a muffled,
-        # ducked copy of the original as a continuity bed: a 450Hz low-pass removes speech intelligibility
-        # (no ghost words) while preserving room tone / energy so the background never drops to nothing.
-        under = canvas[s_ms:s_ms + place_ms].low_pass_filter(450) - 24  # quieter continuity bed (was -16 = audible original)
-        canvas = (canvas[:s_ms] + under + canvas[s_ms + place_ms:])
+        remove_ms = max(place_ms, int(slot_ms))   # never leave the original sentence's tail playing under/after the clone
+        canvas = canvas[:s_ms] + AudioSegment.silent(duration=remove_ms) + canvas[s_ms + remove_ms:]
         canvas = canvas.overlay(fitted, position=s_ms)
 
         audit_slots.append({
