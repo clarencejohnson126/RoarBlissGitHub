@@ -231,7 +231,7 @@ def synthesize_replicate(text: str, ref_path: Path, ref_text: str, slot_ms: int,
 # Provider: Chatterbox-Turbo (Resemble AI) on Replicate — zero-shot clone, NO per-op limit (scales to
 # 1000s of users; cost = GPU-seconds, not metered voice-add ops like ElevenLabs). Beat EL in blind tests.
 # ──────────────────────────────────────────────────────────────────────────
-CHATTERBOX_MODEL = "resemble-ai/chatterbox-turbo"
+CHATTERBOX_MODEL = "resemble-ai/chatterbox"  # base (full quality) — turbo is a speed-distilled, lower-fidelity 350M
 
 def synthesize_chatterbox(text: str, ref_path: Path, ref_text: str, slot_ms: int, cache_dir: Path) -> AudioSegment:
     key = cache_key("chatterbox-turbo", text, ref_path)
@@ -263,7 +263,7 @@ def synthesize_chatterbox(text: str, ref_path: Path, ref_text: str, slot_ms: int
         create = _request_with_retry(
             "POST", f"{REPLICATE_API}/models/{CHATTERBOX_MODEL}/predictions",
             headers=_replicate_headers(),
-            json={"input": {"text": text[:500], "reference_audio": ref_url}},  # turbo caps text at 500 chars
+            json={"input": {"prompt": text, "audio_prompt": ref_url}},  # base chatterbox: prompt + audio_prompt
             timeout=30,
         )
         create.raise_for_status()

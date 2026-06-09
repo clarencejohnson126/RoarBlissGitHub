@@ -93,7 +93,7 @@ def detect_sfx_cover(accomp, start_ms, end_ms):
 # Reference resolution — orchestrator output → reference audio file
 # ──────────────────────────────────────────────────────────────────────────────
 REF_MIN_DBFS = -32.0   # reject reference clips quieter than this (likely silence/breath)
-REF_TARGET_DUR_S = 6.0  # aim for ~6s of reference audio (concatenate clips if needed)
+REF_TARGET_DUR_S = 12.0  # aim for ~12s of reference (longer = far better clone identity; concatenate clips)
 
 def _build_concatenated_ref(clips: list, vocals_source: AudioSegment):
     """Concatenate reference clips (same speaker+emotion) up to REF_TARGET_DUR_S into ONE continuous
@@ -362,7 +362,7 @@ def auto_synthesize(audio_path: str, user_context: str,
         # sections go dead-silent between the clone's words — the 0:36 "sound gone" dropout), keep a muffled,
         # ducked copy of the original as a continuity bed: a 450Hz low-pass removes speech intelligibility
         # (no ghost words) while preserving room tone / energy so the background never drops to nothing.
-        under = canvas[s_ms:s_ms + place_ms].low_pass_filter(450) - 16
+        under = canvas[s_ms:s_ms + place_ms].low_pass_filter(450) - 24  # quieter continuity bed (was -16 = audible original)
         canvas = (canvas[:s_ms] + under + canvas[s_ms + place_ms:])
         canvas = canvas.overlay(fitted, position=s_ms)
 
