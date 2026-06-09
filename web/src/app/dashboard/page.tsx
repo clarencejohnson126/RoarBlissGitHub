@@ -81,22 +81,36 @@ export default function DashboardPage() {
       setMsg("Enter your email and a password (at least 8 characters).");
       return;
     }
-    setMsg(authMode === "register" ? "Creating your account…" : "Signing in…");
     try {
       if (authMode === "register") {
+        setMsg("Creating your account…");
         const r = await fetch("/api/auth/register", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ email, password }),
+          body: JSON.stringify({ email, password, redirectTo: typeof window !== "undefined" ? `${window.location.origin}/dashboard` : undefined }),
         });
         const j = await r.json();
         if (!r.ok) {
           setMsg(j.exists ? "That email already has an account — switch to Sign in." : j.error || "Could not create the account.");
           return;
         }
+        // Account is unconfirmed until the emailed link is clicked — don't auto-sign-in.
+        setAuthMode("signin");
+        setPassword("");
+        setMsg("✓ Account created — check your email to confirm it, then sign in.");
+        return;
       }
+      setMsg("Signing in…");
       const { error } = await supabaseBrowser().auth.signInWithPassword({ email, password });
-      if (error) setMsg(/invalid/i.test(error.message) ? "Wrong email or password." : error.message);
+      if (error) {
+        setMsg(
+          /not confirmed|confirm/i.test(error.message)
+            ? "Please confirm your email first — check your inbox for the link."
+            : /invalid/i.test(error.message)
+              ? "Wrong email or password."
+              : error.message,
+        );
+      }
     } catch {
       setMsg("Network error — please try again.");
     }

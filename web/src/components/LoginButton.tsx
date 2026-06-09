@@ -47,13 +47,19 @@ export default function LoginButton() {
       return;
     }
     setBusy(true);
-    setMsg(mode === "register" ? "Creating your account…" : "Signing in…");
     try {
       if (mode === "register") {
+        // Register creates an UNCONFIRMED account + emails a confirmation link (inbox proof). We do NOT
+        // auto-sign-in here — the user must confirm via email first, then sign in with their password.
+        setMsg("Creating your account…");
         const r = await fetch("/api/auth/register", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ email, password: pw }),
+          body: JSON.stringify({
+            email,
+            password: pw,
+            redirectTo: typeof window !== "undefined" ? `${window.location.origin}/dashboard` : undefined,
+          }),
         });
         const j = await r.json();
         if (!r.ok) {
@@ -61,10 +67,22 @@ export default function LoginButton() {
           setBusy(false);
           return;
         }
+        setMode("signin");
+        setPw("");
+        setMsg("✓ Account created — check your email to confirm it, then sign in.");
+        setBusy(false);
+        return;
       }
+      setMsg("Signing in…");
       const { error } = await supabaseBrowser().auth.signInWithPassword({ email, password: pw });
       if (error) {
-        setMsg(/invalid/i.test(error.message) ? "Wrong email or password." : error.message);
+        setMsg(
+          /not confirmed|confirm/i.test(error.message)
+            ? "Please confirm your email first — check your inbox for the link."
+            : /invalid/i.test(error.message)
+              ? "Wrong email or password."
+              : error.message,
+        );
         setBusy(false);
         return;
       }
