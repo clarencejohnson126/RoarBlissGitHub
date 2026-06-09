@@ -1,4 +1,5 @@
 import { createClient, type User } from "@supabase/supabase-js";
+import * as Sentry from "@sentry/nextjs";
 import { tierById } from "./tiers";
 
 /**
@@ -124,6 +125,7 @@ export async function chargeReservation(predictionId: string): Promise<void> {
     await supabaseAdmin().from("minute_ledger").update({ status: "charged", updated_at: new Date().toISOString() }).eq("prediction_id", predictionId).eq("status", "reserved");
   } catch (e) {
     console.error("chargeReservation FAILED for", predictionId, (e as Error).message);
+    Sentry.captureException(e, { tags: { area: "billing", op: "chargeReservation" }, extra: { predictionId } });
   }
 }
 
