@@ -119,13 +119,24 @@ export async function linkReservation(reservationId: string, predictionId: strin
   }
 }
 
-/** Delivered run: reserved → charged (atomic + idempotent via the status guard; duplicate webhooks no-op). */
-export async function chargeReservation(predictionId: string): Promise<void> {
+/**
+ * Delivered run: reserved → charged (atomic + idempotent via the status guard; duplicate webhooks no-op).
+ * Returns false on a DB error so the caller can signal Replicate to RETRY the webhook (the update is
+ * idempotent, so retrying is safe) — a charge write must never be silently dropped (= unbilled run).
+ */
+export async function chargeReservation(predictionId: string): Promise<boolean> {
   try {
-    await supabaseAdmin().from("minute_ledger").update({ status: "charged", updated_at: new Date().toISOString() }).eq("prediction_id", predictionId).eq("status", "reserved");
+    const { error } = await supabaseAdmin()
+      .from("minute_ledger")
+      .update({ status: "charged", updated_at: new Date().toISOString() })
+      .eq("prediction_id", predictionId)
+      .eq("status", "reserved");
+    if (error) throw new Error(error.message);
+    return true;
   } catch (e) {
     console.error("chargeReservation FAILED for", predictionId, (e as Error).message);
     Sentry.captureException(e, { tags: { area: "billing", op: "chargeReservation" }, extra: { predictionId } });
+    return false;
   }
 }
 

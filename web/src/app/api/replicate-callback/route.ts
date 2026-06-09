@@ -1,3 +1,4 @@
+import crypto from "crypto";
 import { NextResponse } from "next/server";
 import { Resend } from "resend";
 import { del, put } from "@vercel/blob";
@@ -14,17 +15,57 @@ import { drainQueue } from "@/lib/drain";
  * link is durable, not the ~1h Replicate URL) and email the user a link via Resend. Email is best
  * effort — if it isn't configured, the on-page player still works via /api/audio.
  */
+/**
+ * Verify Replicate's webhook signature (svix scheme) over the RAW body. Without this, anyone who knows
+ * a prediction id could POST status:"failed" to release a paid reservation (the run then delivers but
+ * never bills), reset the free-device gate, or trigger blob deletes / emails. Fails CLOSED.
+ */
+function verifyReplicateWebhook(req: Request, rawBody: string): boolean {
+  const secret = process.env.REPLICATE_WEBHOOK_SECRET;
+  if (!secret) return false; // no secret configured → reject (set REPLICATE_WEBHOOK_SECRET in prod)
+  const id = req.headers.get("webhook-id");
+  const ts = req.headers.get("webhook-timestamp");
+  const sigHeader = req.headers.get("webhook-signature");
+  if (!id || !ts || !sigHeader) return false;
+  const tsNum = Number(ts);
+  if (!Number.isFinite(tsNum) || Math.abs(Date.now() / 1000 - tsNum) > 300) return false; // 5-min replay window
+  try {
+    const keyB64 = secret.includes("_") ? secret.split("_")[1] : secret;
+    const keyBytes = Buffer.from(keyB64, "base64");
+    const expected = crypto.createHmac("sha256", keyBytes).update(`${id}.${ts}.${rawBody}`).digest("base64");
+    const expBuf = Buffer.from(expected);
+    return sigHeader.split(" ").some((part) => {
+      const sig = part.split(",")[1];
+      if (!sig) return false;
+      const sigBuf = Buffer.from(sig);
+      return sigBuf.length === expBuf.length && crypto.timingSafeEqual(sigBuf, expBuf);
+    });
+  } catch {
+    return false;
+  }
+}
+
 export async function POST(request: Request) {
   try {
+    // SECURITY: verify the webhook signature over the RAW body BEFORE any billing/blob/email action.
+    const raw = await request.text();
+    if (!verifyReplicateWebhook(request, raw)) {
+      return NextResponse.json({ error: "invalid signature" }, { status: 401 });
+    }
     const { searchParams } = new URL(request.url);
     const email = searchParams.get("email") || "";
-    const payload = (await request.json().catch(() => ({}))) as {
+    let payload: {
       id?: string;
       status?: string;
       error?: string | null;
       output?: string | string[] | null;
       input?: { name?: string; audio?: string };
-    };
+    } = {};
+    try {
+      payload = JSON.parse(raw || "{}");
+    } catch {
+      payload = {};
+    }
 
     const id = payload.id || "";
     const status = payload.status || "";
@@ -36,66 +77,62 @@ export async function POST(request: Request) {
     const produced = !!outputUrl({ output: payload.output ?? null });
     const delivered = status === "succeeded" && produced;
 
-    // Durable copy of the result, so the email link never expires.
-    let listen = id ? `${base}/api/audio?id=${id}` : base;
-    if (status === "succeeded" && process.env.BLOB_READ_WRITE_TOKEN) {
-      const src = outputUrl({ output: payload.output ?? null });
-      if (src) {
-        try {
-          const audio = await fetch(src);
-          if (audio.ok) {
-            const buf = Buffer.from(await audio.arrayBuffer());
-            const blob = await put(`outputs/${id}.mp3`, buf, {
-              access: "public",
-              addRandomSuffix: false,
-              contentType: "audio/mpeg",
-            });
-            listen = blob.url;
+    const terminal = status === "succeeded" || status === "failed" || status === "canceled";
+
+    // Mark terminal ONCE. Side-effects (blob persist, email, drain, source delete) run only on this
+    // first transition, so a Replicate RETRY (e.g. after a charge failure below) can't double-send the
+    // email, re-delete the source, or re-drain.
+    const firstTransition = id && terminal ? await markJobTerminal(id, delivered) : false;
+
+    // Billing via the minute_ledger (idempotent on prediction_id — safe to retry). Delivered → charged;
+    // failed/empty → released back to the allowance (+ free device gets its track back).
+    let chargeOk = true;
+    if (id && terminal) {
+      if (delivered) {
+        chargeOk = await chargeReservation(id);
+      } else {
+        await releaseReservation(id);
+        await clearFreeUsageForPrediction(id);
+      }
+    }
+
+    if (firstTransition) {
+      // Durable copy of the result so the email link never expires.
+      let listen = id ? `${base}/api/audio?id=${id}` : base;
+      if (delivered && process.env.BLOB_READ_WRITE_TOKEN) {
+        const src = outputUrl({ output: payload.output ?? null });
+        if (src) {
+          try {
+            const audio = await fetch(src);
+            if (audio.ok) {
+              const buf = Buffer.from(await audio.arrayBuffer());
+              const blob = await put(`outputs/${id}.mp3`, buf, { access: "public", addRandomSuffix: false, contentType: "audio/mpeg" });
+              listen = blob.url;
+            }
+          } catch (e) {
+            console.error("blob persist failed:", e);
           }
-        } catch (e) {
-          console.error("blob persist failed:", e);
         }
       }
-    }
-
-    if (email && process.env.RESEND_API_KEY) {
-      const resend = new Resend(process.env.RESEND_API_KEY);
-      const from = process.env.RESEND_FROM_EMAIL || "Roar Bliss <onboarding@resend.dev>";
-      if (delivered) {
-        await resend.emails.send({
-          from,
-          to: email,
-          subject: `Your personalized Roar Bliss track is ready, ${name}`,
-          html: doneHtml(name, listen, base),
-        });
-      } else if (status === "failed" || status === "canceled" || status === "succeeded") {
-        await resend.emails.send({
-          from,
-          to: email,
-          subject: `Roar Bliss hit a snag with your track`,
-          html: failHtml(name, String(payload.error || "")),
-        });
+      if (email && process.env.RESEND_API_KEY) {
+        const resend = new Resend(process.env.RESEND_API_KEY);
+        const from = process.env.RESEND_FROM_EMAIL || "Roar Bliss <onboarding@resend.dev>";
+        try {
+          if (delivered) {
+            await resend.emails.send({ from, to: email, subject: `Your personalized Roar Bliss track is ready, ${name}`, html: doneHtml(name, listen, base) });
+          } else {
+            await resend.emails.send({ from, to: email, subject: `Roar Bliss hit a snag with your track`, html: failHtml(name, String(payload.error || "")) });
+          }
+        } catch (e) {
+          console.error("email send failed:", e);
+        }
       }
-    }
-
-    // Bookkeeping + backpressure: mark this run terminal and promote the next queued job, if any.
-    if (id && (status === "succeeded" || status === "failed" || status === "canceled")) {
-      // Marks terminal once + refunds the reserved credit if a PAID run didn't deliver a file.
-      await markJobTerminal(id, delivered);
-      // Billing via the minute_ledger, idempotent on prediction_id: a delivered run is charged, a
-      // failed/empty run is released back to the allowance. Duplicate/retried webhooks are no-ops.
-      if (delivered) await chargeReservation(id);
-      else await releaseReservation(id);
-      // Free runs that didn't deliver: give the one free track back (no-op for paid).
-      if (!delivered) await clearFreeUsageForPrediction(id);
       try {
         await drainQueue();
       } catch (e) {
         console.error("drain after callback failed:", e);
       }
-
-      // Privacy + storage: keep ONLY the finished output — delete the user's uploaded source now that
-      // the run is done (it's already been processed/trimmed by the cog; we never persist the upload).
+      // Privacy: keep ONLY the finished output — delete the user's uploaded source (never persisted).
       const srcAudio = payload.input?.audio;
       if (srcAudio && /blob\.vercel-storage\.com/.test(srcAudio) && process.env.BLOB_READ_WRITE_TOKEN) {
         try {
@@ -106,6 +143,11 @@ export async function POST(request: Request) {
       }
     }
 
+    // A delivered run whose charge write FAILED → tell Replicate to retry the webhook. The charge is
+    // idempotent and the first-transition side-effects won't repeat (markJobTerminal returns false next time).
+    if (delivered && !chargeOk) {
+      return NextResponse.json({ ok: false, retry: "charge_failed" }, { status: 500 });
+    }
     return NextResponse.json({ ok: true });
   } catch (e) {
     console.error("replicate-callback error:", e);

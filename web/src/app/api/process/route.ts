@@ -87,7 +87,15 @@ export async function POST(request: Request) {
     }
 
     // Spend-cap / budget guard — checked BEFORE consuming a credit so a blocked run costs nothing.
-    const { runs, cents } = await runsAndSpendToday();
+    // FAILS CLOSED: if we can't read today's spend (null), reject rather than risk unbounded spend.
+    const spend = await runsAndSpendToday();
+    if (!spend) {
+      return NextResponse.json(
+        { error: "We're temporarily unavailable — please try again in a moment.", unavailable: true },
+        { status: 503 },
+      );
+    }
+    const { runs, cents } = spend;
     if (runs >= lim.maxRunsPerDay || cents >= lim.maxSpendCentsPerDay) {
       await sendBudgetAlert(
         `Daily cap reached: ${runs}/${lim.maxRunsPerDay} runs, $${(cents / 100).toFixed(2)}/$${(lim.maxSpendCentsPerDay / 100).toFixed(0)}.`,

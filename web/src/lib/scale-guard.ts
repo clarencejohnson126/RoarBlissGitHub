@@ -61,8 +61,13 @@ export async function findByIdempotencyKey(
   }
 }
 
-/** Spend-cap inputs: total runs + summed estimated cost since the start of the UTC day. */
-export async function runsAndSpendToday(): Promise<{ runs: number; cents: number }> {
+/**
+ * Spend-cap inputs: total runs + summed estimated cost since the start of the UTC day.
+ * Returns null on error → the caller FAILS CLOSED. This is the one guard that protects real money, so
+ * if we can't verify today's spend (DB brownout) we must NOT keep starting runs (the rest of the
+ * guards fail open; the budget guard must not, or an outage = unbounded Replicate/ElevenLabs spend).
+ */
+export async function runsAndSpendToday(): Promise<{ runs: number; cents: number } | null> {
   try {
     const since = startOfUtcDay();
     const { data, error, count } = await supabaseAdmin()
@@ -70,11 +75,11 @@ export async function runsAndSpendToday(): Promise<{ runs: number; cents: number
       .select("est_cost_cents", { count: "exact" })
       .gte("created_at", since)
       .neq("status", "failed");
-    if (error) return { runs: 0, cents: 0 };
+    if (error) return null;
     const cents = (data ?? []).reduce((s, r) => s + Number((r as { est_cost_cents: number }).est_cost_cents || 0), 0);
     return { runs: count ?? 0, cents };
   } catch {
-    return { runs: 0, cents: 0 };
+    return null;
   }
 }
 
