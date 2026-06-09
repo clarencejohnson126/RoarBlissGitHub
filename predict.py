@@ -460,6 +460,7 @@ class Predictor(BasePredictor):
         music_gain_db: float = Input(default=0.0, description="Music bed loudness, in dB relative to the voice. 0 = bed sits at voice level and is full/loud (it ducks under the voice via sidechain so words stay clear). Positive = louder music, negative = quieter. Tune this per run — no rebuild needed."),
         duck_db: float = Input(default=8.0, description="How far the music dips UNDER the voice while someone speaks (sidechain duck depth, dB). Higher = voice cuts through more; lower = music stays prouder under the voice."),
         voice_speed: float = Input(default=1.0, description="Speaking pace of the generated voice. 1.0 = natural; <1 = slower/more deliberate (e.g. 0.93), >1 = faster. Applied to the voice only — the music is untouched."),
+        breath_ms: int = Input(default=700, description="Partial tiers (25/50/75): deliberate pause (ms) before + after each personalized snippet so it never glues straight onto the surrounding original sentence (which sounds rushed/choppy/fake). ~700 = a natural breath; 0 = off. Tune per run — no rebuild needed."),
         language: str = Input(default="English", description="Target language for the generated lines (e.g. 'German', 'Spanish', 'French'). ElevenLabs multilingual_v2 keeps the cloned timbre and the writer composes natively; the source audio can be any language."),
     ) -> Path:
         from auto_synthesizer import auto_synthesize
@@ -557,6 +558,7 @@ class Predictor(BasePredictor):
             verbose=True,
             language=language,
             density=density,
+            breath_ms=breath_ms,
         )
         if result.get("status") != "ok":
             raise RuntimeError(f"pipeline status: {result.get('status')}")

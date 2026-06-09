@@ -37,6 +37,11 @@ MAX_VOCAL_SILENCE_MS = 3000
 MAX_VOCAL_SILENCE_SFX_MS = 5000
 SFX_DBFS_THRESHOLD = -22.0
 
+# Breathing room at every snippet↔original seam: a deliberate pause BEFORE + AFTER each cloned snippet
+# so it never glues straight onto the surrounding original sentence (which sounds rushed, choppy, fake).
+# The ducked continuity bed fills these with muffled room tone → natural breaths, not dead air. The
+# pause length is a per-run input (breath_ms = trail breath; lead = a third of it, capped) → tune by ear.
+
 # Loudness: match the ORIGINAL slot's level EXACTLY — no boost, no floor. The cloned line must
 # sit at the same dB the original speaker did there, or the seam becomes audible (a clone that is
 # louder OR quieter than the surrounding original breaks the illusion). The music is never touched.
@@ -209,7 +214,8 @@ def auto_synthesize(audio_path: str, user_context: str,
                       out_dir: Path = None,
                       verbose: bool = True,
                       language: str = "English",
-                      density: float = 0.55) -> dict:
+                      density: float = 0.55,
+                      breath_ms: int = 700) -> dict:
     t0 = time.time()
     if out_dir is None:
         out_dir = Path(__file__).parent / "outputs" / f"auto_{int(time.time())}"
@@ -340,6 +346,13 @@ def auto_synthesize(audio_path: str, user_context: str,
                 log(f"  loudness: matched {slot_db:.2f}dBFS (gain {gain:+.2f}dB, -{anti:.2f}dB anti-clip)")
             else:
                 log(f"  loudness: matched original {slot_db:.2f}dBFS (gain {gain:+.2f}dB)")
+
+        # Let the sentence BREATHE: pad a deliberate pause BEFORE + AFTER the clone (see BREATH_*_MS) so a
+        # snippet never glues straight onto the surrounding original — original→snippet→original then lands
+        # as natural breaths, not a rushed/choppy/fake splice. These pauses sit over the ducked room-tone bed.
+        _trail = max(0, int(breath_ms))
+        _lead = min(_trail // 3, 250)
+        fitted = AudioSegment.silent(duration=_lead) + fitted + AudioSegment.silent(duration=_trail)
 
         # Silence exactly the clone's length from the slot start (this may reach past the slot into
         # the following original vocal, since we're replacing a whole sentence) and overlay the clone.
