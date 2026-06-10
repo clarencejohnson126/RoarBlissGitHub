@@ -75,6 +75,21 @@ def time_stretch(seg, target_ms):
         os.unlink(inp.name); os.unlink(outp.name)
     return out[:target_ms] if len(out) > target_ms else out
 
+def _size_breath(vocals, s_ms, e_ms, breath_ms):
+    """Return (trail_ms, lead_ms) sized to the ORIGINAL's OWN rhythm, capped by breath_ms.
+    A flat 1000ms pause drags + breaks the source flow; real inter-sentence gaps are ~150-450ms. We
+    reuse the silence the original itself leaves at the slot head/tail so the snippet breathes like the
+    source did. Music is never touched here."""
+    if breath_ms <= 0:
+        return 0, 0
+    head = detect_leading_silence(vocals[s_ms:e_ms], -40.0, 5)
+    tail = detect_leading_silence(vocals[s_ms:e_ms].reverse(), -40.0, 5)
+    natural = max(head, tail, 150)                  # floor 150ms so it never glues
+    trail = min(int(breath_ms), max(natural, 200))  # breath_ms is a CAP, not a floor
+    trail = min(trail, 450)                          # hard cap: no single pause drags past 450ms
+    lead = max(80, trail // 4)
+    return trail, lead
+
 def measure_slot_dbfs(vocals_canvas, start_ms, end_ms):
     """Measure dBFS of the original speech in the slot, stripping leading/trailing silence."""
     slot = vocals_canvas[start_ms:end_ms]
@@ -319,6 +334,16 @@ def auto_synthesize(audio_path: str, user_context: str,
         ratio = raw_ms / slot_ms
         log(f"  clone raw: {raw_ms}ms (ratio {ratio:.2f}x)")
 
+        # If the clone lands well short of the slot (Chatterbox/ElevenLabs deliberate pace), gently speed it
+        # up to fill — capped at 1.12x so it never sounds rushed/robotic. Voice-only; the music stem is mixed
+        # later and never stretched. Over 1.12x: leave the remainder as a (sized) breath instead.
+        if raw_ms < slot_ms * 0.85:
+            gentle = min(1.12, (slot_ms * 0.95) / raw_ms)
+            if gentle > 1.02:
+                clone = time_stretch(clone, int(raw_ms / gentle))
+                raw_ms = len(clone)
+                log(f"  pace: tightened {gentle:.3f}x -> {raw_ms}ms")
+
         # NATURAL PACE — never time-compress/stretch the clone. Time-compression (squeezing a clone
         # into a shorter slot) is exactly what made the voice sound fast and "drunk". The clone plays
         # at F5's own deliberate rate. If it slightly overruns the slot we trim the TAIL (no speed-up);
@@ -347,22 +372,41 @@ def auto_synthesize(audio_path: str, user_context: str,
             else:
                 log(f"  loudness: matched original {slot_db:.2f}dBFS (gain {gain:+.2f}dB)")
 
-        # Let the sentence BREATHE: pad a deliberate pause BEFORE + AFTER the clone (see BREATH_*_MS) so a
-        # snippet never glues straight onto the surrounding original — original→snippet→original then lands
-        # as natural breaths, not a rushed/choppy/fake splice. These pauses sit over the ducked room-tone bed.
-        _trail = max(0, int(breath_ms))
-        _lead = min(_trail // 3, 250)
-        fitted = AudioSegment.silent(duration=_lead) + fitted + AudioSegment.silent(duration=_trail)
+        # Breath sized to the ORIGINAL's own rhythm, and it sits INSIDE the slot so the clone never extends
+        # past e_ms (that extension was the "drag": content shifts right + the next original resumes late).
+        _trail, _lead = _size_breath(vocals, s_ms, e_ms, breath_ms)
+        budget = int(slot_ms)
+        body = fitted
+        # Reserve breath room first; if clone+breath exceeds the slot, trim the clone TAIL (never speed up here).
+        max_body = max(0, budget - _lead - _trail)
+        if len(body) > max_body:
+            body = body[:max_body]
+        fitted = AudioSegment.silent(duration=_lead) + body + AudioSegment.silent(duration=_trail)
+        # Pad/clip to EXACTLY the slot so the overlay is slot-locked (canvas length stays invariant).
+        if len(fitted) < budget:
+            fitted = fitted + AudioSegment.silent(duration=budget - len(fitted))
+        elif len(fitted) > budget:
+            fitted = fitted[:budget]
 
         # REPLACE the original sentence ENTIRELY with the clone (hard rule: snippets replace original speech,
         # they never overlay it). Remove AT LEAST the full original slot and fill it with SILENCE — not a
         # muffled copy of the original. The old "continuity bed" leaked the original under the clone AND filled
         # the breath padding so it never actually breathed (the snippet glued onto the original). The music
         # stem (added in the final mix) carries continuity; on dry speech the leftover is a real pause/breath.
-        place_ms = len(fitted)
-        remove_ms = max(place_ms, int(slot_ms))   # never leave the original sentence's tail playing under/after the clone
-        canvas = canvas[:s_ms] + AudioSegment.silent(duration=remove_ms) + canvas[s_ms + remove_ms:]
-        canvas = canvas.overlay(fitted, position=s_ms)
+        # Length-invariant: remove EXACTLY the slot + a small guard margin, fill with silence, overlay the
+        # slot-sized clone at s_ms. remove_ms == slot_ms keeps len(canvas) unchanged => every downstream s_ms
+        # stays a valid musical instant => ZERO drift, speech stays locked to the (untouched 1.0x) music.
+        remove_ms = int(slot_ms)
+        # Whisper sentence-group edges sit inside breaths; the original's head/tail word can bleed just
+        # outside [s_ms,e_ms]. Silence a small guard on BOTH sides — but keep length invariant and keep the
+        # overlay anchored at s_ms (moving it would re-introduce drift).
+        guard = 120
+        head = min(guard, s_ms)
+        tail = min(guard, len(canvas) - (s_ms + remove_ms))
+        wipe_start = s_ms - head
+        wipe_len = head + remove_ms + tail
+        canvas = canvas[:wipe_start] + AudioSegment.silent(duration=wipe_len) + canvas[wipe_start + wipe_len:]
+        canvas = canvas.overlay(fitted, position=s_ms)   # slot-locked; the guard only widens the SILENCE
 
         audit_slots.append({
             "id": sid, "speaker": spk, "emotion": emo,
@@ -383,9 +427,9 @@ def auto_synthesize(audio_path: str, user_context: str,
 
     # ── Stage D: drift check + save vocals_personalized ──────────────────
     drift_ms = abs(len(canvas) - window_ms)
-    if drift_ms > 0:
-        log(f"canvas drift {drift_ms}ms — trimming to {window_ms}ms", "warn")
-        canvas = canvas[:window_ms]
+    if drift_ms > 50:   # >50ms now signals a real bug (should be ~0 after slot-locking), not rounding
+        log(f"UNEXPECTED canvas drift {drift_ms}ms (should be ~0 after slot-locking) — investigate", "err")
+    canvas = canvas[:window_ms]   # final safety clamp only
     pv_path = out_dir / "vocals_personalized.wav"
     canvas.export(str(pv_path), format="wav")
     if verbose: log(f"personalized vocals saved: {pv_path}", "ok")

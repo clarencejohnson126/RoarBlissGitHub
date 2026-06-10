@@ -189,7 +189,9 @@ def find_candidate_slots(audio_path: str, ref_library: dict, window_ms: int = No
         is_exclaim = seg["text"].strip().endswith("!") and duration <= 2.5
 
         # Decide which reference voice powers this slot, and whether to admit it.
-        if dominant in valid_speakers and dominance >= 0.6:
+        # Require a near-solo slot: at 0.6 a second speaker could own ~40% of the slot and bleed under the
+        # clone (we silence [s_ms,e_ms] as one block, we don't re-segment per speaker). 0.85 keeps it clean.
+        if dominant in valid_speakers and dominance >= 0.85:
             speaker = dominant
         elif is_anthem and primary_speaker is not None:
             # Crowd/anthem peak: clone the track's primary voice for the personalized chant.
