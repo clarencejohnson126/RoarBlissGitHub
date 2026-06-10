@@ -364,12 +364,16 @@ def auto_synthesize(audio_path: str, user_context: str,
         slot_db = measure_slot_dbfs(vocals, s_ms, e_ms)
         if fitted.dBFS != float('-inf') and slot_db is not None:
             gain = slot_db - fitted.dBFS   # match the ORIGINAL slot loudness (seamless)
-            fitted = fitted + gain
-            if fitted.max_dBFS > -1.0:      # would clip → trim the peak to -1 dBFS
-                anti = fitted.max_dBFS + 1.0
-                fitted = fitted - anti
-                log(f"  loudness: matched {slot_db:.2f}dBFS (gain {gain:+.2f}dB, -{anti:.2f}dB anti-clip)")
+            # Clamp the gain BEFORE applying it. pydub's `+` hard-clips internally, so a clone already near
+            # 0 dBFS that needs a big +gain would be DESTROYED at the apply step (the old post-check measured
+            # an already-clipped signal and couldn't undo it → distortion that the mix bus then sums into the
+            # music). Clamp so the peak lands exactly at -1 dBFS, then the clone never clips the mix.
+            if fitted.max_dBFS + gain > -1.0:
+                safe = -1.0 - fitted.max_dBFS
+                fitted = fitted + safe
+                log(f"  loudness: clamped near {slot_db:.2f}dBFS (safe gain {safe:+.2f}dB, anti-clip)")
             else:
+                fitted = fitted + gain
                 log(f"  loudness: matched original {slot_db:.2f}dBFS (gain {gain:+.2f}dB)")
 
         # Breath sized to the ORIGINAL's own rhythm, and it sits INSIDE the slot so the clone never extends
@@ -406,7 +410,10 @@ def auto_synthesize(audio_path: str, user_context: str,
         wipe_start = s_ms - head
         wipe_len = head + remove_ms + tail
         canvas = canvas[:wipe_start] + AudioSegment.silent(duration=wipe_len) + canvas[wipe_start + wipe_len:]
-        canvas = canvas.overlay(fitted, position=s_ms)   # slot-locked; the guard only widens the SILENCE
+        # DESTRUCTIVE replace (NOT additive overlay): fitted is exactly slot_ms long, so this stays
+        # length-invariant AND nothing original can bleed UNDER the clone — overlay() is additive, so any
+        # residual original speech in the demucs vocal stem leaked through as the founder's hiss/squeak.
+        canvas = canvas[:s_ms] + fitted + canvas[s_ms + len(fitted):]   # slot-locked; guard only widens the SILENCE
 
         audit_slots.append({
             "id": sid, "speaker": spk, "emotion": emo,
@@ -442,7 +449,14 @@ def auto_synthesize(audio_path: str, user_context: str,
     # ...then trim any dead trailing silence (sources often end with a silent tail; we leave ~1s so it
     # doesn't end abruptly) so the track never finishes with a long stretch of nothing.
     cmd = ["ffmpeg","-y","-loglevel","error","-i",str(pv_path),"-i",str(accomp_trimmed),
-             "-filter_complex","[0:a]volume=1.0[s];[1:a]volume=1.0[m];[s][m]amix=inputs=2:duration=longest:normalize=0,"
+             # Music stays at volume=1.0 (HARD RULE: never altered). A brickwall limiter on the COMBINED
+             # mix bus (after amix) catches any residual peak so the SUM never clips into distortion — it
+             # limits the bus, not the music's pre-mix content.
+             # Voice bus only: HPF 80Hz kills sub-bass rumble, LPF 14kHz kills the >14kHz hiss/sizzle that
+             # demucs vocal separation leaves in BOTH the clones and the kept-original. Music ([1:a]) is
+             # NOT filtered — it stays volume=1.0, full-band, untouched (HARD RULE).
+             "-filter_complex","[0:a]volume=1.0,highpass=f=80,lowpass=f=14000[s];[1:a]volume=1.0[m];[s][m]amix=inputs=2:duration=longest:normalize=0,"
+             "alimiter=limit=0.97:level=false,"
              "areverse,silenceremove=start_periods=1:start_threshold=-50dB:start_silence=1.0,areverse",
              "-ac","2","-ar","44100","-b:a","320k", str(final_path)]
     r = subprocess.run(cmd, capture_output=True, text=True)

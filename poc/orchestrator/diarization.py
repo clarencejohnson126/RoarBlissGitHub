@@ -33,7 +33,37 @@ def _get_pipeline():
                 "https://hf.co/pyannote/segmentation-3.0"
             )
         print("  loading pyannote diarization pipeline (one-time, ~30s)...")
-        import torch, pyannote.audio
+        # Shim: pyannote.audio 3.4 calls hf_hub_download(use_auth_token=...), which newer huggingface_hub
+        # (pulled by transformers 5.x in self-hosted/OmniVoice envs) REMOVED → TypeError on load → the
+        # except-branch silently falls back to ONE speaker. Translate the dropped kwarg to `token` so
+        # pyannote loads and actually diarizes (multi-speaker). No-op where hf_hub_download already accepts it.
+        try:
+            import huggingface_hub as _hfh
+            if not getattr(_hfh.hf_hub_download, "_rb_shim", False):
+                _orig_hf_dl = _hfh.hf_hub_download
+                def _rb_hf_dl(*a, **k):
+                    if "use_auth_token" in k:
+                        k["token"] = k.pop("use_auth_token")
+                    return _orig_hf_dl(*a, **k)
+                _rb_hf_dl._rb_shim = True
+                _hfh.hf_hub_download = _rb_hf_dl
+        except Exception:
+            pass
+        import torch
+        # Shim 2: PyTorch >=2.6 flipped torch.load's default to weights_only=True, which raises
+        # UnpicklingError on pyannote's checkpoints (they pickle non-tensor config objects). Force the
+        # legacy default so the model loads. Trusted checkpoint, self-hosted context. No-op on torch <2.6.
+        try:
+            if not getattr(torch.load, "_rb_shim", False):
+                _orig_torch_load = torch.load
+                def _rb_torch_load(*a, **k):
+                    k["weights_only"] = False   # FORCE (lightning passes weights_only=True explicitly)
+                    return _orig_torch_load(*a, **k)
+                _rb_torch_load._rb_shim = True
+                torch.load = _rb_torch_load
+        except Exception:
+            pass
+        import pyannote.audio
         from pyannote.audio import Pipeline
         print(f"  pyannote.audio {pyannote.audio.__version__}")
         # Do NOT pass a token kwarg — from_pretrained's signature differs across pyannote 3.x/4.x and
@@ -55,7 +85,7 @@ def _get_pipeline():
     return _pipeline
 
 def _cache_path(audio_path: str) -> Path:
-    h = hashlib.md5(audio_path.encode()).hexdigest()[:12]
+    h = hashlib.md5(os.path.realpath(audio_path).encode()).hexdigest()[:12]  # canonical path → symlinks/relpaths converge
     name = Path(audio_path).stem[:40].replace(' ', '_')
     return CACHE_DIR / f"{name}_{h}.diar.json"
 
@@ -100,6 +130,11 @@ def diarize(audio_path: str, verbose: bool = True, min_speakers: int = 0, max_sp
                 hint["min_speakers"] = int(min_speakers)
             if max_speakers and max_speakers > 0:
                 hint["max_speakers"] = int(max_speakers)
+            if hint.get("min_speakers", 0) > 0 or hint.get("max_speakers", 0) > 1:
+                try:
+                    pipeline.clustering.threshold = 0.5   # tighter clustering → separates close/similar voices
+                except Exception:
+                    pass
             output = pipeline({"waveform": waveform, "sample_rate": sr}, **hint)
         finally:
             if os.path.exists(tmp_path):
@@ -140,6 +175,14 @@ def diarize(audio_path: str, verbose: bool = True, min_speakers: int = 0, max_sp
         "turns": turns,
         "speaker_durations_s": {k: round(v, 2) for k, v in speaker_durs.items()},
     }
+    # A source with many turns but only 1 detected speaker is the classic "clustering merged two voices"
+    # failure (e.g. Eric Thomas + Les Brown read as one). Re-run ONCE with min_speakers=2 + a tighter
+    # threshold to force separation, so each speaker is cloned from its OWN reference (not a contaminated
+    # mix). Only when NOT already hinted (the min_speakers=2 recursion bypasses this guard → no loop).
+    if (not (min_speakers or max_speakers)) and result["speaker_count"] == 1 and result["turn_count"] > 5:
+        if verbose:
+            print("  ⚠ 1 speaker but >5 turns — re-diarizing with min_speakers=2 (anti-merge)")
+        return diarize(audio_path, verbose=verbose, min_speakers=2)
     cache_file.write_text(json.dumps(result))
     return result
 

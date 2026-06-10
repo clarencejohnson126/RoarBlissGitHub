@@ -48,7 +48,7 @@ def get_whisper():
     return _whisper_model
 
 def _cache_path(audio_path: str, suffix: str) -> Path:
-    h = hashlib.md5(audio_path.encode()).hexdigest()[:12]
+    h = hashlib.md5(os.path.realpath(audio_path).encode()).hexdigest()[:12]  # canonical path → symlinks/relpaths converge
     name = Path(audio_path).stem[:40].replace(' ', '_')
     return CACHE_DIR / f"{name}_{h}.{suffix}"
 

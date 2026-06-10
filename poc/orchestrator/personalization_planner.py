@@ -133,7 +133,7 @@ def _group_into_sentences(segments: list, max_group_s: float = 14.0) -> list:
     return groups
 
 
-def find_candidate_slots(audio_path: str, ref_library: dict, window_ms: int = None) -> list:
+def find_candidate_slots(audio_path: str, ref_library: dict, window_ms: int = None, density: float = 0.55) -> list:
     """Return all Whisper segments that are eligible to be replaced.
     Each candidate is annotated with speaker, target syllable count, surrounding context,
     and whether it is an ICONIC moment (a repeated chant/anthem or an emphatic exclamation).
@@ -148,7 +148,10 @@ def find_candidate_slots(audio_path: str, ref_library: dict, window_ms: int = No
     transcript = json.loads(whisper_cache.read_text())
     segments = transcript["segments"]
     # Group raw Whisper segments into whole-sentence units so a slot never starts/ends mid-sentence.
-    units = _group_into_sentences(segments)
+    # Denser tiers (>=50%) need SHORTER units so each slot is filled by one clone — otherwise a long,
+    # punctuation-starved run becomes a 14s slot the clone fills only halfway (big gap). Real sentence
+    # punctuation still closes a unit first, so well-punctuated sources are unaffected.
+    units = _group_into_sentences(segments, max_group_s=(min(6.0, 14.0 * density) if density >= 0.5 else 14.0))
     diar = diarize(audio_path, verbose=False)
 
     valid_speakers = set(ref_library["speakers"].keys())
@@ -875,7 +878,10 @@ def generate_personalization(audio_path: str, user_context: str,
         print(f"  emotional_state: {brief['emotional_state']}")
 
     if verbose: print("\nStage 3: mine candidate slots...")
-    candidates = find_candidate_slots(audio_path, ref_library, window_ms=window_ms)
+    # Clamp density HERE — it now feeds slot granularity in find_candidate_slots (the line-897 re-clamp
+    # below is an idempotent no-op).
+    density = max(0.1, min(float(density or 0.55), 0.95))
+    candidates = find_candidate_slots(audio_path, ref_library, window_ms=window_ms, density=density)
     if verbose:
         print(f"  {len(candidates)} candidate slots in window")
         if not candidates:

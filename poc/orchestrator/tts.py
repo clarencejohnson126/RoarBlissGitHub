@@ -296,6 +296,51 @@ def synthesize_chatterbox(text: str, ref_path: Path, ref_text: str, slot_ms: int
 
 
 # ──────────────────────────────────────────────────────────────────────────
+# Provider: OmniVoice (Higgs Audio v2) — LOCAL zero-shot clone (Apple Silicon MPS / CUDA), NO per-op
+# limit, NO API cost. Best clone fidelity in our tests. Self-hostable on rented GPU for cloud scale.
+# Loads the model ONCE (module global) and reuses it for every slot.
+# ──────────────────────────────────────────────────────────────────────────
+OMNIVOICE_MODEL_ID = os.environ.get("OMNIVOICE_MODEL", "k2-fsa/OmniVoice")
+_OMNI = None
+
+def _get_omnivoice():
+    global _OMNI
+    if _OMNI is None:
+        import torch
+        from omnivoice.models.omnivoice import OmniVoice
+        dev = "cuda" if torch.cuda.is_available() else ("mps" if torch.backends.mps.is_available() else "cpu")
+        print(f"    [omnivoice: loading {OMNIVOICE_MODEL_ID} on {dev} ...]")
+        _OMNI = OmniVoice.from_pretrained(OMNIVOICE_MODEL_ID, device_map=dev, dtype=torch.float16)
+    return _OMNI
+
+def synthesize_omnivoice(text: str, ref_path: Path, ref_text: str, slot_ms: int, cache_dir: Path) -> AudioSegment:
+    key = cache_key("omnivoice", text, ref_path)
+    cache_file = cache_dir / f"clone_{key}.wav"
+    max_ms = sane_max_ms(slot_ms)
+    if cache_file.exists():
+        cached = AudioSegment.from_wav(str(cache_file))
+        if len(cached) <= max_ms:
+            return cached
+        os.unlink(cache_file)
+    import torchaudio
+    model = _get_omnivoice()
+    last_ms = None
+    for attempt in range(1, 4):
+        audios = model.generate(text=text, language="English", ref_audio=str(ref_path),
+                                ref_text=ref_text or "", num_step=32, guidance_scale=2.0, speed=1.0)
+        tmp = cache_dir / f"_omni_tmp_{key}.wav"
+        torchaudio.save(str(tmp), audios[0].float().cpu(), model.sampling_rate)
+        clone = trim_silence(AudioSegment.from_wav(str(tmp)))
+        os.unlink(tmp)
+        if len(clone) <= max_ms:
+            clone.export(str(cache_file), format="wav")
+            return clone
+        last_ms = len(clone)
+        print(f"    [omnivoice attempt {attempt}: clone {len(clone)}ms > sane {max_ms}ms — retry]")
+    raise RuntimeError(f"OmniVoice clone {last_ms}ms > sane {max_ms}ms after 3 attempts")
+
+
+# ──────────────────────────────────────────────────────────────────────────
 # Provider: ElevenLabs (premium voice cloning — far better timbre + clarity than F5)
 # ──────────────────────────────────────────────────────────────────────────
 ELEVENLABS_API = "https://api.elevenlabs.io/v1"
@@ -365,10 +410,12 @@ def synthesize_clone(text: str, ref_path: Path, ref_text: str, slot_ms: int, cac
         return synthesize_replicate(text, ref_path, ref_text, slot_ms, cache_dir)
     elif provider == "chatterbox":
         return synthesize_chatterbox(text, ref_path, ref_text, slot_ms, cache_dir)
+    elif provider == "omnivoice":
+        return synthesize_omnivoice(text, ref_path, ref_text, slot_ms, cache_dir)
     elif provider == "qwen3_mlx" or provider == "qwen3":
         return synthesize_qwen3(text, ref_path, ref_text, slot_ms, cache_dir)
     else:
-        raise ValueError(f"Unknown TTS_PROVIDER: {provider!r}. Use 'elevenlabs', 'chatterbox', 'replicate' or 'qwen3_mlx'.")
+        raise ValueError(f"Unknown TTS_PROVIDER: {provider!r}. Use 'elevenlabs', 'chatterbox', 'omnivoice', 'replicate' or 'qwen3_mlx'.")
 
 
 def current_provider_label() -> str:
