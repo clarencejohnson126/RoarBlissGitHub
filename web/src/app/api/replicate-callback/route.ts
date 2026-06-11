@@ -4,7 +4,7 @@ import { Resend } from "resend";
 import { del, put } from "@vercel/blob";
 import { outputUrl } from "@/lib/replicate";
 import { baseUrl } from "@/lib/base-url";
-import { markJobTerminal } from "@/lib/scale-guard";
+import { markJobTerminal, setJobOutputUrl } from "@/lib/scale-guard";
 import { chargeReservation, releaseReservation, clearFreeUsageForPrediction } from "@/lib/supabase-admin";
 import { drainQueue, reconcileStuckRunning } from "@/lib/drain";
 
@@ -112,6 +112,9 @@ export async function POST(request: Request) {
               // from a prediction id. The email uses blob.url directly, so the suffix costs nothing.
               const blob = await put(`outputs/${id}.mp3`, buf, { access: "public", addRandomSuffix: true, contentType: "audio/mpeg" });
               listen = blob.url;
+              // Persist the durable URL on the job row — it powers the dashboard track library and
+              // the public share page (/t/<id>); the random suffix makes it unrecoverable otherwise.
+              await setJobOutputUrl(id, blob.url);
             }
           } catch (e) {
             console.error("blob persist failed:", e);

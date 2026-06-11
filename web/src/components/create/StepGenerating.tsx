@@ -16,7 +16,7 @@ const PHASES = [
 ];
 
 export default function StepGenerating() {
-  const { data, file, setSessionId, setStep } = useCreateFlow();
+  const { data, file, presetAudioUrl, saveVoice, setSessionId, setStep } = useCreateFlow();
   const [progress, setProgress] = useState(4);
   const [phase, setPhase] = useState(0);
   const [error, setError] = useState("");
@@ -33,9 +33,9 @@ export default function StepGenerating() {
 
     const run = async () => {
       try {
-        // 1) upload audio to durable storage
-        let audioUrl = "";
-        if (file) {
+        // 1) upload audio to durable storage — or reuse a saved voice (no upload needed)
+        let audioUrl = presetAudioUrl || "";
+        if (file && !audioUrl) {
           const { upload } = await import("@vercel/blob/client");
           const blob = await upload(
             `uploads/${Date.now()}-${file.name}`.replace(/\s+/g, "_"),
@@ -71,6 +71,16 @@ export default function StepGenerating() {
         // 2) start the run (attach token for paid; free is device/IP gated)
         const { data: sess } = await supabaseBrowser().auth.getSession();
         const token = sess.session?.access_token;
+
+        // Voice favorite (opt-in): copy the upload into the user's library BEFORE the post-run
+        // cleanup deletes it. Best-effort — a failed save never blocks the generation.
+        if (saveVoice && token && audioUrl && !presetAudioUrl) {
+          fetch("/api/voices", {
+            method: "POST",
+            headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+            body: JSON.stringify({ audioUrl, name: file?.name?.replace(/\.[a-z0-9]+$/i, "").slice(0, 60) || "My voice" }),
+          }).catch(() => {});
+        }
         const headers: Record<string, string> = { "Content-Type": "application/json" };
         if (token) headers.Authorization = `Bearer ${token}`;
 

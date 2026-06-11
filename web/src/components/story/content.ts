@@ -97,6 +97,10 @@ export const FAQ = {
     { q: "Can it be in another language?", a: "Yes. Choose a target language and the whole speech is delivered in it, with the original tone preserved." },
     { q: "How long does it take?", a: "A short preview is ready in moments. Full personalized speeches are generated in the cloud and delivered as soon as they're done — you can wait on the page or get notified." },
     { q: "Who owns the result?", a: "You do. RoarBliss is designed for personal transformation and original motivational content you create from audio you're allowed to use." },
+    { q: "Why does my free track stop at 45 seconds?", a: "That's your free preview — one per device, no account needed. Plans unlock full tracks up to 6 minutes and let you create every month." },
+    { q: "How do I download my track?", a: "Listening is free right on the page. To keep the file, create a free account with your email and a password — then the download is yours." },
+    { q: "What happens to my uploaded file?", a: "It's deleted the moment processing finishes — we never keep your source audio. Your finished track stays available for 90 days." },
+    { q: "It failed — was I charged?", a: "No. If a generation doesn't deliver, your minutes (or your free try) are returned automatically. You only ever pay for tracks you actually receive." },
   ] as const,
 };
 

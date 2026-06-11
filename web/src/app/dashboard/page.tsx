@@ -10,7 +10,9 @@ import styles from "./dashboard.module.css";
 
 type Me = { authenticated: boolean; email?: string; minutesRemaining?: number; minutesAllowance?: number; tier?: string | null; profile?: Profile | null };
 type Profile = { nickname?: string; people?: string; battles?: string[]; tone?: string; language?: string };
-type Tab = "overview" | "profile" | "settings";
+type Tab = "overview" | "voices" | "profile" | "settings";
+type Track = { id: string; url: string; createdAt: string; paid: boolean; shareUrl: string | null };
+type Voice = { id: string; name: string; blob_url: string; created_at: string };
 
 const EMPTY_PROFILE: Profile = { nickname: "", people: "", battles: [], tone: "", language: "English" };
 
@@ -44,6 +46,9 @@ export default function DashboardPage() {
   const [msg, setMsg] = useState("");
   const [profile, setProfile] = useState<Profile>(EMPTY_PROFILE);
   const [saved, setSaved] = useState("");
+  const [tracks, setTracks] = useState<Track[] | null>(null);
+  const [voices, setVoices] = useState<Voice[] | null>(null);
+  const [copied, setCopied] = useState("");
 
   const loadMe = useCallback(async (tok: string) => {
     try {
@@ -54,7 +59,31 @@ export default function DashboardPage() {
     } catch {
       /* ignore */
     }
+    // Library + saved voices load alongside (best-effort; the page works without them).
+    try {
+      const r = await fetch("/api/me/tracks", { headers: { Authorization: `Bearer ${tok}` } });
+      if (r.ok) setTracks(((await r.json()) as { tracks: Track[] }).tracks);
+    } catch { /* ignore */ }
+    try {
+      const r = await fetch("/api/voices", { headers: { Authorization: `Bearer ${tok}` } });
+      if (r.ok) setVoices(((await r.json()) as { voices: Voice[] }).voices);
+    } catch { /* ignore */ }
   }, []);
+
+  const shareTrack = async (t: Track) => {
+    const url = `${window.location.origin}${t.shareUrl}`;
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopied(t.id);
+      setTimeout(() => setCopied(""), 2000);
+    } catch { /* ignore */ }
+  };
+
+  const deleteVoice = async (id: string) => {
+    if (!token) return;
+    await fetch(`/api/voices?id=${encodeURIComponent(id)}`, { method: "DELETE", headers: { Authorization: `Bearer ${token}` } });
+    setVoices((v) => (v || []).filter((x) => x.id !== id));
+  };
 
   useEffect(() => {
     const sb = supabaseBrowser();
@@ -218,7 +247,7 @@ export default function DashboardPage() {
         </Link>
 
         <div className={styles.tabs}>
-          {(["overview", "profile", "settings"] as Tab[]).map((t) => (
+          {(["overview", "voices", "profile", "settings"] as Tab[]).map((t) => (
             <button key={t} className={`${styles.tab} ${tab === t ? styles.tabActive : ""}`} onClick={() => setTab(t)}>
               {t[0].toUpperCase() + t.slice(1)}
             </button>
@@ -245,7 +274,7 @@ export default function DashboardPage() {
               <div className={styles.card}>
                 <div className={styles.cardLabel}>Email</div>
                 <div className={styles.cardValue} style={{ fontSize: "1.1rem", wordBreak: "break-all" }}>{me?.email}</div>
-                <div className={styles.cardSub}>Magic-link sign-in.</div>
+                <div className={styles.cardSub}>Password sign-in.</div>
               </div>
             </div>
 
@@ -256,14 +285,71 @@ export default function DashboardPage() {
 
             <div className={styles.section}>
               <h2 className={styles.sectionTitle}>Your speeches</h2>
-              <div className={styles.empty}>
-                Your generated speeches will appear here. Make your first one and it&apos;ll show up.
-                <div style={{ marginTop: "1rem" }}>
-                  <Link href="/create" className={styles.btnGold}>Start your first speech</Link>
+              {tracks && tracks.length > 0 ? (
+                <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
+                  {tracks.map((t) => (
+                    <div key={t.id} className={styles.row} style={{ alignItems: "center", gap: "1rem", flexWrap: "wrap" }}>
+                      <div style={{ flex: "1 1 260px", minWidth: 0 }}>
+                        <div className={styles.rowLabel}>
+                          {new Date(t.createdAt).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" })}
+                          {t.paid ? "" : " · free preview"}
+                        </div>
+                        {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
+                        <audio controls preload="none" src={t.url} style={{ width: "100%", marginTop: "0.4rem" }} />
+                      </div>
+                      <div style={{ display: "flex", gap: "0.5rem" }}>
+                        {t.shareUrl && (
+                          <button className={styles.btnGhost} onClick={() => shareTrack(t)}>
+                            {copied === t.id ? "Link copied ✓" : "Share"}
+                          </button>
+                        )}
+                        <a className={styles.btnGhost} href={`/api/audio?id=${t.id}&download=1`}>Download</a>
+                      </div>
+                    </div>
+                  ))}
                 </div>
-              </div>
+              ) : (
+                <div className={styles.empty}>
+                  Your generated speeches will appear here. Make your first one and it&apos;ll show up.
+                  <div style={{ marginTop: "1rem" }}>
+                    <Link href="/create" className={styles.btnGold}>Start your first speech</Link>
+                  </div>
+                </div>
+              )}
             </div>
           </>
+        )}
+
+        {tab === "voices" && (
+          <div className={styles.section}>
+            <h2 className={styles.sectionTitle}>Your saved voices</h2>
+            <p className={styles.sub} style={{ marginBottom: "1.5rem" }}>
+              Voices you chose to keep when creating a speech — reuse them with one click, no re-upload.
+              Delete one and its audio is gone for good.
+            </p>
+            {voices && voices.length > 0 ? (
+              <div style={{ display: "flex", flexDirection: "column", gap: "1rem" }}>
+                {voices.map((v) => (
+                  <div key={v.id} className={styles.row} style={{ alignItems: "center", gap: "1rem", flexWrap: "wrap" }}>
+                    <div style={{ flex: "1 1 260px", minWidth: 0 }}>
+                      <div className={styles.rowLabel}>{v.name}</div>
+                      {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
+                      <audio controls preload="none" src={v.blob_url} style={{ width: "100%", marginTop: "0.4rem" }} />
+                    </div>
+                    <div style={{ display: "flex", gap: "0.5rem" }}>
+                      <Link className={styles.btnGhost} href={`/create?voice=${encodeURIComponent(v.blob_url)}`}>Use this voice</Link>
+                      <button className={styles.btnDanger} onClick={() => deleteVoice(v.id)}>Delete</button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className={styles.empty}>
+                No saved voices yet. When you create a speech, tick “Save this voice to my profile” and it&apos;ll
+                be waiting here next time.
+              </div>
+            )}
+          </div>
         )}
 
         {tab === "profile" && (

@@ -11,6 +11,12 @@ type Ctx = {
   toggleArray: (field: keyof CreateFlowData, value: string, max?: number) => void;
   file: File | null;
   setFile: (f: File | null) => void;
+  /** A saved-voice blob URL (from the dashboard "Use this voice") — used instead of a fresh upload. */
+  presetAudioUrl: string;
+  setPresetAudioUrl: (url: string) => void;
+  /** Opt-in: copy this run's upload into the user's voice library before cleanup deletes it. */
+  saveVoice: boolean;
+  setSaveVoice: (v: boolean) => void;
   sessionId: string;
   setSessionId: (id: string) => void;
   step: number;
@@ -31,6 +37,8 @@ export function useCreateFlow(): Ctx {
 export default function CreateFlowProvider({ children }: { children: ReactNode }) {
   const [data, setData] = useState<CreateFlowData>(EMPTY_FLOW);
   const [file, setFile] = useState<File | null>(null);
+  const [presetAudioUrl, setPresetAudioUrl] = useState("");
+  const [saveVoice, setSaveVoice] = useState(false);
   const [sessionId, setSessionId] = useState("");
   const [step, setStep] = useState(0);
   const loaded = useRef(false);
@@ -72,6 +80,8 @@ export default function CreateFlowProvider({ children }: { children: ReactNode }
   const reset = useCallback(() => {
     setData(EMPTY_FLOW);
     setFile(null);
+    setPresetAudioUrl("");
+    setSaveVoice(false);
     setSessionId("");
     setStep(0);
     try {
@@ -82,7 +92,7 @@ export default function CreateFlowProvider({ children }: { children: ReactNode }
   }, []);
 
   return (
-    <FlowCtx.Provider value={{ data, update, toggleArray, file, setFile, sessionId, setSessionId, step, setStep, next, back, reset }}>
+    <FlowCtx.Provider value={{ data, update, toggleArray, file, setFile, presetAudioUrl, setPresetAudioUrl, saveVoice, setSaveVoice, sessionId, setSessionId, step, setStep, next, back, reset }}>
       {children}
     </FlowCtx.Provider>
   );

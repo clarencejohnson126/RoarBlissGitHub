@@ -1,7 +1,7 @@
 "use client";
 
-import { useRef, useState } from "react";
-import { UploadCloud, FileAudio, Sparkles } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { UploadCloud, FileAudio, Sparkles, Mic } from "lucide-react";
 import { useCreateFlow } from "./CreateFlowProvider";
 import { BATTLES, TONES, LANGUAGES, DEPTHS, type Depth, type Intensity } from "./createData";
 import styles from "./create.module.css";
@@ -18,11 +18,19 @@ const INTENSITIES: { value: Intensity; label: string }[] = [
  * existing CreateFlow data + composePayload; "Generate" hands off to StepGenerating (step 6).
  */
 export default function QuickCreate({ onFullSetup }: { onFullSetup?: () => void }) {
-  const { data, update, toggleArray, file, setFile, setStep } = useCreateFlow();
+  const { data, update, toggleArray, file, setFile, presetAudioUrl, setPresetAudioUrl, saveVoice, setSaveVoice, setStep } = useCreateFlow();
   const [error, setError] = useState("");
   const [drag, setDrag] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const firstName = (data.userName || "").trim().split(" ")[0] || "warrior";
+
+  // Arriving via dashboard "Use this voice" → ?voice=<saved blob URL> replaces the upload.
+  useEffect(() => {
+    try {
+      const v = new URLSearchParams(window.location.search).get("voice");
+      if (v && /^https:\/\/[^ ]*blob\.vercel-storage\.com\//.test(v)) setPresetAudioUrl(v);
+    } catch { /* ignore */ }
+  }, [setPresetAudioUrl]);
 
   const pick = (f: File | undefined) => {
     if (!f) return;
@@ -157,9 +165,22 @@ export default function QuickCreate({ onFullSetup }: { onFullSetup?: () => void 
             </div>
           </div>
 
-          {/* Audio upload */}
+          {/* Audio upload (or a saved voice from the dashboard) */}
           <div className={styles.qcField}>
             <label className={styles.qcLabel}>Your audio</label>
+            {presetAudioUrl ? (
+              <div className={`${styles.uploadBox} ${styles.uploadBoxOn}`}>
+                <Mic size={26} className={styles.uploadIcon} />
+                <div className={styles.uploadFile}>Using one of your saved voices</div>
+                <button
+                  type="button"
+                  style={{ background: "none", border: "none", color: "var(--color-gold)", textDecoration: "underline", cursor: "pointer", marginTop: "0.4rem" }}
+                  onClick={() => setPresetAudioUrl("")}
+                >
+                  Use a fresh upload instead
+                </button>
+              </div>
+            ) : (
             <div
               className={`${styles.uploadBox} ${drag ? styles.uploadBoxDrag : ""} ${file ? styles.uploadBoxOn : ""}`}
               role="button"
@@ -185,9 +206,18 @@ export default function QuickCreate({ onFullSetup }: { onFullSetup?: () => void 
               )}
               <input ref={inputRef} type="file" accept="audio/*,.mp3,.wav,.m4a,.aac,.ogg" hidden onChange={(e) => pick(e.target.files?.[0])} />
             </div>
-            <p style={{ fontSize: "0.8rem", color: "var(--color-smoke)", marginTop: "0.6rem", lineHeight: 1.5 }}>
-              Max 100 MB. Audio over <strong style={{ color: "var(--color-ivory)" }}>6 minutes</strong> is trimmed to the first 6 min. We process it and <strong style={{ color: "var(--color-ivory)" }}>keep only the finished result</strong> — your upload is deleted right after.
-            </p>
+            )}
+            {!presetAudioUrl && (
+              <p style={{ fontSize: "0.8rem", color: "var(--color-smoke)", marginTop: "0.6rem", lineHeight: 1.5 }}>
+                Max 100 MB. Audio over <strong style={{ color: "var(--color-ivory)" }}>6 minutes</strong> is trimmed to the first 6 min. We process it and <strong style={{ color: "var(--color-ivory)" }}>keep only the finished result</strong> — your upload is deleted right after.
+              </p>
+            )}
+            {file && !presetAudioUrl && (
+              <label style={{ display: "flex", alignItems: "center", gap: "0.5rem", marginTop: "0.7rem", fontSize: "0.85rem", color: "var(--color-ivory)", cursor: "pointer" }}>
+                <input type="checkbox" checked={saveVoice} onChange={(e) => setSaveVoice(e.target.checked)} />
+                Save this voice to my profile for next time <span className={styles.qcHint}>(requires sign-in; you can delete it anytime)</span>
+              </label>
+            )}
           </div>
 
           {error && <p className={styles.errorMsg}>{error}</p>}
@@ -196,8 +226,8 @@ export default function QuickCreate({ onFullSetup }: { onFullSetup?: () => void 
             type="button"
             className={styles.btnGold}
             style={{ width: "100%", justifyContent: "center", marginTop: "0.5rem" }}
-            disabled={!file || !data.primaryTone}
-            onClick={() => file && data.primaryTone && setStep(6)}
+            disabled={(!file && !presetAudioUrl) || !data.primaryTone}
+            onClick={() => (file || presetAudioUrl) && data.primaryTone && setStep(6)}
           >
             <Sparkles size={17} style={{ marginRight: 8 }} />
             Generate my speech

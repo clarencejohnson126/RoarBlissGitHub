@@ -299,6 +299,56 @@ export async function failJob(jobId: string): Promise<void> {
   }
 }
 
+/** Persist the durable output blob URL on the job row (track library + share page lookup). */
+export async function setJobOutputUrl(predictionId: string, outputUrl: string): Promise<void> {
+  try {
+    await supabaseAdmin()
+      .from("jobs")
+      .update({ output_url: outputUrl, updated_at: new Date().toISOString() })
+      .eq("prediction_id", predictionId);
+  } catch (e) {
+    console.warn("setJobOutputUrl skipped:", (e as Error).message);
+  }
+}
+
+/** A user's finished tracks, newest first (the dashboard "Your speeches" library). */
+export async function listUserTracks(
+  userId: string,
+  limit = 50,
+): Promise<Array<{ prediction_id: string | null; output_url: string | null; created_at: string; paid: boolean }>> {
+  try {
+    const { data, error } = await supabaseAdmin()
+      .from("jobs")
+      .select("prediction_id,output_url,created_at,paid")
+      .eq("user_id", userId)
+      .eq("status", "done")
+      .order("created_at", { ascending: false })
+      .limit(limit);
+    if (error || !data) return [];
+    return data as Array<{ prediction_id: string | null; output_url: string | null; created_at: string; paid: boolean }>;
+  } catch {
+    return [];
+  }
+}
+
+/** Public share-page lookup: prediction id → durable output URL (only finished tracks resolve). */
+export async function getTrackByPredictionId(
+  predictionId: string,
+): Promise<{ output_url: string | null } | null> {
+  try {
+    const { data, error } = await supabaseAdmin()
+      .from("jobs")
+      .select("output_url")
+      .eq("prediction_id", predictionId)
+      .eq("status", "done")
+      .limit(1);
+    if (error || !data?.length) return null;
+    return data[0] as { output_url: string | null };
+  } catch {
+    return null;
+  }
+}
+
 /** Look up a job by its row id (for the queued-job status poll). */
 export async function getJobById(
   jobId: string,
