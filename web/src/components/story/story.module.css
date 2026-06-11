@@ -881,6 +881,12 @@
    ran 89px past a 390px screen (the CTA was half off-screen). Shrink the brand, drop the nav CTA —
    the hero's own "Create My Speech" sits directly below — and tighten the gaps. */
 @media (max-width: 640px) {
+  /* Solid navbar on phones: the translucent blur let section headings bleed THROUGH the bar
+     while scrolling ("Chapter V" mixing into the logo) — reads as broken, not cinematic. */
+  .nav {
+    background: rgba(5, 5, 5, 0.96);
+    border-bottom: 1px solid rgba(214, 168, 79, 0.14);
+  }
   .navInner {
     padding: 0.6rem 1rem;
     gap: 0.5rem;
@@ -903,6 +909,11 @@
   }
   .navCta {
     display: none;
+  }
+  /* Sections must clear the fixed bar: at ~56px top padding the chapter eyebrow/heading was
+     swallowed under the 60px navbar at every section top. */
+  .chapter {
+    padding-top: 6rem;
   }
 }
 

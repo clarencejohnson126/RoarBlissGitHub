@@ -1,17 +1,21 @@
 "use client";
 
-import { Pause, Play, Volume2, VolumeX } from "lucide-react";
+import { useState } from "react";
+import { ChevronDown, Music, Pause, Play, Volume2, VolumeX } from "lucide-react";
 import { useRouter } from "next/navigation";
 import type Lenis from "lenis";
 import { useAudio } from "./CinematicAudioProvider";
 import { getInstrumental } from "@/data/instrumentals";
 import styles from "./audio.module.css";
 
-/** Fixed premium mini-player, bottom-right (clear of the centered CTAs). Persists across routes. */
+/** Fixed premium mini-player, bottom-right (clear of the centered CTAs). Persists across routes.
+ *  On phones it collapses to a small floating button (the full card covered card CTAs / footer
+ *  content on a 390px screen) — tap to expand, chevron to tuck it away again. */
 export default function GlobalAudioPlayer() {
   const { playing, muted, volume, currentId, trackError, togglePlay, toggleMute, setVolume } = useAudio();
   const track = getInstrumental(currentId);
   const router = useRouter();
+  const [expanded, setExpanded] = useState(false);
 
   const changeSound = () => {
     const el = document.querySelector("#chapter-sound");
@@ -26,7 +30,25 @@ export default function GlobalAudioPlayer() {
   };
 
   return (
-    <div className={styles.player} role="region" aria-label="Background music player">
+    <div
+      className={`${styles.player} ${expanded ? styles.playerOpen : styles.playerClosed}`}
+      role="region"
+      aria-label="Background music player"
+    >
+      <button
+        className={`${styles.fab} ${playing && !muted ? styles.fabPlaying : ""}`}
+        onClick={() => setExpanded(true)}
+        aria-label="Open music player"
+      >
+        <Music size={20} />
+      </button>
+      <button
+        className={styles.collapseBtn}
+        onClick={() => setExpanded(false)}
+        aria-label="Minimize music player"
+      >
+        <ChevronDown size={16} />
+      </button>
       <div className={styles.playerTop}>
         <button className={styles.playBtn} onClick={togglePlay} aria-label={playing ? "Pause music" : "Play music"}>
           {playing ? <Pause size={20} /> : <Play size={20} />}

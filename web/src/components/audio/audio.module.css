@@ -376,17 +376,22 @@
   }
 }
 
-/* Phone: the full player (102px tall) permanently covered ~118px of an 844px viewport.
-   Compact it — drop the volume slider (phones have hardware volume), keep play/mute +
-   "Change Sound" — and respect the home-indicator safe area. The page reserves matching
-   bottom space globally (see globals.css) so no content ever hides under the player. */
+/* The mobile FAB + collapse affordances exist only on phones. */
+.fab,
+.collapseBtn {
+  display: none;
+}
+
+/* Phone: the full card permanently covered mid-page content (instrumental SELECT buttons,
+   footer) on a 390px screen. Collapsed by default to a small floating music button; tapping
+   it expands the compact card (no volume slider — phones have hardware volume); the chevron
+   tucks it away again. Safe-area aware. */
 @media (max-width: 560px) {
   .player {
-    left: 0.75rem;
+    left: auto;
     right: 0.75rem;
     width: auto;
     bottom: calc(0.75rem + env(safe-area-inset-bottom, 0px));
-    padding: 0.6rem 0.85rem;
   }
   .volume {
     display: none;
@@ -395,4 +400,66 @@
     margin-block-start: 0.45rem;
     justify-content: flex-end;
   }
+  /* collapsed: just the round button */
+  .playerClosed {
+    background: none;
+    border: none;
+    box-shadow: none;
+    padding: 0;
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+  }
+  .playerClosed .playerTop,
+  .playerClosed .playerBottom,
+  .playerClosed .playerError,
+  .playerClosed .collapseBtn {
+    display: none;
+  }
+  .playerClosed .fab {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 52px;
+    height: 52px;
+    border-radius: 50%;
+    border: 1px solid rgba(214, 168, 79, 0.45);
+    background: rgba(10, 9, 7, 0.88);
+    color: var(--color-gold);
+    box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
+    cursor: pointer;
+  }
+  .fabPlaying {
+    animation: fabPulse 2.4s ease-in-out infinite;
+  }
+  /* expanded: the compact card + a collapse chevron */
+  .playerOpen {
+    left: 0.75rem;
+    padding: 0.6rem 0.85rem;
+  }
+  .playerOpen .fab {
+    display: none;
+  }
+  .playerOpen .collapseBtn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: absolute;
+    top: 0.45rem;
+    right: 0.5rem;
+    width: 26px;
+    height: 26px;
+    border-radius: 50%;
+    border: none;
+    background: rgba(232, 227, 216, 0.08);
+    color: var(--color-smoke);
+    cursor: pointer;
+  }
+  .playerOpen .playerTop {
+    padding-right: 1.6rem;
+  }
+}
+
+@keyframes fabPulse {
+  0%, 100% { box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5), 0 0 0 0 rgba(214, 168, 79, 0.35); }
+  50% { box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5), 0 0 0 9px rgba(214, 168, 79, 0); }
 }

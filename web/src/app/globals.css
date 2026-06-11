@@ -683,10 +683,10 @@
   .process-step { flex: 0 0 calc(50% - 0.5rem); }
 }
 
-/* Phone: reserve scroll space for the fixed bottom audio player (compact ≈ 80px) so the
+/* Phone: reserve scroll space for the fixed bottom audio control (collapsed FAB ≈ 52px) so the
    footer / last section is always reachable above it — content must never end underneath. */
 @media (max-width: 560px) {
   body:has([aria-label="Background music player"]) {
-    padding-bottom: calc(96px + env(safe-area-inset-bottom, 0px));
+    padding-bottom: calc(76px + env(safe-area-inset-bottom, 0px));
   }
 }
