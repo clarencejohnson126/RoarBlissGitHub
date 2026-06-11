@@ -11,13 +11,13 @@
 #   HF_TOKEN            - pyannote diarization model download
 #   REPLICATE_API_TOKEN - F5-TTS voice cloning (v1 calls Replicate's F5; later: host F5 in-cog)
 build:
-  # GPU build. torch 2.5.1: OmniVoice (Higgs Audio v2) imports torch.nn.attention.flex_attention which
-  # only exists in torch >=2.5. torch 2.5.1's PyPI wheel bundles CUDA 12.4 libs (nvidia-*-cu12==12.4.x),
-  # so the cog CUDA must MATCH — cuda 12.1 mismatched it → torch.cuda.is_available()=False → CPU fallback
-  # (catastrophically slow: a run took 32min on CPU). cuda 12.4 matches the wheel → GPU. (Cog supports
-  # up to 12.4; 12.6 is the unsupported one.) GPU cuts Demucs/Whisper/pyannote/OmniVoice ~5-15x vs CPU.
+  # GPU build. torch 2.5.1: OmniVoice needs torch.nn.attention.flex_attention (torch >=2.5). torch 2.5.1's
+  # PyPI-default wheel is cu124 (CUDA 12.4) — but Cog PANICS on cuda 12.4 (no cuDNN mapping) and supports
+  # 12.1 cleanly. So: keep cuda 12.1 (Cog-supported) AND force-install torch 2.5.1+cu121 from the pytorch
+  # cu121 index in the first run step (cu121 wheels exist for 2.5.1) so torch's CUDA matches the 12.1 box →
+  # torch.cuda.is_available()=True (GPU). Without this, torch's cu124 libs on a 12.1 box → CPU (32min/run).
   gpu: true
-  cuda: "12.4"
+  cuda: "12.1"
   python_version: "3.11"
   system_packages:
     - "ffmpeg"
@@ -40,12 +40,16 @@ build:
     - "requests==2.32.3"
     - "setuptools<81"
   run:
+    # FORCE torch's CUDA build to cu121 to match the cuda:12.1 box. Cog installs the PyPI-default torch
+    # 2.5.1 (cu124) which mismatches the 12.1 box → torch.cuda.is_available()=False → CPU fallback. Reinstall
+    # the cu121 build from the pytorch index + assert it (torch.version.cuda must read 12.1).
+    - "pip install --no-cache-dir --force-reinstall torch==2.5.1 torchaudio==2.5.1 --index-url https://download.pytorch.org/whl/cu121 && python -c 'import torch; print(\"torch\", torch.__version__, \"cuda\", torch.version.cuda)'"
     # pyannote.audio is a dotted namespace pkg (Cog's python_packages parser mangles it); install via raw
     # pip. 3.4.0 coexists with the OmniVoice stack (transformers 5.x + huggingface_hub 1.x) — PROVEN in the
     # local venv that ran the full multi-speaker pipeline. pyannote 3.4 still calls
     # hf_hub_download(use_auth_token=) AND trips torch's weights_only default; diarization.py shims BOTH so
     # pyannote loads against the new hub/torch (this REPLACES the old hub==0.25.2 pin).
-    - "pip install --no-cache-dir pyannote.audio==3.4.0 && pip install --no-cache-dir 'huggingface_hub==1.18.0' 'transformers==5.11.0' && python -c 'import pyannote.audio, huggingface_hub, transformers; print(\"pyannote\", pyannote.audio.__version__, \"hub\", huggingface_hub.__version__, \"tf\", transformers.__version__)' && echo cache-bust-omnivoice-v3-cuda124"
+    - "pip install --no-cache-dir pyannote.audio==3.4.0 && pip install --no-cache-dir 'huggingface_hub==1.18.0' 'transformers==5.11.0' && python -c 'import pyannote.audio, huggingface_hub, transformers; print(\"pyannote\", pyannote.audio.__version__, \"hub\", huggingface_hub.__version__, \"tf\", transformers.__version__)' && echo cache-bust-omnivoice-v4-cu121force"
     # openai-whisper ships an sdist whose setup.py imports pkg_resources; build against setuptools<81.
     - "pip install --no-cache-dir --no-build-isolation openai-whisper==20250625"
     # OmniVoice (Higgs Audio v2) = THE engine. 0.3.5 is git-only (PyPI lags at 0.1.5). --no-deps because the
