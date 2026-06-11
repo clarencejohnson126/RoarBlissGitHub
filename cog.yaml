@@ -53,7 +53,7 @@ build:
     - "pip install --no-cache-dir --no-deps 'git+https://github.com/debpalash/OmniVoice-Studio.git' && python -c 'import omnivoice.models.omnivoice; print(\"omnivoice ok\")'"
     # Bake the ~3GB weights + the Higgs audio tokenizer into the image so scale-to-zero cold-starts never
     # re-download them.
-    - "python -c \"from huggingface_hub import snapshot_download; snapshot_download('k2-fsa/OmniVoice'); snapshot_download('eustlb/higgs-audio-v2-tokenizer')\""
+    - "n=0; until python -c \"from huggingface_hub import snapshot_download; snapshot_download('k2-fsa/OmniVoice'); snapshot_download('eustlb/higgs-audio-v2-tokenizer')\"; do n=$((n+1)); [ $n -ge 6 ] && echo 'HF download failed after retries' && exit 1; echo \"hf 429/transient — retry $n in 45s\"; sleep 45; done && echo weights-ready-retry-v1"
     # FINAL step (must be LAST): force torch 2.5.1+cu121. The earlier pip installs (pyannote / transformers /
     # omnivoice) re-pull torch's nvidia-*-cu12 deps back to the cu124 (12.4.127) PyPI default on the 12.1 box
     # → torch.cuda.is_available()=False → CPU fallback (the 32min/run bug). Reinstalling cu121 LAST pins the
