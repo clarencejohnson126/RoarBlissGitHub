@@ -310,7 +310,11 @@ def _get_omnivoice():
         from omnivoice.models.omnivoice import OmniVoice
         dev = "cuda" if torch.cuda.is_available() else ("mps" if torch.backends.mps.is_available() else "cpu")
         print(f"    [omnivoice: loading {OMNIVOICE_MODEL_ID} on {dev} ...]")
-        _OMNI = OmniVoice.from_pretrained(OMNIVOICE_MODEL_ID, device_map=dev, dtype=torch.float16)
+        # attn_implementation="eager" — NOT flex_attention. OmniVoice's forward uses torch.nn.attention
+        # flex_attention, which is BUGGY in torch 2.5.1 (the only torch with cu121 wheels that Cog's CUDA
+        # 12.1 supports): it clones the VOICE correctly but SCRAMBLES the text (gibberish/backwards). eager
+        # is the stable reference attention — slower but CORRECT. (sdpa isn't supported by OmniVoice yet.)
+        _OMNI = OmniVoice.from_pretrained(OMNIVOICE_MODEL_ID, device_map=dev, dtype=torch.float16, attn_implementation="eager")
     return _OMNI
 
 def synthesize_omnivoice(text: str, ref_path: Path, ref_text: str, slot_ms: int, cache_dir: Path) -> AudioSegment:

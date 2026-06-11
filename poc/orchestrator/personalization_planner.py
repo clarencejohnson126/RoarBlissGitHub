@@ -191,10 +191,13 @@ def find_candidate_slots(audio_path: str, ref_library: dict, window_ms: int = No
         is_anthem = ntext in anthem_phrases
         is_exclaim = seg["text"].strip().endswith("!") and duration <= 2.5
 
-        # Decide which reference voice powers this slot, and whether to admit it.
-        # Require a near-solo slot: at 0.6 a second speaker could own ~40% of the slot and bleed under the
-        # clone (we silence [s_ms,e_ms] as one block, we don't re-segment per speaker). 0.85 keeps it clean.
-        if dominant in valid_speakers and dominance >= 0.85:
+        # Pick the voice for this line. Use its OWN diarized speaker when we have a reference for them
+        # (relaxed dominance — the destructive slot-cut now silences the whole slot, so light speaker
+        # overlap can't bleed; near-solo is no longer required). Otherwise FALL BACK to the primary speaker
+        # so the line is STILL personalized. The old strict gate (0.85 + must-be-diarized) dropped a
+        # multi-character montage (e.g. a GoT dialogue scene) from 62 lines to 9 — we now replace ~75% of
+        # ALL the dialogue, including the early lines, not only the perfectly-clean single-speaker ones.
+        if dominant in valid_speakers and dominance >= 0.5:
             speaker = dominant
         elif is_anthem and primary_speaker is not None:
             # Crowd/anthem peak: clone the track's primary voice for the personalized chant.
@@ -204,8 +207,10 @@ def find_candidate_slots(audio_path: str, ref_library: dict, window_ms: int = No
             anthem_seen += 1
             if anthem_seen % 3 != 1:
                 continue
+        elif primary_speaker is not None:
+            speaker = primary_speaker   # no clean diarized speaker → clone in the primary voice (still personalize)
         else:
-            continue  # no usable reference voice for this slot
+            continue  # no reference voices at all
 
         ctx_before = units[i-1]["text"].strip() if i > 0 else ""
         ctx_after  = units[i+1]["text"].strip() if i < len(units)-1 else ""
