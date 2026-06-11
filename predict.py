@@ -105,33 +105,33 @@ class Predictor(BasePredictor):
         return str(_P(__file__).parent / "assets" / "bed_default.mp3")
 
     def _bed_is_dry(self, accomp, speech_windows, window_ms):
-        """A DRY-SPEECH source: the demucs music bed is near-silent where the original speaker paused.
-        Riding voice on that timeline drops into -35dB holes (the 'rollercoaster'). Detect it by
-        measuring the bed level inside the original pauses; if it nearly vanishes there, route the
-        voice over a CONSTANT bed instead. A real cinematic bed (GoT) stays loud in pauses -> keep it."""
+        """A DRY/HOLEY bed: the separated music nearly vanishes in the original pauses, OR drops far
+        below the speech-region level — riding voice on it produces the -35dB holes (the 'rollercoaster').
+        Measured robustly from pydub dBFS (no fragile ffmpeg-summary dependency), comparing the bed's
+        level inside pauses vs inside speech windows. A real cinematic bed (GoT) stays loud in pauses."""
         try:
             from pydub import AudioSegment
             bed = AudioSegment.from_file(str(accomp))
         except Exception:
-            return False
-        if bed.dBFS == float("-inf"):
-            return True
-        gaps, prev = [], 0
+            return True   # can't load the bed -> safest is the constant bed
+        if bed.dBFS == float("-inf") or bed.dBFS < -30:
+            return True   # near-silent bed = nothing to ride
+        def avg(regions):
+            vals = [bed[a:b].dBFS for a, b in regions if (b - a) > 150 and bed[a:b].dBFS != float("-inf")]
+            return (sum(vals) / len(vals)) if vals else None
+        pauses, prev = [], 0
         for s, e in speech_windows:
-            if s - prev > 500:
-                gaps.append((prev, s))
+            if s - prev > 400:
+                pauses.append((prev, s))
             prev = max(prev, e)
-        if window_ms - prev > 500:
-            gaps.append((prev, window_ms))
-        if not gaps:
-            return bed.dBFS < -30
-        import statistics
-        levels = [bed[g0:g1].dBFS for g0, g1 in gaps
-                  if (g1 - g0) > 120 and bed[g0:g1].dBFS != float("-inf")]
-        if not levels:
-            return True
-        # dry if the bed nearly disappears in pauses, OR the whole bed is just very quiet
-        return statistics.median(levels) < -34 or bed.dBFS < -28
+        if window_ms - prev > 400:
+            pauses.append((prev, window_ms))
+        sp, pa = avg(speech_windows), avg(pauses)
+        if pa is None:
+            return False           # no real pauses -> the bed can't be 'holey' in pauses
+        if sp is None:
+            return bed.dBFS < -26
+        return (sp - pa) > 12 or pa < -34   # bed collapses in pauses OR is very quiet there
 
     def _full_voice(self, vocals, accomp, audio_path, user_context, window_ms, work,
                     min_voices=0, extra_voice_ids="", language="English", clone_source_voices=True,
@@ -326,11 +326,14 @@ class Predictor(BasePredictor):
                 rendered[idx] = self._stretch(rendered[idx], work, voice_speed)
         items = [(idx, len(rendered[idx]), int(lines[idx].get("voice", 0)) % n) for idx in ordered]
 
-        # SMART ROUTING. Timeline-placement (riding the source's own bed) only works when the source
-        # HAS a real bed that swells in the pauses (a cinematic montage). A dry-speech source, or a
-        # caller-supplied template bed, must ride a CONSTANT bed — otherwise the original pauses become
-        # -35dB holes (the founder's 'volume rollercoaster'). bed_audio (a chosen template) always wins.
-        use_constant_bed = bool(bed_audio) or (bool(speech_windows) and self._bed_is_dry(accomp, speech_windows, window_ms))
+        # SMART ROUTING. Timeline-placement (riding the source's own bed) only pays off for a genuine
+        # multi-voice CINEMATIC montage whose score swells in the pauses. We prevent the rollercoaster
+        # BY CONSTRUCTION rather than relying on a runtime measurement: a SOLO source (one voice — most
+        # motivational speeches: Tate, Eric Thomas, Clarence), a chosen template (bed_audio), or a
+        # dry/holey bed all ride a CONSTANT pre-mastered bed. Only a true multi-voice montage with a
+        # rich, constant bed keeps its own timeline.
+        solo = n <= 1
+        use_constant_bed = bool(bed_audio) or solo or (bool(speech_windows) and self._bed_is_dry(accomp, speech_windows, window_ms))
         do_timeline = bool(speech_windows) and not use_constant_bed
 
         if do_timeline:

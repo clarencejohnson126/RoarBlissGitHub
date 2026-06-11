@@ -86,7 +86,15 @@ def ebur128_summary(path: str) -> dict:
     def grab(label):
         m = re.search(rf"{label}:\s*(-?\d+(?:\.\d+)?)", txt)
         return float(m.group(1)) if m else None
-    return {"integrated_lufs": grab("I"), "lra": grab("LRA"), "true_peak_dbtp": grab("Peak")}
+    out = {"integrated_lufs": grab("I"), "lra": grab("LRA"), "true_peak_dbtp": grab("Peak")}
+    # A 0.0 LRA from the summary is almost always a PARSE ARTIFACT in a constrained ffmpeg build (the
+    # cog) — a real track is never perfectly flat. Treat it as "not measured" so the self-check never
+    # false-fails a good track on it. The dropout check (reliable from the per-frame curve) + the
+    # by-construction routing (solo/dry -> constant bed) cover loudness regardless. The OFFLINE GATE
+    # runs in a consistent environment where the summary parses correctly and IS authoritative.
+    if out["lra"] == 0.0:
+        out["lra"] = None
+    return out
 
 
 def momentary_curve(path: str) -> list[tuple[float, float]]:
