@@ -14,7 +14,7 @@ export async function POST(request: Request) {
     password?: string;
     redirectTo?: string;
   };
-  if (!email || !email.includes("@")) {
+  if (!email || typeof email !== "string" || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
     return NextResponse.json({ error: "A valid email is required." }, { status: 400 });
   }
   if (!password || password.length < 8) {

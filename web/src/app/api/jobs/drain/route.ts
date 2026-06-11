@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { drainQueue } from "@/lib/drain";
+import { drainQueue, reconcileStuckRunning } from "@/lib/drain";
 
 /**
  * GET /api/jobs/drain — safety-net queue drainer (Vercel cron, every minute). The replicate-callback
@@ -14,8 +14,11 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
   try {
+    // Reconcile FIRST: a stuck 'running' job holds a concurrency slot, so settling it against
+    // Replicate's real state may be exactly what lets the queue drain below.
+    const reconciled = await reconcileStuckRunning();
     const started = await drainQueue();
-    return NextResponse.json({ ok: true, started });
+    return NextResponse.json({ ok: true, started, reconciled });
   } catch (e) {
     return NextResponse.json({ ok: false, error: (e as Error).message }, { status: 500 });
   }

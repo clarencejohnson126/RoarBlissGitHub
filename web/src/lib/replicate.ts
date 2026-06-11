@@ -60,6 +60,11 @@ async function latestVersionId(): Promise<string> {
   // testing. Unset → follow the model's latest version automatically.
   const pinned = process.env.REPLICATE_MODEL_VERSION;
   if (pinned) return pinned;
+  // Production must NEVER float on "latest": a cog push would change live behavior instantly,
+  // with no test gate. Refuse loudly instead of silently serving an unapproved version.
+  if (process.env.VERCEL_ENV === "production") {
+    throw new Error("REPLICATE_MODEL_VERSION is not pinned — refusing to follow 'latest' in production.");
+  }
   if (cachedVersion) return cachedVersion;
   const res = await fetchWithRetry(`${API}/models/${MODEL}`, { headers: headers(), cache: "no-store" });
   if (!res.ok) {
@@ -81,6 +86,9 @@ export interface PredictionInput {
   location: string;
   champion: string;
   paid: boolean;
+  // Voice engine. MUST be set explicitly: the cog's "auto" default resolves to ElevenLabs whenever
+  // its key is present, which silently bypasses the chosen in-cog OmniVoice engine.
+  tts_provider?: "auto" | "elevenlabs" | "chatterbox" | "omnivoice" | "replicate";
   // Per-prediction secrets (Replicate has no model-level env vars). Server-side only; the model
   // declares these as Cog Secret inputs, so Replicate masks them in logs.
   anthropic_api_key?: string;
@@ -145,6 +153,18 @@ export async function createPrediction(
     throw new Error(`Replicate createPrediction ${res.status}: ${txt.slice(0, 400)}`);
   }
   return (await res.json()) as Prediction;
+}
+
+/** Cancel a running prediction (e.g. a run we can no longer bill). Best-effort; throws on hard errors. */
+export async function cancelPrediction(id: string): Promise<void> {
+  const res = await fetchWithRetry(`${API}/predictions/${id}/cancel`, {
+    method: "POST",
+    headers: headers(),
+    cache: "no-store",
+  });
+  if (!res.ok) {
+    throw new Error(`Replicate cancelPrediction ${res.status}: ${(await res.text()).slice(0, 200)}`);
+  }
 }
 
 export async function getPrediction(id: string): Promise<Prediction> {

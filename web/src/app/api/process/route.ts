@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
-import { createPrediction, type PredictionInput } from "@/lib/replicate";
+import { cancelPrediction, createPrediction, type PredictionInput } from "@/lib/replicate";
 import { baseUrl } from "@/lib/base-url";
-import { verifyUser, tierState, reserveMinutes, linkReservation, releaseReservationById, freeUsageExists, recordFreeUsage } from "@/lib/supabase-admin";
+import { verifyUser, tierState, reserveMinutes, linkReservation, releaseReservationById, freeUsageExists, claimFreeUsage, clearFreeUsageForPrediction, relinkFreeUsage } from "@/lib/supabase-admin";
 import { bearerToken } from "@/lib/stripe";
 import {
   limits,
@@ -56,7 +56,10 @@ export async function POST(request: Request) {
     // plain id/ip character to avoid filter injection.
     const fingerprint =
       typeof deviceId === "string" ? deviceId.replace(/[^A-Za-z0-9-]/g, "").slice(0, 64) : "";
-    const ip = (request.headers.get("x-forwarded-for") || "")
+    // Prefer x-real-ip: Vercel sets it to the actual client IP, so it can't be spoofed. The first
+    // x-forwarded-for entry is CLIENT-controlled (header spoofing = unlimited free tracks) — it's
+    // only the local-dev fallback where no trusted proxy header exists.
+    const ip = (request.headers.get("x-real-ip") || request.headers.get("x-forwarded-for") || "")
       .split(",")[0]
       .trim()
       .replace(/[^0-9a-fA-F:.]/g, "")
@@ -77,8 +80,9 @@ export async function POST(request: Request) {
 
     const lim = limits();
     const estCostCents = estimateCostCents(paid === true, requestedTier);
-    // Local dev / staging escape hatch for repeated testing — never set in production.
-    const freeGateOff = process.env.DISABLE_FREE_GATE === "1";
+    // Local dev / staging escape hatch for repeated testing. Hard-disabled in production builds so
+    // an accidentally mirrored env var can never switch the abuse gate off in prod.
+    const freeGateOff = process.env.DISABLE_FREE_GATE === "1" && process.env.NODE_ENV !== "production";
 
     // Idempotency: a recent identical submit (double-click, retry) reuses the same run instead of
     // starting — and crucially, before any credit is consumed or a prediction is started.
@@ -178,6 +182,9 @@ export async function POST(request: Request) {
       location: (location as string) || "",
       champion: (champion as string) || "",
       paid: paidGranted,
+      // THE engine. Must be explicit: the cog's "auto" default resolves to ElevenLabs whenever its
+      // key is present, silently bypassing the in-cog OmniVoice engine we actually ship.
+      tts_provider: "omnivoice",
       // Honor the chosen tier on BOTH free + paid so the preview reflects exactly what was picked
       // (25/50/75 = that share of the timeline; 100 = full rewrite). Free stays bounded by the 45s cap
       // + the 1-free-per-device gate — not by a forced tier.
@@ -216,15 +223,35 @@ export async function POST(request: Request) {
       return NextResponse.json({ id: dup2?.prediction_id ?? null, status: "processing", dedup: true });
     }
 
+    // ATOMIC free-gate claim — BEFORE anything starts. freeUsageExists above is only the friendly
+    // early check; this insert (vs the unique indexes on free_usage) is the arbiter, so parallel
+    // first-requests from one device/IP can no longer each mint a free GPU run. Keyed by idemKey and
+    // re-keyed to the job/prediction id below so a failed run still refunds the free try.
+    if (!paidGranted && !freeGateOff) {
+      if (!(await claimFreeUsage(fingerprint, ip, idemKey))) {
+        await failClaim(idemKey);
+        return NextResponse.json(
+          { error: "Your free track is used up. Register and grab a pack to make more.", freeLimitReached: true, needsPurchase: true },
+          { status: 402 },
+        );
+      }
+    }
+
     // Concurrency / backpressure: over the cap → queue. The reservation already holds the minutes; the
     // drain links it to the prediction once a slot frees.
     if ((await countInFlight()) >= lim.maxConcurrency) {
       const jobId = await enqueueJob(meta, stripSecrets(input), httpsWebhook);
       if (!jobId) {
-        await failClaim(idemKey); // couldn't queue → drop the claim row + the minute hold
+        await failClaim(idemKey); // couldn't queue → drop the claim row + the minute hold + the free claim
         if (reservationId) await releaseReservationById(reservationId);
+        if (!paidGranted && !freeGateOff) await clearFreeUsageForPrediction(idemKey);
+        return NextResponse.json(
+          { error: "We're at capacity and couldn't queue your track — please try again.", unavailable: true },
+          { status: 503 },
+        );
       }
-      if (!paidGranted && !freeGateOff) await recordFreeUsage(fingerprint, ip, jobId || "queued");
+      // Re-key the free claim to the job id (the drain re-keys it to the prediction id on start).
+      if (!paidGranted && !freeGateOff) await relinkFreeUsage(idemKey, jobId);
       return NextResponse.json({ id: jobId, status: "queued", queued: true });
     }
 
@@ -234,13 +261,28 @@ export async function POST(request: Request) {
     } catch (e) {
       await failClaim(idemKey); // run never started → drop the claim row
       if (reservationId) await releaseReservationById(reservationId); // release the hold
+      if (!paidGranted && !freeGateOff) await clearFreeUsageForPrediction(idemKey); // refund the free try
       throw e;
     }
-    if (reservationId) await linkReservation(reservationId, pred.id); // delivery/failure resolves by prediction_id
+    if (reservationId) {
+      // The delivery webhook charges by prediction_id — an unlinked reservation = a run we can never
+      // bill. Retry once; if the link still doesn't land, abort the run rather than deliver unbilled.
+      const linked =
+        (await linkReservation(reservationId, pred.id)) || (await linkReservation(reservationId, pred.id));
+      if (!linked) {
+        await cancelPrediction(pred.id).catch((e) => console.error("cancel after link-failure failed:", e));
+        await failClaim(idemKey);
+        await releaseReservationById(reservationId);
+        return NextResponse.json(
+          { error: "We couldn't start your track safely — please try again in a moment.", unavailable: true },
+          { status: 503 },
+        );
+      }
+    }
     await recordRunningJob(pred.id, meta);
 
-    // Burn this device/IP's one free track only once the prediction actually started.
-    if (!paidGranted && !freeGateOff) await recordFreeUsage(fingerprint, ip, pred.id);
+    // Re-key the free claim to the real prediction id so a failed run refunds the free try.
+    if (!paidGranted && !freeGateOff) await relinkFreeUsage(idemKey, pred.id);
 
     return NextResponse.json({ id: pred.id, status: pred.status });
   } catch (e) {

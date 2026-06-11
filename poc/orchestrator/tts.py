@@ -318,7 +318,13 @@ def _get_omnivoice():
     return _OMNI
 
 def synthesize_omnivoice(text: str, ref_path: Path, ref_text: str, slot_ms: int, cache_dir: Path) -> AudioSegment:
-    key = cache_key("omnivoice", text, ref_path)
+    # Target language for the generated lines (set per-run by predict.py from the user's choice).
+    # OmniVoice accepts full names ("German") or ISO codes ("de"), case-insensitive; unknown values
+    # fall back to language-agnostic mode — strictly better than forcing English phonemes on
+    # non-English text. The language is part of the cache key: same text+ref in another language
+    # must never reuse a cached clone.
+    language = (os.environ.get("TTS_LANGUAGE") or "English").strip() or "English"
+    key = cache_key("omnivoice", f"{language}|{text}", ref_path)
     cache_file = cache_dir / f"clone_{key}.wav"
     max_ms = sane_max_ms(slot_ms)
     if cache_file.exists():
@@ -345,7 +351,7 @@ def synthesize_omnivoice(text: str, ref_path: Path, ref_text: str, slot_ms: int,
     ref_use = str(cref)
     last_ms = None
     for attempt in range(1, 4):
-        audios = model.generate(text=text, language="English", ref_audio=ref_use,
+        audios = model.generate(text=text, language=language, ref_audio=ref_use,
                                 ref_text=ref_text or "", num_step=32, guidance_scale=2.0, speed=1.0)
         tmp = cache_dir / f"_omni_tmp_{key}.wav"
         torchaudio.save(str(tmp), audios[0].float().cpu(), model.sampling_rate)

@@ -59,7 +59,7 @@ export async function POST(request: Request) {
       status?: string;
       error?: string | null;
       output?: string | string[] | null;
-      input?: { name?: string; audio?: string };
+      input?: { name?: string; audio?: string; paid?: boolean };
     } = {};
     try {
       payload = JSON.parse(raw || "{}");
@@ -69,7 +69,8 @@ export async function POST(request: Request) {
 
     const id = payload.id || "";
     const status = payload.status || "";
-    const name = payload.input?.name || "Warrior";
+    // User-controlled: strip header-injection chars (it lands in the email subject) and cap length.
+    const name = (payload.input?.name || "Warrior").replace(/[\r\n<>]/g, "").slice(0, 60) || "Warrior";
     const base = baseUrl(request);
 
     // A run only "delivered" if it succeeded AND produced an output file the user can actually play —
@@ -89,7 +90,8 @@ export async function POST(request: Request) {
     let chargeOk = true;
     if (id && terminal) {
       if (delivered) {
-        chargeOk = await chargeReservation(id);
+        // A paid delivery MUST find its reservation — 0 matched rows there means an unbilled run.
+        chargeOk = await chargeReservation(id, payload.input?.paid === true);
       } else {
         await releaseReservation(id);
         await clearFreeUsageForPrediction(id);
@@ -106,7 +108,9 @@ export async function POST(request: Request) {
             const audio = await fetch(src);
             if (audio.ok) {
               const buf = Buffer.from(await audio.arrayBuffer());
-              const blob = await put(`outputs/${id}.mp3`, buf, { access: "public", addRandomSuffix: false, contentType: "audio/mpeg" });
+              // addRandomSuffix: outputs are public blobs — without the suffix the URL is guessable
+              // from a prediction id. The email uses blob.url directly, so the suffix costs nothing.
+              const blob = await put(`outputs/${id}.mp3`, buf, { access: "public", addRandomSuffix: true, contentType: "audio/mpeg" });
               listen = blob.url;
             }
           } catch (e) {
@@ -156,11 +160,16 @@ export async function POST(request: Request) {
   }
 }
 
+/** Escape user-influenced strings before interpolating them into email HTML. */
+function esc(s: string): string {
+  return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+}
+
 function doneHtml(name: string, listen: string, base: string): string {
   return `
     <div style="font-family:system-ui,sans-serif;max-width:560px;margin:0 auto;padding:24px;background:#0a0a0c;color:#e6e6e8;border-radius:12px">
       <h2 style="color:#D6A84F;margin:0 0 16px">🎧 Your battle speech is ready.</h2>
-      <p>Hey ${name}, we just finished creating your personalized motivational speech.</p>
+      <p>Hey ${esc(name)}, we just finished creating your personalized motivational speech.</p>
       <p style="margin:24px 0;text-align:center">
         <a href="${listen}" style="background:#D6A84F;color:#0a0a0c;padding:14px 32px;border-radius:8px;text-decoration:none;font-weight:bold">▶  Listen now</a>
       </p>
@@ -173,8 +182,8 @@ function failHtml(name: string, error: string): string {
   return `
     <div style="font-family:system-ui,sans-serif;max-width:560px;margin:0 auto;padding:24px;background:#0a0a0c;color:#e6e6e8;border-radius:12px">
       <h2 style="color:#ff6b6b;margin:0 0 16px">⚠️ Pipeline error</h2>
-      <p>Hey ${name} — the personalization for your audio didn't complete this time.</p>
-      <p style="font-family:monospace;background:#1a1a1d;padding:12px;border-radius:6px;font-size:12px">${error.substring(0, 200)}</p>
+      <p>Hey ${esc(name)} — the personalization for your audio didn't complete this time.</p>
+      <p style="font-family:monospace;background:#1a1a1d;padding:12px;border-radius:6px;font-size:12px">${esc(error.substring(0, 200))}</p>
       <p style="margin-top:24px">Just try again with the same or different audio — it usually works on the next pass.</p>
     </div>`;
 }

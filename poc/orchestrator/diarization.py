@@ -144,6 +144,7 @@ def diarize(audio_path: str, verbose: bool = True, min_speakers: int = 0, max_sp
 
         turns = []
         speaker_durs = {}
+        fallback = False
         for turn, _, speaker in diarization.itertracks(yield_label=True):
             turns.append({
                 "start": round(turn.start, 2),
@@ -164,16 +165,19 @@ def diarize(audio_path: str, verbose: bool = True, min_speakers: int = 0, max_sp
             dur = float(probe.stdout.strip())
         except Exception:
             dur = 0.0
-        if verbose:
-            print(f"  diarization unavailable ({type(e).__name__}) -> single-speaker fallback ({dur:.0f}s)")
+        # ALWAYS loud (not just verbose): a multi-voice source silently collapsing into ONE cloned
+        # voice is a quality regression that must be visible in every run's logs (greppable marker).
+        print(f"  DIARIZATION_FALLBACK: pyannote unavailable ({type(e).__name__}: {e}) -> whole track as SPEAKER_00 ({dur:.0f}s)")
         turns = [{"start": 0.0, "end": round(dur, 2), "speaker": "SPEAKER_00"}]
         speaker_durs = {"SPEAKER_00": dur}
+        fallback = True
 
     result = {
         "speaker_count": len(speaker_durs),
         "turn_count": len(turns),
         "turns": turns,
         "speaker_durations_s": {k: round(v, 2) for k, v in speaker_durs.items()},
+        "diarization_fallback": fallback,
     }
     # A source with many turns but only 1 detected speaker is the classic "clustering merged two voices"
     # failure (e.g. Eric Thomas + Les Brown read as one). Re-run ONCE with min_speakers=2 + a tighter

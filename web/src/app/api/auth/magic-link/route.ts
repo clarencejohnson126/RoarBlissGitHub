@@ -13,7 +13,7 @@ export async function POST(request: Request) {
       email?: string;
       redirectTo?: string;
     };
-    if (!email || typeof email !== "string" || !email.includes("@")) {
+    if (!email || typeof email !== "string" || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
       return NextResponse.json({ error: "A valid email is required." }, { status: 400 });
     }
 

@@ -17,21 +17,32 @@ export async function GET(request: Request) {
     return NextResponse.json({ ok: true, deleted: 0, note: "blob token unset" });
   }
 
-  const cutoff = Date.now() - 24 * 60 * 60 * 1000;
-  let deleted = 0;
-  let cursor: string | undefined;
   try {
-    do {
-      const res = await list({ prefix: "uploads/", cursor, limit: 1000 });
-      const stale = res.blobs.filter((b) => new Date(b.uploadedAt).getTime() < cutoff).map((b) => b.url);
-      if (stale.length) {
-        await del(stale); // del accepts a batch of URLs
-        deleted += stale.length;
-      }
-      cursor = res.hasMore ? res.cursor : undefined;
-    } while (cursor);
-    return NextResponse.json({ ok: true, deleted });
+    // Abandoned uploads: gone after 24h (each run's upload is already deleted by the webhook).
+    const deleted = await sweep("uploads/", 24 * 60 * 60 * 1000);
+    // Finished outputs: GDPR retention window (default 90 days, override via OUTPUT_RETENTION_DAYS).
+    // After this the email "Listen" link dies — the user had the registration-gated download to keep it.
+    const retentionDays = Number(process.env.OUTPUT_RETENTION_DAYS) > 0 ? Number(process.env.OUTPUT_RETENTION_DAYS) : 90;
+    const outputsDeleted = await sweep("outputs/", retentionDays * 24 * 60 * 60 * 1000);
+    return NextResponse.json({ ok: true, deleted, outputsDeleted, retentionDays });
   } catch (e) {
     return NextResponse.json({ ok: false, error: (e as Error).message }, { status: 500 });
   }
+}
+
+/** Delete every blob under `prefix` older than `maxAgeMs`. Returns the number deleted. */
+async function sweep(prefix: string, maxAgeMs: number): Promise<number> {
+  const cutoff = Date.now() - maxAgeMs;
+  let deleted = 0;
+  let cursor: string | undefined;
+  do {
+    const res = await list({ prefix, cursor, limit: 1000 });
+    const stale = res.blobs.filter((b) => new Date(b.uploadedAt).getTime() < cutoff).map((b) => b.url);
+    if (stale.length) {
+      await del(stale); // del accepts a batch of URLs
+      deleted += stale.length;
+    }
+    cursor = res.hasMore ? res.cursor : undefined;
+  } while (cursor);
+  return deleted;
 }

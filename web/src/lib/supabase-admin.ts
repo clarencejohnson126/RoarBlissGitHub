@@ -110,12 +110,25 @@ export async function reserveMinutes(userId: string, minutes: number, periodEnd:
   }
 }
 
-/** Attach the prediction id to a reservation so delivery/failure can resolve it. */
-export async function linkReservation(reservationId: string, predictionId: string): Promise<void> {
+/**
+ * Attach the prediction id to a reservation so delivery/failure can resolve it. Returns false when
+ * the link did NOT land (DB error or 0 rows matched): an unlinked reservation can never be charged
+ * by the delivery webhook (= silent unbilled run), so callers must treat false as fatal.
+ */
+export async function linkReservation(reservationId: string, predictionId: string): Promise<boolean> {
   try {
-    await supabaseAdmin().from("minute_ledger").update({ prediction_id: predictionId, updated_at: new Date().toISOString() }).eq("id", reservationId);
+    const { data, error } = await supabaseAdmin()
+      .from("minute_ledger")
+      .update({ prediction_id: predictionId, updated_at: new Date().toISOString() })
+      .eq("id", reservationId)
+      .select("id");
+    if (error) throw new Error(error.message);
+    if (!data?.length) throw new Error("0 rows matched — reservation row not found");
+    return true;
   } catch (e) {
-    console.warn("linkReservation skipped:", (e as Error).message);
+    console.error("linkReservation FAILED:", reservationId, "→", predictionId, (e as Error).message);
+    Sentry.captureException(e, { tags: { area: "billing", op: "linkReservation" }, extra: { reservationId, predictionId } });
+    return false;
   }
 }
 
@@ -124,15 +137,31 @@ export async function linkReservation(reservationId: string, predictionId: strin
  * Returns false on a DB error so the caller can signal Replicate to RETRY the webhook (the update is
  * idempotent, so retrying is safe) — a charge write must never be silently dropped (= unbilled run).
  */
-export async function chargeReservation(predictionId: string): Promise<boolean> {
+export async function chargeReservation(predictionId: string, expectReservation = false): Promise<boolean> {
   try {
-    const { error } = await supabaseAdmin()
+    const { data, error } = await supabaseAdmin()
       .from("minute_ledger")
       .update({ status: "charged", updated_at: new Date().toISOString() })
       .eq("prediction_id", predictionId)
-      .eq("status", "reserved");
+      .eq("status", "reserved")
+      .select("id");
     if (error) throw new Error(error.message);
-    return true;
+    if (data?.length) return true;
+    // 0 rows matched — fine for a free run (no reservation) or a webhook retry (already charged),
+    // but FATAL for a paid delivery whose reservation never got linked: that's an unbilled run.
+    const { data: existing } = await supabaseAdmin()
+      .from("minute_ledger")
+      .select("status")
+      .eq("prediction_id", predictionId)
+      .maybeSingle();
+    if (existing?.status === "charged") return true; // idempotent retry — already settled
+    if (!expectReservation) return true; // free run — nothing to charge
+    const orphan = new Error(
+      `PAID delivery without a chargeable reservation (prediction ${predictionId}, ledger: ${existing?.status ?? "no row"}) — unbilled run, needs reconciliation`,
+    );
+    console.error("chargeReservation:", orphan.message);
+    Sentry.captureException(orphan, { tags: { area: "billing", op: "chargeReservation_orphan" }, extra: { predictionId } });
+    return false;
   } catch (e) {
     console.error("chargeReservation FAILED for", predictionId, (e as Error).message);
     Sentry.captureException(e, { tags: { area: "billing", op: "chargeReservation" }, extra: { predictionId } });
@@ -218,12 +247,25 @@ export async function freeUsageExists(fingerprint: string, ip: string): Promise<
   }
 }
 
-/** Record that a device/IP has consumed its one free track. Best-effort (never throws). */
-export async function recordFreeUsage(fingerprint: string, ip: string, predictionId: string): Promise<void> {
+/**
+ * Atomically CLAIM this device/IP's one free track (insert BEFORE the prediction starts; the partial
+ * unique indexes on fingerprint/ip make the DB the arbiter — parallel first-requests can't all pass
+ * the gate anymore). Returns false when the free track is already taken (unique violation). Fails
+ * OPEN on transient errors, matching freeUsageExists (a DB hiccup must not block legitimate users).
+ */
+export async function claimFreeUsage(fingerprint: string, ip: string, claimKey: string): Promise<boolean> {
   try {
-    await supabaseAdmin().from("free_usage").insert({ fingerprint, ip, prediction_id: predictionId });
+    const { error } = await supabaseAdmin()
+      .from("free_usage")
+      .insert({ fingerprint: fingerprint || null, ip: ip || null, prediction_id: claimKey });
+    if (error) {
+      if (/duplicate|unique|conflict|23505/i.test(`${error.code} ${error.message}`)) return false;
+      console.warn("claimFreeUsage: failing open —", error.message);
+    }
+    return true;
   } catch (e) {
-    console.warn("recordFreeUsage skipped:", (e as Error).message);
+    console.warn("claimFreeUsage: failing open —", (e as Error).message);
+    return true;
   }
 }
 
