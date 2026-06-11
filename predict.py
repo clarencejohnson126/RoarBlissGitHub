@@ -114,20 +114,40 @@ class Predictor(BasePredictor):
         #    clone_source_voices=False -> NO diarization, NO cloning, NO invented voices. The user only
         #    ever hears the voices they chose.
         track_refs = []   # (speaker_id, ref_path) — cloned one at a time later
+        ref_texts = {}    # str(ref_path) -> exact transcript of that clip (zero-shot conditioning)
         if clone_source_voices and vocals is not None:
             voc = AudioSegment.from_wav(str(vocals))
             speakers = self._rank_speakers(str(vocals), len(voc), min_speakers=min_voices)[:6]
             print(f"full_voice: {len(speakers)} source speaker(s) to clone (min_voices={min_voices})")
+            # ONE continuous clip (≤12s) + its EXACT transcript per speaker. Stitching many diarized
+            # fragments into a 40s ref with ref_text="" is the documented 'garbled/backwards-gibberish'
+            # anti-pattern (see auto_synthesizer.resolve_reference_clip) and OmniVoice itself warns
+            # that >20s refs degrade the clone. The 75%-tier path clones intelligibly with exactly
+            # this single-clip+transcript recipe — mirror it here.
+            _whisper = None
+            try:
+                import whisper as _w
+                _whisper = _w.load_model(os.environ.get("WHISPER_MODEL", "base"))
+            except Exception as e:
+                print("full_voice: ref transcribe unavailable:", e)
             for spk, segs in speakers:
-                ref = AudioSegment.silent(duration=0)
-                for s, e in segs:
-                    if len(ref) >= 40_000:
-                        break
-                    ref += voc[int(s * 1000):int(e * 1000)]
-                if len(ref) < 2500:                   # too little clean audio → fall back to head of stem
-                    ref = voc[:min(len(voc), 30_000)]
+                longest = sorted(segs, key=lambda se: se[1] - se[0], reverse=True)
+                s, e = longest[0]
+                ref = voc[int(s * 1000):int(min(e, s + 12.0) * 1000)]
+                if len(ref) < 2500:                   # longest turn too short → top up with next-longest turns
+                    for s2, e2 in longest[1:]:
+                        ref += voc[int(s2 * 1000):int(e2 * 1000)]
+                        if len(ref) >= 8_000:
+                            break
+                if len(ref) < 2500:                   # still too little → head of stem
+                    ref = voc[:min(len(voc), 12_000)]
                 rp = _P(work) / f"fv_ref_{spk}.wav"
-                ref[:40_000].export(str(rp), format="wav")
+                ref[:12_000].export(str(rp), format="wav")
+                if _whisper is not None:
+                    try:
+                        ref_texts[str(rp)] = (_whisper.transcribe(str(rp)).get("text") or "").strip()
+                    except Exception as e:
+                        print(f"full_voice: ref transcribe failed ({spk}):", e)
                 track_refs.append((spk, rp))
         else:
             print("full_voice: cloning disabled -> only the chosen voice(s), no invented voices")
@@ -205,7 +225,8 @@ class Predictor(BasePredictor):
                     if not txt:
                         continue
                     try:
-                        rendered[idx] = self._norm(tts.synthesize_clone(txt, ref, "", FV_SLOT_MS, fv_cache))
+                        rendered[idx] = self._norm(tts.synthesize_clone(
+                            txt, ref, ref_texts.get(str(ref), ""), FV_SLOT_MS, fv_cache))
                     except Exception as ex:
                         print(f"  {provider} tts failed ({txt[:30]}…): {ex}")
         print(f"full_voice: used {used}/{n} voices, rendered {len(rendered)}/{len(lines)} lines [provider={provider}]")
@@ -235,7 +256,8 @@ class Predictor(BasePredictor):
                 ref = _P(track_refs[0][1])
                 for idx in leftover:
                     try:
-                        rendered[idx] = self._norm(tts.synthesize_clone(lines[idx]["text"].strip(), ref, "", FV_SLOT_MS, fv_cache))
+                        rendered[idx] = self._norm(tts.synthesize_clone(
+                            lines[idx]["text"].strip(), ref, ref_texts.get(str(ref), ""), FV_SLOT_MS, fv_cache))
                     except Exception:
                         pass
         if not rendered:
