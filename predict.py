@@ -473,6 +473,12 @@ class Predictor(BasePredictor):
         if len(music) < total:        # loop the bed only if the source is shorter than needed
             music = music * (total // max(1, len(music)) + 1)
         music = music[:total].fade_in(1500).fade_out(tail_ms)
+        # Pad the voice to the full mix length: ffmpeg's sidechaincompress ends at its SHORTEST input,
+        # so an unpadded voice key truncated the whole mix at the voice's end (a 2:09 bed cut at 1:43 —
+        # NEVER cut a track short of its source unless it exceeds the 6-min cap). With the silence pad
+        # the bed plays solo, unducked, to its real faded end.
+        if len(vfull) < total:
+            vfull = vfull + AudioSegment.silent(duration=total - len(vfull))
         # Bring the bed up to ~voice level (+ user gain) so it's full and loud; the sidechain below keeps
         # the words clear by dipping the bed only while the voice is present.
         bed_gain = ((vfull.dBFS + music_gain_db) - music.dBFS) if vfull.dBFS != float("-inf") else music_gain_db
