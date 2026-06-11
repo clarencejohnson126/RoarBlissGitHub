@@ -376,10 +376,23 @@
   }
 }
 
+/* Phone: the full player (102px tall) permanently covered ~118px of an 844px viewport.
+   Compact it — drop the volume slider (phones have hardware volume), keep play/mute +
+   "Change Sound" — and respect the home-indicator safe area. The page reserves matching
+   bottom space globally (see globals.css) so no content ever hides under the player. */
 @media (max-width: 560px) {
   .player {
-    left: 1rem;
-    right: 1rem;
+    left: 0.75rem;
+    right: 0.75rem;
     width: auto;
+    bottom: calc(0.75rem + env(safe-area-inset-bottom, 0px));
+    padding: 0.6rem 0.85rem;
+  }
+  .volume {
+    display: none;
+  }
+  .playerBottom {
+    margin-block-start: 0.45rem;
+    justify-content: flex-end;
   }
 }
