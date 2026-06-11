@@ -40,10 +40,6 @@ build:
     - "requests==2.32.3"
     - "setuptools<81"
   run:
-    # FORCE torch's CUDA build to cu121 to match the cuda:12.1 box. Cog installs the PyPI-default torch
-    # 2.5.1 (cu124) which mismatches the 12.1 box → torch.cuda.is_available()=False → CPU fallback. Reinstall
-    # the cu121 build from the pytorch index + assert it (torch.version.cuda must read 12.1).
-    - "pip install --no-cache-dir --force-reinstall torch==2.5.1 torchaudio==2.5.1 --index-url https://download.pytorch.org/whl/cu121 && python -c 'import torch; print(\"torch\", torch.__version__, \"cuda\", torch.version.cuda)'"
     # pyannote.audio is a dotted namespace pkg (Cog's python_packages parser mangles it); install via raw
     # pip. 3.4.0 coexists with the OmniVoice stack (transformers 5.x + huggingface_hub 1.x) — PROVEN in the
     # local venv that ran the full multi-speaker pipeline. pyannote 3.4 still calls
@@ -58,4 +54,9 @@ build:
     # Bake the ~3GB weights + the Higgs audio tokenizer into the image so scale-to-zero cold-starts never
     # re-download them.
     - "python -c \"from huggingface_hub import snapshot_download; snapshot_download('k2-fsa/OmniVoice'); snapshot_download('eustlb/higgs-audio-v2-tokenizer')\""
+    # FINAL step (must be LAST): force torch 2.5.1+cu121. The earlier pip installs (pyannote / transformers /
+    # omnivoice) re-pull torch's nvidia-*-cu12 deps back to the cu124 (12.4.127) PyPI default on the 12.1 box
+    # → torch.cuda.is_available()=False → CPU fallback (the 32min/run bug). Reinstalling cu121 LAST pins the
+    # nvidia libs to 12.1.105 (matches the box) and nothing runs after to undo it. Assert the build cuda tag.
+    - "pip install --no-cache-dir --force-reinstall torch==2.5.1 torchaudio==2.5.1 --index-url https://download.pytorch.org/whl/cu121 && python -c 'import torch; print(\"FINAL torch\", torch.__version__, \"cuda\", torch.version.cuda)' && echo cache-bust-omnivoice-v5-torchlast"
 predict: "predict.py:Predictor"
