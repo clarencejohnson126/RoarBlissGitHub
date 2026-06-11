@@ -377,7 +377,26 @@ class Predictor(BasePredictor):
         # vocals is None) — overriding their instrumental would be wrong, not a fix.
         skip_correction = use_constant_bed or (vocals is None)
         out = self._self_check_and_correct(out, track, work, window_ms, intro_ms, bed_audio, skip_correction)
+        out = self._master_loudness(out, work)   # final master -> constant level (the file-#1 finish)
         return Path(out)
+
+    def _master_loudness(self, mp3_path, work):
+        """FINAL MASTER for full_voice: lock the whole-mix loudness to a constant level (LRA target),
+        the finish that puts a track at ~LRA 2.7 like the founder's approved reference. This is a UNIFORM
+        master on the full mix — NOT selective ducking of the music around the voice (that ducking IS the
+        rollercoaster). The constant bed kills the holes; this kills the residual speech-vs-breath swing.
+        Applied ONLY to full_voice (100%, over our chosen constant bed) — never to the 25/50/75 tiers,
+        where the source's own music must stay untouched (RULE #1)."""
+        try:
+            import subprocess
+            out2 = _P(work) / "fullvoice_mastered.mp3"
+            subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-i", str(mp3_path),
+                            "-af", "loudnorm=I=-14:LRA=3.5:tp=-1.5", "-ar", "44100", "-b:a", "192k", str(out2)],
+                           check=True)
+            return out2
+        except Exception as e:
+            print("[master] skipped:", e)
+            return mp3_path
 
     def _self_check_and_correct(self, out, track, work, window_ms, intro_ms, bed_audio, already_constant):
         try:
