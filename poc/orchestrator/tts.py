@@ -302,6 +302,12 @@ def synthesize_chatterbox(text: str, ref_path: Path, ref_text: str, slot_ms: int
 # ──────────────────────────────────────────────────────────────────────────
 OMNIVOICE_MODEL_ID = os.environ.get("OMNIVOICE_MODEL", "k2-fsa/OmniVoice")
 _OMNI = None
+# ONE reusable voice-clone prompt PER speaker reference (keyed by the cleaned ref path). Reusing the
+# SAME prompt across all of a speaker's lines LOCKS that speaker's voice — no per-line drift, which is
+# what made a long script sound like several different people. A source with N distinct speakers gets
+# N prompts here (each consistent); a solo source gets 1. This is OmniVoice's native equivalent of an
+# ElevenLabs voice_id — but it's an in-memory object: free, instant, unlimited, no clone-slot cap.
+_OMNI_PROMPTS = {}
 
 def _get_omnivoice():
     global _OMNI
@@ -316,6 +322,19 @@ def _get_omnivoice():
         # is the stable reference attention — slower but CORRECT. (sdpa isn't supported by OmniVoice yet.)
         _OMNI = OmniVoice.from_pretrained(OMNIVOICE_MODEL_ID, device_map=dev, dtype=torch.float16, attn_implementation="eager")
     return _OMNI
+
+def _omnivoice_prompt(model, cref_path, ref_text):
+    """Build the reusable voice-clone prompt ONCE per speaker reference and cache it. Every line that
+    belongs to that speaker reuses this exact prompt → the voice stays consistent across the whole
+    script (the fix for 'too many different voices'). One prompt per distinct speaker; created lazily."""
+    pk = str(cref_path)
+    if pk not in _OMNI_PROMPTS:
+        try:
+            _OMNI_PROMPTS[pk] = model.create_voice_clone_prompt(ref_audio=str(cref_path), ref_text=(ref_text or None))
+        except Exception as e:
+            print(f"    [omnivoice: clone-prompt build failed, falling back to per-line ref: {e}]")
+            _OMNI_PROMPTS[pk] = None
+    return _OMNI_PROMPTS[pk]
 
 def synthesize_omnivoice(text: str, ref_path: Path, ref_text: str, slot_ms: int, cache_dir: Path) -> AudioSegment:
     # Target language for the generated lines (set per-run by predict.py from the user's choice).
@@ -349,10 +368,17 @@ def synthesize_omnivoice(text: str, ref_path: Path, ref_text: str, slot_ms: int,
         except Exception:
             cref = Path(ref_path)   # fall back to the raw reference if cleaning fails
     ref_use = str(cref)
+    # Reuse ONE locked clone prompt for this speaker (consistent voice); fall back to per-line ref only
+    # if the prompt couldn't be built.
+    prompt = _omnivoice_prompt(model, cref, ref_text)
     last_ms = None
     for attempt in range(1, 4):
-        audios = model.generate(text=text, language=language, ref_audio=ref_use,
-                                ref_text=ref_text or "", num_step=48, guidance_scale=2.0, speed=1.0)
+        if prompt is not None:
+            audios = model.generate(text=text, language=language, voice_clone_prompt=prompt,
+                                    num_step=48, guidance_scale=2.0, speed=1.0)
+        else:
+            audios = model.generate(text=text, language=language, ref_audio=ref_use,
+                                    ref_text=ref_text or "", num_step=48, guidance_scale=2.0, speed=1.0)
         tmp = cache_dir / f"_omni_tmp_{key}.wav"
         torchaudio.save(str(tmp), audios[0].float().cpu(), model.sampling_rate)
         clone = trim_silence(AudioSegment.from_wav(str(tmp)))

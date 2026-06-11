@@ -3,12 +3,12 @@
   "version": 1,
   "entries": [
     {
-      "id": "solo_dry_speech_clarence_100_en",
-      "type": "solo_dry_speech",
-      "note": "THE case that broke (volume rollercoaster). The self-correction must make this pass loudness.",
-      "audio": "/Users/clarence/Desktop/RoarBliss_Clarence.mp3",
+      "id": "clarence_full_100",
+      "type": "solo_100_new_script",
+      "note": "Founder test: 100% new script in Clarence's cloned voice, keeping the original's own audio.",
+      "audio": "/Users/clarence/Music/Music/Media.localized/Music/Unknown Artist/Unknown Album/RoarBliss_Clarence_FULL_2-09.mp3",
       "input": { "personalization": 100, "tts_provider": "omnivoice", "clone_source_voices": true, "paid": true, "name": "Clarence Johnson", "prompt": "Clarence Johnson is building his AI agency Rebelz AI and grinding to find clients. Remind him to never give up, every no brings the yes closer. His mother has heart problems and he carries that worry. Tone: relentless, warm steel, big-brother energy." },
-      "context": { "name": "Clarence Johnson", "language": "English", "tier": 100, "expected_ms": 127000 }
+      "context": { "name": "Clarence Johnson", "language": "English", "tier": 100 }
     },
     {
       "id": "solo_dry_speech_clarence_75_en",
@@ -21,8 +21,8 @@
     {
       "id": "cinematic_multivoice_got_75",
       "type": "cinematic_multivoice",
-      "note": "A real cinematic bed (orchestra swells in pauses) — must KEEP its own timeline, not the constant bed.",
-      "audio": "/Users/clarence/Desktop/Roar Bliss App/The Targaryen Wolf (Original Soundtrack) Game of Thrones.mp3",
+      "note": "Founder test: multi-voice cinematic source — keep ITS own orchestra, clone EACH voice consistently, replace 75% of lines.",
+      "audio": "/Users/clarence/Music/Music/Media.localized/Music/Peter Gundry/Unknown Album/The Targaryen Wolf (Original Soundtrack) Game of Thrones.mp3",
       "input": { "personalization": 75, "tts_provider": "omnivoice", "clone_source_voices": true, "paid": true, "name": "Clarence Johnson", "min_voices": 2 },
       "context": { "name": "Clarence Johnson", "language": "English", "tier": 75 }
     },

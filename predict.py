@@ -98,11 +98,10 @@ class Predictor(BasePredictor):
         return vocals, vocals.parent / "no_vocals.wav"
 
     def _constant_bed_path(self, bed_audio):
-        """The constant bed for a dry-speech source / self-correction: a caller-provided template
-        (bed_audio) or the bundled pre-mastered default (assets/bed_default.mp3, LRA ~1.8)."""
-        if bed_audio:
-            return str(bed_audio)
-        return str(_P(__file__).parent / "assets" / "bed_default.mp3")
+        """ONLY an explicitly chosen template bed (the instrumental side-project: a picked voice over a
+        picked instrumental). RoarBliss NEVER imposes a default bed on a real source — the original
+        audio is the bed. Returns None when no template was chosen."""
+        return str(bed_audio) if bed_audio else None
 
     def _bed_is_dry(self, accomp, speech_windows, window_ms):
         """A DRY/HOLEY bed: the separated music nearly vanishes in the original pauses, OR drops far
@@ -326,14 +325,12 @@ class Predictor(BasePredictor):
                 rendered[idx] = self._stretch(rendered[idx], work, voice_speed)
         items = [(idx, len(rendered[idx]), int(lines[idx].get("voice", 0)) % n) for idx in ordered]
 
-        # SMART ROUTING. Timeline-placement (riding the source's own bed) only pays off for a genuine
-        # multi-voice CINEMATIC montage whose score swells in the pauses. We prevent the rollercoaster
-        # BY CONSTRUCTION rather than relying on a runtime measurement: a SOLO source (one voice — most
-        # motivational speeches: Tate, Eric Thomas, Clarence), a chosen template (bed_audio), or a
-        # dry/holey bed all ride a CONSTANT pre-mastered bed. Only a true multi-voice montage with a
-        # rich, constant bed keeps its own timeline.
-        solo = n <= 1
-        use_constant_bed = bool(bed_audio) or solo or (bool(speech_windows) and self._bed_is_dry(accomp, speech_windows, window_ms))
+        # BED = the ORIGINAL audio, always. RoarBliss keeps the source's own music/sound/melody and
+        # changes ONLY the spoken words — we NEVER impose or invent a bed. The new lines are placed back
+        # on the original timeline, over the source's own separated music. The ONLY exception is an
+        # explicitly chosen template (bed_audio) for the instrumental side-project (a picked voice over a
+        # picked instrumental). No solo/dry auto-substitution; no constant default.
+        use_constant_bed = bool(bed_audio)
         do_timeline = bool(speech_windows) and not use_constant_bed
 
         if do_timeline:
@@ -375,9 +372,9 @@ class Predictor(BasePredictor):
         # voice over a CONSTANT bed and keep whichever passes. An input we never tested cannot ship a
         # rollercoaster. Skip correction when the bed is the user's OWN chosen upload (bed-only mode,
         # vocals is None) — overriding their instrumental would be wrong, not a fix.
-        skip_correction = use_constant_bed or (vocals is None)
-        out = self._self_check_and_correct(out, track, work, window_ms, intro_ms, bed_audio, skip_correction)
-        out = self._master_loudness(out, work)   # final master -> constant level (the file-#1 finish)
+        # The self-check MEASURES + logs, but never auto-imposes a constant bed or masters the mix —
+        # both would alter the original soundscape, which RoarBliss must keep untouched. (skip=True.)
+        out = self._self_check_and_correct(out, track, work, window_ms, intro_ms, bed_audio, True)
         return Path(out)
 
     def _master_loudness(self, mp3_path, work):
