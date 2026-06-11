@@ -151,7 +151,7 @@ def find_candidate_slots(audio_path: str, ref_library: dict, window_ms: int = No
     # Denser tiers (>=50%) need SHORTER units so each slot is filled by one clone — otherwise a long,
     # punctuation-starved run becomes a 14s slot the clone fills only halfway (big gap). Real sentence
     # punctuation still closes a unit first, so well-punctuated sources are unaffected.
-    units = _group_into_sentences(segments, max_group_s=(min(6.0, 14.0 * density) if density >= 0.5 else 14.0))
+    units = _group_into_sentences(segments, max_group_s=(min(8.0, 14.0 * density) if density >= 0.5 else 14.0))
     diar = diarize(audio_path, verbose=False)
 
     valid_speakers = set(ref_library["speakers"].keys())

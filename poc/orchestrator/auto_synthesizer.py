@@ -455,7 +455,7 @@ def auto_synthesize(audio_path: str, user_context: str,
              # Voice bus only: HPF 80Hz kills sub-bass rumble, LPF 14kHz kills the >14kHz hiss/sizzle that
              # demucs vocal separation leaves in BOTH the clones and the kept-original. Music ([1:a]) is
              # NOT filtered — it stays volume=1.0, full-band, untouched (HARD RULE).
-             "-filter_complex","[0:a]volume=1.0,highpass=f=80,lowpass=f=14000[s];[1:a]volume=1.0[m];[s][m]amix=inputs=2:duration=longest:normalize=0,"
+             "-filter_complex","[0:a]volume=1.0,highpass=f=80,afftdn=nf=-20,lowpass=f=14000[s];[1:a]volume=1.0[m];[s][m]amix=inputs=2:duration=longest:normalize=0,"
              "alimiter=limit=0.97:level=false,"
              "areverse,silenceremove=start_periods=1:start_threshold=-50dB:start_silence=1.0,areverse",
              "-ac","2","-ar","44100","-b:a","320k", str(final_path)]
