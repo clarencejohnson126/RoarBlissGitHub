@@ -115,7 +115,7 @@ class Predictor(BasePredictor):
         #    ever hears the voices they chose.
         track_refs = []   # (speaker_id, ref_path) — cloned one at a time later
         ref_texts = {}    # str(ref_path) -> exact transcript of that clip (zero-shot conditioning)
-        speech_onsets = []  # ms starts of the ORIGINAL utterances — the new lines are placed on these
+        speech_windows = []  # ms (start, end) of the ORIGINAL utterances — new lines are placed on these
         if clone_source_voices and vocals is not None:
             voc = AudioSegment.from_wav(str(vocals))
             speakers = self._rank_speakers(str(vocals), len(voc), min_speakers=min_voices)[:6]
@@ -132,7 +132,7 @@ class Predictor(BasePredictor):
                     merged[-1][1] = max(merged[-1][1], e * 1000)
                 else:
                     merged.append([s * 1000, e * 1000])
-            speech_onsets = [int(s) for s, _e in merged]
+            speech_windows = [(int(s), int(e)) for s, e in merged]
             # ONE continuous clip (≤12s) + its EXACT transcript per speaker. Stitching many diarized
             # fragments into a 40s ref with ref_text="" is the documented 'garbled/backwards-gibberish'
             # anti-pattern (see auto_synthesizer.resolve_reference_clip) and OmniVoice itself warns
@@ -289,8 +289,8 @@ class Predictor(BasePredictor):
             for idx in ordered:
                 rendered[idx] = self._stretch(rendered[idx], work, voice_speed)
         items = [(idx, len(rendered[idx]), int(lines[idx].get("voice", 0)) % n) for idx in ordered]
-        if speech_onsets:
-            placements = self._place_on_timeline(items, speech_onsets, window_ms)
+        if speech_windows:
+            placements = self._place_on_timeline(items, speech_windows, window_ms)
             end_ms = max((pos + len(rendered[idx]) for idx, pos in placements), default=0)
             track = AudioSegment.silent(duration=max(window_ms, end_ms + 200))
             for idx, pos in placements:
@@ -322,24 +322,37 @@ class Predictor(BasePredictor):
         mixed.export(str(out), format="mp3", bitrate="192k")
         return Path(out)
 
-    def _place_on_timeline(self, items, onsets_ms, window_ms, gap_same=150, gap_switch=650):
+    def _place_on_timeline(self, items, windows_ms, window_ms, gap_same=150, gap_switch=650):
         """items: [(line_idx, len_ms, voice_idx)] in script order -> [(line_idx, start_ms)].
-        Each line snaps to the next ORIGINAL utterance onset at/after the cursor: the new voice
-        speaks where the original voice spoke, the original pauses stay pauses. If a line outruns
-        its window the cursor simply pushes the next line later (logged) — never overlapping."""
-        placements, cursor, oi, prev_vi = [], 0, 0, None
+        Reproduce the ORIGINAL's speech/pause pattern: while the cursor is INSIDE an original
+        utterance window, lines flow back-to-back (the original kept talking here); when the
+        cursor lands in an original PAUSE, the next line waits for the next window start (the
+        original was silent here — the bed swells exactly as produced). A line that would barely
+        fit its window (<50% remaining) starts at the next window instead of spilling deep into
+        the produced pause. Never overlaps; capped at the output window."""
+        placements, cursor, wi, prev_vi = [], 0, 0, None
         cap = max(0, window_ms - 1000)
         for idx, ln, vi in items:
             gap = (gap_switch if (prev_vi is not None and vi != prev_vi) else gap_same) if placements else 0
             floor = cursor + gap
-            while oi < len(onsets_ms) and onsets_ms[oi] < floor:
-                oi += 1
-            pos = max(onsets_ms[oi] if oi < len(onsets_ms) else floor, floor)
+            while wi < len(windows_ms) and windows_ms[wi][1] <= floor:
+                wi += 1
+            if wi < len(windows_ms) and windows_ms[wi][0] > floor:
+                pos, tag = windows_ms[wi][0], "onset"          # original pause -> wait for next utterance
+            elif wi < len(windows_ms):
+                remaining = windows_ms[wi][1] - floor
+                if ln > remaining and remaining < 0.5 * ln and wi + 1 < len(windows_ms):
+                    wi += 1
+                    pos, tag = windows_ms[wi][0], "onset"      # barely fits -> next utterance instead
+                else:
+                    pos, tag = floor, "in-window"              # original kept talking -> keep talking
+            else:
+                pos, tag = floor, "past-timeline"
             if placements and cap and pos + ln > cap:
                 print(f"  output cap (~{window_ms/1000:.0f}s) reached at line {idx}")
                 break
             placements.append((idx, pos))
-            print(f"  line {idx:>2} -> {pos/1000:7.2f}s ({ln/1000:.1f}s){' [onset]' if oi < len(onsets_ms) and pos == onsets_ms[oi] else ''}")
+            print(f"  line {idx:>2} -> {pos/1000:7.2f}s ({ln/1000:.1f}s) [{tag}]")
             cursor = pos + ln
             prev_vi = vi
         return placements
@@ -541,7 +554,9 @@ class Predictor(BasePredictor):
             print("music bed skipped (stem effectively silent)"); return voice
         # Play the bed to its natural end (bed_len_ms, capped to the actual source) so the track runs the
         # full instrumental length; never shorter than the voice + tail (never cut short — founder rule).
-        voice_total = len(vfull) + tail_ms
+        # Timeline-placed tracks (intro_ms=0) already span the window — no extra tail, or the bed
+        # would loop briefly past its natural end.
+        voice_total = len(vfull) + (tail_ms if intro_ms > 0 else 0)
         bed_total = min(len(music), int(bed_len_ms)) if bed_len_ms and bed_len_ms > 0 else voice_total
         total = max(voice_total, bed_total)
         natural_end = total >= len(music)
