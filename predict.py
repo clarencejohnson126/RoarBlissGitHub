@@ -448,13 +448,15 @@ class Predictor(BasePredictor):
         return [{"voice": 0, "text": seed + "."}]
 
     def _lay_over_music(self, voice, accomp, work, duck_db=8.0, music_gain_db=0.0, bed_len_ms=0):
-        """Lay the voice over the bed with a short intro, then SIDECHAIN-DUCK the music under the voice:
-        the bed plays full/loud and only dips ~duck_db while someone speaks, springing back between lines
-        — loud music AND a clear voice (the cinematic balance). music_gain_db sets the bed level relative
-        to the voice (0 = at voice level). bed_len_ms lets the music play its FULL natural length (e.g. the
-        whole 2:09 instrumental) even after the voice finishes — the bed simply continues solo and fades
-        at its real end, no abrupt cut-off. All knobs tunable per run, no rebuild. Falls back to a simple
-        level-lock overlay if ffmpeg sidechain isn't available; returns dry voice if there's no bed."""
+        """Lay the voice over the bed. RULE #1 (founder): the music bed is NEVER touched — it plays at
+        its ORIGINAL volume, one constant level, start to finish. No sidechain ducking, no auto bed gain,
+        no pumping up/down around the lines. This mirrors the proven 25-75% mixer in auto_synthesizer
+        (volume=1.0 on the music bus, limiter only on the COMBINED bus to stop the SUM clipping).
+        Clarity comes from the VOICE side: rendered lines are loudness-normalized, and if the bed is
+        hotter than the voice the VOICE is lifted (voice-only gain — the music stays untouched).
+        bed_len_ms lets the bed play its FULL natural length (e.g. the whole 2:09 instrumental) even
+        after the voice finishes. music_gain_db is a manual per-run override knob (default 0 = original
+        level, untouched). duck_db is accepted for API compatibility but no longer used."""
         import subprocess
         from pydub import AudioSegment
         intro_ms, tail_ms = 2500, 3000
@@ -466,40 +468,42 @@ class Predictor(BasePredictor):
         if music.dBFS < -40:          # source had no real music bed → keep the voice dry
             print("music bed skipped (stem effectively silent)"); return voice
         # Play the bed to its natural end (bed_len_ms, capped to the actual source) so the track runs the
-        # full instrumental length; never shorter than the voice + tail.
+        # full instrumental length; never shorter than the voice + tail (never cut short — founder rule).
         voice_total = len(vfull) + tail_ms
         bed_total = min(len(music), int(bed_len_ms)) if bed_len_ms and bed_len_ms > 0 else voice_total
         total = max(voice_total, bed_total)
+        natural_end = total >= len(music)
         if len(music) < total:        # loop the bed only if the source is shorter than needed
             music = music * (total // max(1, len(music)) + 1)
-        music = music[:total].fade_in(1500).fade_out(tail_ms)
-        # Pad the voice to the full mix length: ffmpeg's sidechaincompress ends at its SHORTEST input,
-        # so an unpadded voice key truncated the whole mix at the voice's end (a 2:09 bed cut at 1:43 —
-        # NEVER cut a track short of its source unless it exceeds the 6-min cap). With the silence pad
-        # the bed plays solo, unducked, to its real faded end.
-        if len(vfull) < total:
+            natural_end = False
+        music = music[:total]
+        if not natural_end:           # fade ONLY when we had to cut the bed before its real ending
+            music = music.fade_out(tail_ms)
+        # Voice-only clarity: if the bed runs hotter than the voice, lift the VOICE above it.
+        # The music level is never changed (RULE #1).
+        if vfull.dBFS != float("-inf") and music.dBFS != float("-inf"):
+            lift = (music.dBFS + 4.0) - vfull.dBFS
+            if lift > 0:
+                vfull = vfull.apply_gain(min(lift, 12.0))
+                print(f"voice lifted +{min(lift, 12.0):.1f}dB above the bed (music untouched)")
+        if len(vfull) < total:        # pad so amix never decides length off the shorter input
             vfull = vfull + AudioSegment.silent(duration=total - len(vfull))
-        # Bring the bed up to ~voice level (+ user gain) so it's full and loud; the sidechain below keeps
-        # the words clear by dipping the bed only while the voice is present.
-        bed_gain = ((vfull.dBFS + music_gain_db) - music.dBFS) if vfull.dBFS != float("-inf") else music_gain_db
         vpath = _P(work) / "mix_voice.wav"; mpath = _P(work) / "mix_music.wav"; opath = _P(work) / "mix_out.wav"
         try:
             vfull.export(str(vpath), format="wav"); music.export(str(mpath), format="wav")
-            ratio = max(2.0, min(20.0, duck_db / 1.5 + 2.0))   # deeper requested duck -> stronger sidechain
-            chain = (f"[0:a]volume={bed_gain:.1f}dB,aresample=44100,aformat=channel_layouts=stereo[m];"
-                     f"[1:a]aresample=44100,aformat=channel_layouts=stereo,asplit=2[vx][vk];"
-                     f"[m][vk]sidechaincompress=threshold=0.03:ratio={ratio:.1f}:attack=5:release=320[md];"
-                     f"[vx][md]amix=inputs=2:duration=longest:normalize=0[mx];"
-                     f"[mx]alimiter=limit=0.97[out]")
+            mg = f"volume={music_gain_db:.1f}dB," if abs(music_gain_db) > 0.01 else ""   # manual knob only
+            chain = (f"[0:a]{mg}aresample=44100,aformat=channel_layouts=stereo[m];"
+                     f"[1:a]aresample=44100,aformat=channel_layouts=stereo[v];"
+                     f"[m][v]amix=inputs=2:duration=longest:normalize=0[mx];"
+                     f"[mx]alimiter=limit=0.97:level=false[out]")
             subprocess.run(["ffmpeg", "-y", "-i", str(mpath), "-i", str(vpath),
                             "-filter_complex", chain, "-map", "[out]", str(opath)],
                            capture_output=True, check=True)
-            print(f"sidechain mix: music_gain_db={music_gain_db} duck_db={duck_db} (bed_gain={bed_gain:.1f}dB, ratio={ratio:.1f})")
+            print(f"flat mix (RULE #1): music at original level, music_gain_db={music_gain_db} (manual only)")
             return AudioSegment.from_wav(str(opath))
         except Exception as e:
-            print("sidechain mix failed -> simple overlay:", e)
-            g = min(vfull.dBFS - duck_db - music.dBFS, 6.0)
-            return (music + g).overlay(vfull)
+            print("flat mix failed -> simple overlay:", e)
+            return music.overlay(vfull)
 
     def predict(
         self,
@@ -524,8 +528,8 @@ class Predictor(BasePredictor):
         output_seconds: int = Input(default=0, description="full_voice only: cap the OUTPUT length (s) independent of source length — clone the voices from a longer source but render e.g. a 2-min piece. 0 = use the full window."),
         extra_voice_ids: str = Input(default="", description="Comma-separated permanent ElevenLabs voice IDs to use as voices (used directly, never cloned/deleted) — e.g. the user's GoT-Jon. These are the user's CHOSEN voices."),
         clone_source_voices: bool = Input(default=True, description="DETERMINISTIC voice sourcing. True = clone the distinct speakers found in the uploaded audio (correct when personalizing a real speech, or for a multi-speaker cinematic source). False = NEVER diarize/clone the source; speak ONLY the voices in extra_voice_ids over the upload-as-bed (instrumental + your chosen voice(s); N picked voices talking over your track). Set False so a user NEVER gets a voice they didn't choose."),
-        music_gain_db: float = Input(default=0.0, description="Music bed loudness, in dB relative to the voice. 0 = bed sits at voice level and is full/loud (it ducks under the voice via sidechain so words stay clear). Positive = louder music, negative = quieter. Tune this per run — no rebuild needed."),
-        duck_db: float = Input(default=8.0, description="How far the music dips UNDER the voice while someone speaks (sidechain duck depth, dB). Higher = voice cuts through more; lower = music stays prouder under the voice."),
+        music_gain_db: float = Input(default=0.0, description="Manual music-bed offset in dB. Default 0 = the bed plays at its ORIGINAL level, completely untouched (RULE #1: the music volume is never changed, no ducking, one constant level). Set only as a deliberate per-run override."),
+        duck_db: float = Input(default=8.0, description="DEPRECATED — ignored. The music is never ducked (RULE #1: original constant volume). Kept for API compatibility."),
         voice_speed: float = Input(default=1.0, description="Speaking pace of the generated voice. 1.0 = natural; <1 = slower/more deliberate (e.g. 0.93), >1 = faster. Applied to the voice only — the music is untouched."),
         breath_ms: int = Input(default=1000, description="Partial tiers (25/50/75): deliberate pause (ms) before + after each personalized snippet so it never glues straight onto the surrounding original sentence (which sounds rushed/choppy/fake). ~1000 = a full ~1s breath; 0 = off. Tune per run — no rebuild needed."),
         language: str = Input(default="English", description="Target language for the generated lines (e.g. 'German', 'Spanish', 'French'). ElevenLabs multilingual_v2 keeps the cloned timbre and the writer composes natively; the source audio can be any language."),
@@ -557,6 +561,10 @@ class Predictor(BasePredictor):
             os.environ["TTS_PROVIDER"] = tts_provider
         elif os.environ.get("ELEVENLABS_API_KEY"):
             os.environ["TTS_PROVIDER"] = "elevenlabs"
+        # Thread the run's target language down to the synth. OmniVoice takes a language hint per
+        # generate() call; it was hardcoded to "English", which broke multilingual output (German
+        # text got English phonemization → garbled). The writer already composes in this language.
+        os.environ["TTS_LANGUAGE"] = (language or "English").strip() or "English"
 
         work = _P(tempfile.mkdtemp())
         cap = PAID_MAX_MS if paid else FREE_MAX_MS
