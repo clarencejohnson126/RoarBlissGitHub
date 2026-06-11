@@ -48,6 +48,14 @@ def _duration_ms(path) -> int:
 
 class Predictor(BasePredictor):
     def setup(self):
+        # GPU ground-truth diagnostic — does this box have a GPU, and does torch see it? (OmniVoice needs GPU.)
+        try:
+            import torch as _t, subprocess as _sp
+            _smi = _sp.run(["nvidia-smi", "-L"], capture_output=True, text=True, timeout=10)
+            print(f"[GPU CHECK] torch.cuda.is_available()={_t.cuda.is_available()} device_count={_t.cuda.device_count()} torch={_t.__version__} cuda={_t.version.cuda}")
+            print(f"[GPU CHECK] nvidia-smi rc={_smi.returncode} :: {((_smi.stdout or '') + (_smi.stderr or '')).strip()[:220]}")
+        except Exception as _e:
+            print("[GPU CHECK] failed:", _e)
         # Sensible defaults; the secrets (ANTHROPIC_API_KEY / HF_TOKEN / REPLICATE_API_TOKEN)
         # come from the Replicate model's env settings.
         os.environ.setdefault("WHISPER_MODEL", "base")
