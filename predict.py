@@ -115,10 +115,24 @@ class Predictor(BasePredictor):
         #    ever hears the voices they chose.
         track_refs = []   # (speaker_id, ref_path) — cloned one at a time later
         ref_texts = {}    # str(ref_path) -> exact transcript of that clip (zero-shot conditioning)
+        speech_onsets = []  # ms starts of the ORIGINAL utterances — the new lines are placed on these
         if clone_source_voices and vocals is not None:
             voc = AudioSegment.from_wav(str(vocals))
             speakers = self._rank_speakers(str(vocals), len(voc), min_speakers=min_voices)[:6]
             print(f"full_voice: {len(speakers)} source speaker(s) to clone (min_voices={min_voices})")
+            # The ORIGINAL speech timeline (merged diarized turns). Founder rule: "we just change the
+            # sentences — everything else stays the same." Produced sources carry the producer's music
+            # automation (the bed rides down under speech, swells in pauses); placing each new line on
+            # an original utterance onset keeps that automation in sync with OUR speech — the original
+            # production does the mixing, we never touch the music.
+            allsegs = sorted((s, e) for _, segs in speakers for (s, e) in segs)
+            merged = []
+            for s, e in allsegs:
+                if merged and s * 1000 - merged[-1][1] < 300:   # close micro-gaps (<300ms)
+                    merged[-1][1] = max(merged[-1][1], e * 1000)
+                else:
+                    merged.append([s * 1000, e * 1000])
+            speech_onsets = [int(s) for s, _e in merged]
             # ONE continuous clip (≤12s) + its EXACT transcript per speaker. Stitching many diarized
             # fragments into a 40s ref with ref_text="" is the documented 'garbled/backwards-gibberish'
             # anti-pattern (see auto_synthesizer.resolve_reference_clip) and OmniVoice itself warns
@@ -263,32 +277,87 @@ class Predictor(BasePredictor):
         if not rendered:
             raise RuntimeError("full_voice: nothing could be synthesized")
 
-        # 6) assemble the voice track in line order (capped to the output window at a clean line boundary
-        #    so an over-long script still lands near 2 min instead of running to ~3 min), then lay it over
-        #    the clean music+SFX bed.
-        cap_ms = max(0, window_ms - 5500)   # reserve room for the 2.5s intro + 3s tail
-        track = AudioSegment.silent(duration=0)
-        prev = None
-        for idx in range(len(lines)):
-            if idx not in rendered:
-                continue
-            seg = rendered[idx]
-            if cap_ms and len(track) > 1000 and len(track) + len(seg) > cap_ms:
-                print(f"  output cap (~{window_ms/1000:.0f}s) reached at line {idx}/{len(lines)}")
-                break
-            vi = int(lines[idx].get("voice", 0)) % n
-            gap = 650 if (prev is not None and vi != prev) else 300   # longer breath on a voice change
-            track += AudioSegment.silent(duration=gap) + seg
-            prev = vi
-        print(f"full_voice track: {n} voice(s), {len(track)/1000:.1f}s speech")
-        if len(track) < 1000:
+        # 6) assemble the voice track ON the ORIGINAL speech timeline (founder: "we just change the
+        #    sentences — everything else stays the same"). Each new line starts where an original
+        #    utterance started, so the bed's own produced dynamics (music riding under speech,
+        #    swelling in the pauses) stay in sync with OUR speech — zero music manipulation.
+        #    Falls back to sequential assembly when there is no source timeline (bed-only mode).
+        ordered = [idx for idx in range(len(lines)) if idx in rendered]
+        if abs(voice_speed - 1.0) > 0.01:
+            # speed must be applied PER LINE (an atempo on the assembled canvas would shift every
+            # placement off the original timeline and desync the bed's produced dynamics)
+            for idx in ordered:
+                rendered[idx] = self._stretch(rendered[idx], work, voice_speed)
+        items = [(idx, len(rendered[idx]), int(lines[idx].get("voice", 0)) % n) for idx in ordered]
+        if speech_onsets:
+            placements = self._place_on_timeline(items, speech_onsets, window_ms)
+            end_ms = max((pos + len(rendered[idx]) for idx, pos in placements), default=0)
+            track = AudioSegment.silent(duration=max(window_ms, end_ms + 200))
+            for idx, pos in placements:
+                track = track.overlay(rendered[idx], position=pos)
+            speech_ms = sum(len(rendered[idx]) for idx, _ in placements)
+            print(f"full_voice track: {n} voice(s), {len(placements)}/{len(items)} lines on the original "
+                  f"timeline, {speech_ms/1000:.1f}s speech")
+            intro_ms = 0          # positions are absolute — an intro shift would desync the bed
+        else:
+            cap_ms = max(0, window_ms - 5500)   # reserve room for the 2.5s intro + 3s tail
+            track = AudioSegment.silent(duration=0)
+            prev = None
+            for idx, seg_len, vi in items:
+                seg = rendered[idx]
+                if cap_ms and len(track) > 1000 and len(track) + len(seg) > cap_ms:
+                    print(f"  output cap (~{window_ms/1000:.0f}s) reached at line {idx}/{len(lines)}")
+                    break
+                gap = 650 if (prev is not None and vi != prev) else 300   # longer breath on a voice change
+                track += AudioSegment.silent(duration=gap) + seg
+                prev = vi
+            print(f"full_voice track: {n} voice(s), {len(track)/1000:.1f}s speech (sequential — no source timeline)")
+            intro_ms = 2500
+        if track.dBFS == float("-inf"):
             raise RuntimeError("full_voice: no audible speech produced")
-        track = self._voice_polish(track, work, speed=voice_speed)   # Stimmenklang + optional slowdown
+        track = self._voice_polish(track, work, speed=1.0)   # Stimmenklang only — speed already per line
         mixed = self._lay_over_music(track, accomp, work, duck_db=duck_db, music_gain_db=music_gain_db,
-                                     bed_len_ms=window_ms)
+                                     bed_len_ms=window_ms, intro_ms=intro_ms)
         out = _P(work) / "fullvoice.mp3"
         mixed.export(str(out), format="mp3", bitrate="192k")
         return Path(out)
+
+    def _place_on_timeline(self, items, onsets_ms, window_ms, gap_same=150, gap_switch=650):
+        """items: [(line_idx, len_ms, voice_idx)] in script order -> [(line_idx, start_ms)].
+        Each line snaps to the next ORIGINAL utterance onset at/after the cursor: the new voice
+        speaks where the original voice spoke, the original pauses stay pauses. If a line outruns
+        its window the cursor simply pushes the next line later (logged) — never overlapping."""
+        placements, cursor, oi, prev_vi = [], 0, 0, None
+        cap = max(0, window_ms - 1000)
+        for idx, ln, vi in items:
+            gap = (gap_switch if (prev_vi is not None and vi != prev_vi) else gap_same) if placements else 0
+            floor = cursor + gap
+            while oi < len(onsets_ms) and onsets_ms[oi] < floor:
+                oi += 1
+            pos = max(onsets_ms[oi] if oi < len(onsets_ms) else floor, floor)
+            if placements and cap and pos + ln > cap:
+                print(f"  output cap (~{window_ms/1000:.0f}s) reached at line {idx}")
+                break
+            placements.append((idx, pos))
+            print(f"  line {idx:>2} -> {pos/1000:7.2f}s ({ln/1000:.1f}s){' [onset]' if oi < len(onsets_ms) and pos == onsets_ms[oi] else ''}")
+            cursor = pos + ln
+            prev_vi = vi
+        return placements
+
+    def _stretch(self, seg, work, speed):
+        """Per-line atempo (pitch-preserving pace change), voice-only."""
+        import subprocess
+        from pydub import AudioSegment
+        sp = max(0.5, min(2.0, float(speed)))
+        src = _P(work) / "_st_in.wav"; dst = _P(work) / "_st_out.wav"
+        try:
+            seg.export(str(src), format="wav")
+            subprocess.run(["ffmpeg", "-y", "-i", str(src), "-af", f"atempo={sp:.3f}", str(dst)],
+                           capture_output=True, check=True)
+            return AudioSegment.from_wav(str(dst))
+        except Exception as e:
+            print("stretch skipped:", e)
+            return seg
 
     def _norm(self, seg):
         """Loudness-match a rendered line to VOICE_TARGET_DBFS so every voice sits at the same level
@@ -447,7 +516,8 @@ class Predictor(BasePredictor):
         seed = (user_context.split(".")[0] or "Stand up").strip()
         return [{"voice": 0, "text": seed + "."}]
 
-    def _lay_over_music(self, voice, accomp, work, duck_db=8.0, music_gain_db=0.0, bed_len_ms=0):
+    def _lay_over_music(self, voice, accomp, work, duck_db=8.0, music_gain_db=0.0, bed_len_ms=0,
+                        intro_ms=2500):
         """Lay the voice over the bed. RULE #1 (founder): the music bed is NEVER touched — it plays at
         its ORIGINAL volume, one constant level, start to finish. No sidechain ducking, no auto bed gain,
         no pumping up/down around the lines. This mirrors the proven 25-75% mixer in auto_synthesizer
@@ -459,8 +529,10 @@ class Predictor(BasePredictor):
         level, untouched). duck_db is accepted for API compatibility but no longer used."""
         import subprocess
         from pydub import AudioSegment
-        intro_ms, tail_ms = 2500, 3000
-        vfull = AudioSegment.silent(duration=intro_ms) + voice
+        tail_ms = 3000
+        # intro_ms=0 when the voice is already placed on the source's absolute timeline — a shift
+        # would desync the bed's produced dynamics from the speech.
+        vfull = (AudioSegment.silent(duration=intro_ms) + voice) if intro_ms > 0 else voice
         try:
             music = AudioSegment.from_file(str(accomp))
         except Exception as e:
