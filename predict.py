@@ -383,7 +383,7 @@ class Predictor(BasePredictor):
         except Exception as e:
             print("[self-check] metrics unavailable, skipping:", e)
             return out
-        card = _score(str(out), expected_ms=window_ms)
+        card = _score(str(out), context={"expected_ms": window_ms})
         print(f"[self-check] LRA={card.measured.get('lra')} dropouts={card.measured.get('dropouts')} "
               f"-> {'PASS' if card.passed else 'FAIL ' + str(card.failures())}")
         if card.passed or already_constant:
@@ -394,7 +394,7 @@ class Predictor(BasePredictor):
                                            bed_len_ms=window_ms, intro_ms=intro_ms)
             out2 = _P(work) / "fullvoice_corrected.mp3"
             remixed.export(str(out2), format="mp3", bitrate="192k")
-            card2 = _score(str(out2), expected_ms=window_ms)
+            card2 = _score(str(out2), context={"expected_ms": window_ms})
             print(f"[self-check] after correction: LRA={card2.measured.get('lra')} "
                   f"dropouts={card2.measured.get('dropouts')} -> {'PASS' if card2.passed else 'FAIL ' + str(card2.failures())}")
             if card2.passed or len(card2.failures()) < len(card.failures()):
