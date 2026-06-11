@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState, type CSSProperties } from "react";
 import Link from "next/link";
 import Navbar from "@/components/Navbar";
+import FeedbackWidget from "@/components/FeedbackWidget";
 import { supabaseBrowser } from "@/lib/supabase-browser";
 import { TIERS, tierById } from "@/lib/tiers";
 import { BATTLES, TONES, LANGUAGES } from "@/components/create/createData";
@@ -304,6 +305,9 @@ export default function DashboardPage() {
                           </button>
                         )}
                         <a className={styles.btnGhost} href={`/api/audio?id=${t.id}&download=1`}>Download</a>
+                      </div>
+                      <div style={{ flexBasis: "100%" }}>
+                        <FeedbackWidget predictionId={t.id} token={token} />
                       </div>
                     </div>
                   ))}

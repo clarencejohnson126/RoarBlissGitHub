@@ -1,0 +1,46 @@
+{
+  "_comment": "Golden corpus — representative inputs across the audio taxonomy. eval/run.py runs each through the PRODUCTION cog and scores the output with eval/metrics.py. No cog version reaches prod unless this is green. This file GROWS: every real failure (a complaint the battery missed) becomes a permanent entry here, so it can never silently return.",
+  "version": 1,
+  "entries": [
+    {
+      "id": "solo_dry_speech_clarence_100_en",
+      "type": "solo_dry_speech",
+      "note": "THE case that broke (volume rollercoaster). The self-correction must make this pass loudness.",
+      "audio": "/Users/clarence/Desktop/RoarBliss_Clarence.mp3",
+      "input": { "personalization": 100, "tts_provider": "omnivoice", "clone_source_voices": true, "paid": true, "name": "Clarence Johnson", "prompt": "Clarence Johnson is building his AI agency Rebelz AI and grinding to find clients. Remind him to never give up, every no brings the yes closer. His mother has heart problems and he carries that worry. Tone: relentless, warm steel, big-brother energy." },
+      "context": { "name": "Clarence Johnson", "language": "English", "tier": 100, "expected_ms": 127000 }
+    },
+    {
+      "id": "solo_dry_speech_clarence_75_en",
+      "type": "solo_dry_speech",
+      "note": "Partial tier on a dry-speech source — keeps original speaker, replaces ~75% of lines.",
+      "audio": "/Users/clarence/Desktop/RoarBliss_Clarence.mp3",
+      "input": { "personalization": 75, "tts_provider": "omnivoice", "clone_source_voices": true, "paid": true, "name": "Clarence Johnson", "prompt": "Make Clarence the hero — building his AI agency, staying strong for his mother, calm for his child." },
+      "context": { "name": "Clarence Johnson", "language": "English", "tier": 75, "expected_ms": 127000 }
+    },
+    {
+      "id": "cinematic_multivoice_got_75",
+      "type": "cinematic_multivoice",
+      "note": "A real cinematic bed (orchestra swells in pauses) — must KEEP its own timeline, not the constant bed.",
+      "audio": "/Users/clarence/Desktop/Roar Bliss App/The Targaryen Wolf (Original Soundtrack) Game of Thrones.mp3",
+      "input": { "personalization": 75, "tts_provider": "omnivoice", "clone_source_voices": true, "paid": true, "name": "Clarence Johnson", "min_voices": 2 },
+      "context": { "name": "Clarence Johnson", "language": "English", "tier": 75 }
+    },
+    {
+      "id": "translation_clarence_100_de",
+      "type": "translation",
+      "note": "Cross-language: whole track re-spoken in German. Output language MUST be German.",
+      "audio": "/Users/clarence/Desktop/RoarBliss_Clarence.mp3",
+      "input": { "personalization": 100, "tts_provider": "omnivoice", "clone_source_voices": true, "paid": true, "language": "German", "name": "Clarence Johnson", "prompt": "Clarence baut seine AI-Agentur auf und kaempft um seine ersten Kunden. Niemals aufgeben. Ton: unerbittlich, warmer Stahl." },
+      "context": { "name": "Clarence Johnson", "language": "German", "tier": 100, "expected_ms": 127000 }
+    },
+    {
+      "id": "speech_over_music_icandothis_50",
+      "type": "speech_over_music",
+      "note": "A motivational speech with music under it — moderate bed, 50% tier.",
+      "audio": "/Users/clarence/Desktop/Roar Bliss App/I CAN DO THIS - Powerful Motivational Speech.mp3",
+      "input": { "personalization": 50, "tts_provider": "omnivoice", "clone_source_voices": true, "paid": true, "name": "Clarence Johnson", "prompt": "Weave Clarence into this — the founder grinding for his first clients, doing it for his kids." },
+      "context": { "name": "Clarence Johnson", "language": "English", "tier": 50 }
+    }
+  ]
+}

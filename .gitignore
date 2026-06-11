@@ -75,3 +75,7 @@ yarn-error.log*
 # Excalidraw logs / wordpress logs
 excalidraw.log
 wordpress-mcp.log
+
+# eval harness test artifacts
+eval/_out_*.mp3
+eval/last_results.json
