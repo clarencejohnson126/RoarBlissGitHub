@@ -11,13 +11,13 @@
 #   HF_TOKEN            - pyannote diarization model download
 #   REPLICATE_API_TOKEN - F5-TTS voice cloning (v1 calls Replicate's F5; later: host F5 in-cog)
 build:
-  # GPU build. torch 2.5.1 is the sweet spot: OmniVoice (Higgs Audio v2) imports
-  # torch.nn.attention.flex_attention which only exists in torch >=2.5, AND 2.5.x still ships cu121
-  # wheels (torch 2.6+ dropped cu121 → would force CUDA 12.4/12.6 = the old CPU-fallback trap). GPU cuts
-  # the ML preprocessing (Demucs / Whisper / pyannote / OmniVoice) ~5-15x vs CPU.
+  # GPU build. torch 2.5.1: OmniVoice (Higgs Audio v2) imports torch.nn.attention.flex_attention which
+  # only exists in torch >=2.5. torch 2.5.1's PyPI wheel bundles CUDA 12.4 libs (nvidia-*-cu12==12.4.x),
+  # so the cog CUDA must MATCH — cuda 12.1 mismatched it → torch.cuda.is_available()=False → CPU fallback
+  # (catastrophically slow: a run took 32min on CPU). cuda 12.4 matches the wheel → GPU. (Cog supports
+  # up to 12.4; 12.6 is the unsupported one.) GPU cuts Demucs/Whisper/pyannote/OmniVoice ~5-15x vs CPU.
   gpu: true
-  # Pin CUDA 12.1 → Cog installs torch 2.5.1+cu121 on the GPU box (cu121 wheels exist for 2.5.x).
-  cuda: "12.1"
+  cuda: "12.4"
   python_version: "3.11"
   system_packages:
     - "ffmpeg"
@@ -45,7 +45,7 @@ build:
     # local venv that ran the full multi-speaker pipeline. pyannote 3.4 still calls
     # hf_hub_download(use_auth_token=) AND trips torch's weights_only default; diarization.py shims BOTH so
     # pyannote loads against the new hub/torch (this REPLACES the old hub==0.25.2 pin).
-    - "pip install --no-cache-dir pyannote.audio==3.4.0 && pip install --no-cache-dir 'huggingface_hub==1.18.0' 'transformers==5.11.0' && python -c 'import pyannote.audio, huggingface_hub, transformers; print(\"pyannote\", pyannote.audio.__version__, \"hub\", huggingface_hub.__version__, \"tf\", transformers.__version__)' && echo cache-bust-omnivoice-v2-torch251"
+    - "pip install --no-cache-dir pyannote.audio==3.4.0 && pip install --no-cache-dir 'huggingface_hub==1.18.0' 'transformers==5.11.0' && python -c 'import pyannote.audio, huggingface_hub, transformers; print(\"pyannote\", pyannote.audio.__version__, \"hub\", huggingface_hub.__version__, \"tf\", transformers.__version__)' && echo cache-bust-omnivoice-v3-cuda124"
     # openai-whisper ships an sdist whose setup.py imports pkg_resources; build against setuptools<81.
     - "pip install --no-cache-dir --no-build-isolation openai-whisper==20250625"
     # OmniVoice (Higgs Audio v2) = THE engine. 0.3.5 is git-only (PyPI lags at 0.1.5). --no-deps because the
