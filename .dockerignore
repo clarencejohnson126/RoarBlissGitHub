@@ -15,6 +15,7 @@ poc/orchestrator/outputs/
 poc/test_audio/
 
 # Old POC scripts we don't ship to production
+poc/archive/
 poc/poc_*.py
 poc/01_*.py
 poc/02_*.py
@@ -42,6 +43,8 @@ node_modules/
 *.mp3
 # ...except the one preloaded demo speech the default UI flow needs:
 !I CAN DO THIS - Powerful Motivational Speech.mp3
+# ...and the bundled constant bed the full_voice self-correction rides over (dry-speech sources):
+!assets/bed_default.mp3
 
 # Secrets — these go via Render env vars, never into the image
 .env

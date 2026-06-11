@@ -97,9 +97,45 @@ class Predictor(BasePredictor):
         vocals = next(out.rglob("vocals.wav"))
         return vocals, vocals.parent / "no_vocals.wav"
 
+    def _constant_bed_path(self, bed_audio):
+        """The constant bed for a dry-speech source / self-correction: a caller-provided template
+        (bed_audio) or the bundled pre-mastered default (assets/bed_default.mp3, LRA ~1.8)."""
+        if bed_audio:
+            return str(bed_audio)
+        return str(_P(__file__).parent / "assets" / "bed_default.mp3")
+
+    def _bed_is_dry(self, accomp, speech_windows, window_ms):
+        """A DRY-SPEECH source: the demucs music bed is near-silent where the original speaker paused.
+        Riding voice on that timeline drops into -35dB holes (the 'rollercoaster'). Detect it by
+        measuring the bed level inside the original pauses; if it nearly vanishes there, route the
+        voice over a CONSTANT bed instead. A real cinematic bed (GoT) stays loud in pauses -> keep it."""
+        try:
+            from pydub import AudioSegment
+            bed = AudioSegment.from_file(str(accomp))
+        except Exception:
+            return False
+        if bed.dBFS == float("-inf"):
+            return True
+        gaps, prev = [], 0
+        for s, e in speech_windows:
+            if s - prev > 500:
+                gaps.append((prev, s))
+            prev = max(prev, e)
+        if window_ms - prev > 500:
+            gaps.append((prev, window_ms))
+        if not gaps:
+            return bed.dBFS < -30
+        import statistics
+        levels = [bed[g0:g1].dBFS for g0, g1 in gaps
+                  if (g1 - g0) > 120 and bed[g0:g1].dBFS != float("-inf")]
+        if not levels:
+            return True
+        # dry if the bed nearly disappears in pauses, OR the whole bed is just very quiet
+        return statistics.median(levels) < -34 or bed.dBFS < -28
+
     def _full_voice(self, vocals, accomp, audio_path, user_context, window_ms, work,
                     min_voices=0, extra_voice_ids="", language="English", clone_source_voices=True,
-                    music_gain_db=0.0, duck_db=8.0, voice_speed=1.0):
+                    music_gain_db=0.0, duck_db=8.0, voice_speed=1.0, bed_audio=None):
         """100%-generated mode — adaptive. Build a pool of voices (permanent voice_ids supplied by the
         caller PLUS voices freshly cloned from the source's distinct speakers), write a COMPLETE new
         script (the listener's saga, original lines, never the source's words) and speak it 100% across
@@ -289,7 +325,15 @@ class Predictor(BasePredictor):
             for idx in ordered:
                 rendered[idx] = self._stretch(rendered[idx], work, voice_speed)
         items = [(idx, len(rendered[idx]), int(lines[idx].get("voice", 0)) % n) for idx in ordered]
-        if speech_windows:
+
+        # SMART ROUTING. Timeline-placement (riding the source's own bed) only works when the source
+        # HAS a real bed that swells in the pauses (a cinematic montage). A dry-speech source, or a
+        # caller-supplied template bed, must ride a CONSTANT bed — otherwise the original pauses become
+        # -35dB holes (the founder's 'volume rollercoaster'). bed_audio (a chosen template) always wins.
+        use_constant_bed = bool(bed_audio) or (bool(speech_windows) and self._bed_is_dry(accomp, speech_windows, window_ms))
+        do_timeline = bool(speech_windows) and not use_constant_bed
+
+        if do_timeline:
             placements = self._place_on_timeline(items, speech_windows, window_ms)
             end_ms = max((pos + len(rendered[idx]) for idx, pos in placements), default=0)
             track = AudioSegment.silent(duration=max(window_ms, end_ms + 200))
@@ -298,7 +342,7 @@ class Predictor(BasePredictor):
             speech_ms = sum(len(rendered[idx]) for idx, _ in placements)
             print(f"full_voice track: {n} voice(s), {len(placements)}/{len(items)} lines on the original "
                   f"timeline, {speech_ms/1000:.1f}s speech")
-            intro_ms = 0          # positions are absolute — an intro shift would desync the bed
+            intro_ms, bed_for_mix = 0, accomp
         else:
             cap_ms = max(0, window_ms - 5500)   # reserve room for the 2.5s intro + 3s tail
             track = AudioSegment.silent(duration=0)
@@ -311,16 +355,53 @@ class Predictor(BasePredictor):
                 gap = 650 if (prev is not None and vi != prev) else 300   # longer breath on a voice change
                 track += AudioSegment.silent(duration=gap) + seg
                 prev = vi
-            print(f"full_voice track: {n} voice(s), {len(track)/1000:.1f}s speech (sequential — no source timeline)")
+            bed_for_mix = self._constant_bed_path(bed_audio) if use_constant_bed else accomp
+            tag = "constant bed (dry source/template)" if use_constant_bed else "no source timeline"
+            print(f"full_voice track: {n} voice(s), {len(track)/1000:.1f}s speech (sequential — {tag})")
             intro_ms = 2500
         if track.dBFS == float("-inf"):
             raise RuntimeError("full_voice: no audible speech produced")
         track = self._voice_polish(track, work, speed=1.0)   # Stimmenklang only — speed already per line
-        mixed = self._lay_over_music(track, accomp, work, duck_db=duck_db, music_gain_db=music_gain_db,
+        mixed = self._lay_over_music(track, bed_for_mix, work, duck_db=duck_db, music_gain_db=music_gain_db,
                                      bed_len_ms=window_ms, intro_ms=intro_ms)
         out = _P(work) / "fullvoice.mp3"
         mixed.export(str(out), format="mp3", bitrate="192k")
+
+        # RUNTIME SELF-CHECK — the cog grades its OWN output with the same metrics as the offline gate.
+        # If the track is wavy/holey (the rollercoaster) and we rode the source's DEMUCS bed, re-mix the
+        # voice over a CONSTANT bed and keep whichever passes. An input we never tested cannot ship a
+        # rollercoaster. Skip correction when the bed is the user's OWN chosen upload (bed-only mode,
+        # vocals is None) — overriding their instrumental would be wrong, not a fix.
+        skip_correction = use_constant_bed or (vocals is None)
+        out = self._self_check_and_correct(out, track, work, window_ms, intro_ms, bed_audio, skip_correction)
         return Path(out)
+
+    def _self_check_and_correct(self, out, track, work, window_ms, intro_ms, bed_audio, already_constant):
+        try:
+            sys.path.insert(0, str(_P(__file__).parent / "eval"))
+            from metrics import score as _score
+        except Exception as e:
+            print("[self-check] metrics unavailable, skipping:", e)
+            return out
+        card = _score(str(out), expected_ms=window_ms)
+        print(f"[self-check] LRA={card.measured.get('lra')} dropouts={card.measured.get('dropouts')} "
+              f"-> {'PASS' if card.passed else 'FAIL ' + str(card.failures())}")
+        if card.passed or already_constant:
+            return out   # good, or we already used the safe bed (nothing better to fall back to)
+        print("[self-check] self-correcting: re-mix over a constant bed")
+        try:
+            remixed = self._lay_over_music(track, self._constant_bed_path(bed_audio), work,
+                                           bed_len_ms=window_ms, intro_ms=intro_ms)
+            out2 = _P(work) / "fullvoice_corrected.mp3"
+            remixed.export(str(out2), format="mp3", bitrate="192k")
+            card2 = _score(str(out2), expected_ms=window_ms)
+            print(f"[self-check] after correction: LRA={card2.measured.get('lra')} "
+                  f"dropouts={card2.measured.get('dropouts')} -> {'PASS' if card2.passed else 'FAIL ' + str(card2.failures())}")
+            if card2.passed or len(card2.failures()) < len(card.failures()):
+                return out2   # the constant-bed mix is better (or clean) — ship it
+        except Exception as e:
+            print("[self-check] correction failed, keeping original:", e)
+        return out
 
     def _place_on_timeline(self, items, windows_ms, window_ms, gap_same=150, gap_switch=650):
         """items: [(line_idx, len_ms, voice_idx)] in script order -> [(line_idx, start_ms)].
@@ -621,6 +702,7 @@ class Predictor(BasePredictor):
         breath_ms: int = Input(default=1000, description="Partial tiers (25/50/75): deliberate pause (ms) before + after each personalized snippet so it never glues straight onto the surrounding original sentence (which sounds rushed/choppy/fake). ~1000 = a full ~1s breath; 0 = off. Tune per run — no rebuild needed."),
         language: str = Input(default="English", description="Target language for the generated lines (e.g. 'German', 'Spanish', 'French'). ElevenLabs multilingual_v2 keeps the cloned timbre and the writer composes natively; the source audio can be any language."),
         tts_provider: str = Input(default="auto", choices=["auto", "elevenlabs", "chatterbox", "omnivoice", "replicate"], description="Voice engine. 'auto' = ElevenLabs if its key is set, else Replicate F5. 'omnivoice' = OmniVoice/Higgs Audio v2 IN-COG on GPU (local zero-shot clone, NO per-op limit, multi-speaker + 646 langs incl. cross-lingual — the chosen engine). 'chatterbox' = Resemble Chatterbox-Turbo on Replicate. 'replicate' = F5-TTS."),
+        bed_audio: Path = Input(default=None, description="full_voice only: an optional CLEAN, pre-mastered instrumental bed (e.g. a Suno template). When set, the generated voice rides over THIS constant bed instead of the source's separated music — used for the template-creation flow and for dry-speech sources. Leave unset: a cinematic source keeps its own bed, a dry-speech source auto-falls back to the bundled constant bed."),
     ) -> Path:
         from auto_synthesizer import auto_synthesize
 
@@ -711,6 +793,7 @@ class Predictor(BasePredictor):
                 out_window, work, min_voices=min_voices, extra_voice_ids=extra_voice_ids,
                 language=language, clone_source_voices=clone_source_voices,
                 music_gain_db=music_gain_db, duck_db=duck_db, voice_speed=voice_speed,
+                bed_audio=bed_audio,
             )
 
         result = auto_synthesize(

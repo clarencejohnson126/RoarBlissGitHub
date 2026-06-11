@@ -352,7 +352,7 @@ def synthesize_omnivoice(text: str, ref_path: Path, ref_text: str, slot_ms: int,
     last_ms = None
     for attempt in range(1, 4):
         audios = model.generate(text=text, language=language, ref_audio=ref_use,
-                                ref_text=ref_text or "", num_step=32, guidance_scale=2.0, speed=1.0)
+                                ref_text=ref_text or "", num_step=48, guidance_scale=2.0, speed=1.0)
         tmp = cache_dir / f"_omni_tmp_{key}.wav"
         torchaudio.save(str(tmp), audios[0].float().cpu(), model.sampling_rate)
         clone = trim_silence(AudioSegment.from_wav(str(tmp)))
