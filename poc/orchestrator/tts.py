@@ -331,8 +331,10 @@ def synthesize_omnivoice(text: str, ref_path: Path, ref_text: str, slot_ms: int,
     cref = cache_dir / f"cleanref_{cache_key('cref', '', ref_path)}.wav"
     if not cref.exists():
         try:
+            # HPF80 + LPF14k + loudnorm ONLY — the exact recipe that made the local German clone clean.
+            # NO afftdn: the FFT-denoiser corrupts the reference → OmniVoice clones GIBBERISH (worst run).
             subprocess.run(["ffmpeg", "-y", "-loglevel", "error", "-i", str(ref_path),
-                            "-af", "highpass=f=80,afftdn=nf=-25,lowpass=f=14000,loudnorm=I=-18",
+                            "-af", "highpass=f=80,lowpass=f=14000,loudnorm=I=-18",
                             "-ar", "24000", "-ac", "1", str(cref)], check=True)
         except Exception:
             cref = Path(ref_path)   # fall back to the raw reference if cleaning fails

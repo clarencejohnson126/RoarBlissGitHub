@@ -404,7 +404,7 @@ def auto_synthesize(audio_path: str, user_context: str,
         # Whisper sentence-group edges sit inside breaths; the original's head/tail word can bleed just
         # outside [s_ms,e_ms]. Silence a small guard on BOTH sides — but keep length invariant and keep the
         # overlay anchored at s_ms (moving it would re-introduce drift).
-        guard = 120
+        guard = 200   # widen the silenced margin around each slot so NO original word bleeds in at the seams
         head = min(guard, s_ms)
         tail = min(guard, len(canvas) - (s_ms + remove_ms))
         wipe_start = s_ms - head
@@ -455,7 +455,7 @@ def auto_synthesize(audio_path: str, user_context: str,
              # Voice bus only: HPF 80Hz kills sub-bass rumble, LPF 14kHz kills the >14kHz hiss/sizzle that
              # demucs vocal separation leaves in BOTH the clones and the kept-original. Music ([1:a]) is
              # NOT filtered — it stays volume=1.0, full-band, untouched (HARD RULE).
-             "-filter_complex","[0:a]volume=1.0,highpass=f=80,afftdn=nf=-20,lowpass=f=14000[s];[1:a]volume=1.0[m];[s][m]amix=inputs=2:duration=longest:normalize=0,"
+             "-filter_complex","[0:a]volume=1.0,highpass=f=80,lowpass=f=14000[s];[1:a]volume=1.0[m];[s][m]amix=inputs=2:duration=longest:normalize=0,"
              "alimiter=limit=0.97:level=false,"
              "areverse,silenceremove=start_periods=1:start_threshold=-50dB:start_silence=1.0,areverse",
              "-ac","2","-ar","44100","-b:a","320k", str(final_path)]
