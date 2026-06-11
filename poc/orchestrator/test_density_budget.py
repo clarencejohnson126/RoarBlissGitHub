@@ -58,13 +58,19 @@ def test_under_budget_untouched():
     out = _enforce_density_budget(picks, cands, density=0.5)
     assert len(out) == 5, "an under-budget selection must pass through unchanged"
 
-def test_partial_tier_keeps_iconic_lines_original():
+def test_iconic_picks_survive_the_trim():
+    """Founder rule: iconic lines MAY be personalized at 25-75% — beat-matched, same thunder —
+    so the budget trim must drop ordinary picks first and keep the climax transforms."""
     cands = _mk_candidates(n=24, dur_s=3.0, anthem_every=6)   # 3 anthem candidates
-    picks = _pick_all(cands)              # LLM picked the anthems too
-    out = _enforce_density_budget(picks, cands, density=0.75)
+    picks = _pick_all(cands)              # LLM picked everything, anthems included
+    out = _enforce_density_budget(picks, cands, density=0.5)
     anthem_starts = {c["start_ms"] for c in cands if c.get("is_anthem")}
-    hit = [o for o in out if o["start_ms"] in anthem_starts]
-    assert not hit, f"{len(hit)} iconic (anthem) line(s) still overwritten at a partial tier"
+    kept = [o for o in out if o["start_ms"] in anthem_starts]
+    assert len(kept) == len(anthem_starts), \
+        f"only {len(kept)}/{len(anthem_starts)} iconic transforms survived the trim"
+    total_speech_ms = sum(c["duration_s"] * 1000 for c in cands)
+    replaced = sum(o["end_ms"] - o["start_ms"] for o in out)
+    assert replaced <= total_speech_ms * 0.5 + 1, "budget not honored with anthem picks present"
 
 if __name__ == "__main__":
     fails = 0

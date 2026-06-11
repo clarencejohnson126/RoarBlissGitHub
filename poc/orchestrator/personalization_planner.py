@@ -422,7 +422,7 @@ RAW USER CONTEXT (their real life — translate it into the source's costume):
 
 TIMELINE SPAN: 0 to {window_ms/1000:.0f}s. Aim ~{target_slot_count} slots, spread end to end, no gap over ~{max_gap_s}s.
 COVERAGE TARGET: personalize ~{coverage_pct}% of the spoken timeline (sum of chosen slot durations ≈ {coverage_pct}% of the speech). Leave the remaining ~{100-coverage_pct}% as untouched original so the source still breathes. This target OVERRIDES any percentage mentioned in the rules above, and it is a HARD BUDGET: a validator drops your weakest extra picks afterwards, so over-picking only wastes your strongest lines. At a low target, pick fewer, higher-impact slots and let more original play (gaps up to ~{max_gap_s}s are expected); at a high target, cover densely.
-Spend the budget on [IDENTITY] and [PEAK] slots FIRST, then ordinary slots — but never exceed the coverage budget for them. The untouched ~{100-coverage_pct}% should be the source's most iconic, quotable lines: the listener chose this tier to KEEP those.
+Spend the budget on [IDENTITY] and [PEAK] slots FIRST, then ordinary slots — but never exceed the coverage budget for them. A [PEAK] may only be taken with a line that matches the climax beat-for-beat and hits with the SAME THUNDER as the original (the user's name/house/title as a chant or vow); if you cannot match that punch, leave the peak as untouched original and spend the budget elsewhere.
 [IDENTITY] = a slot where the source named its own hero; forge the USER's identity here (their FULL name, or "Lord of House <surname>"), never echo the source's name.
 [PEAK] = a climax/chant; transform it into the user's name, House, a forged TITLE built from their home city (e.g. "King of <their city>"), or a vow — matched to the chant's beat.
 
@@ -762,35 +762,27 @@ MAX_GAP_MS = 22_000  # never leave a stretch longer than this with no personaliz
 def _enforce_density_budget(overrides, candidates, density, verbose=False):
     """The coverage tier is a HARD seconds budget, not a suggestion. The LLM reliably over-picks
     (GoT 75%: asked ~42 slots, picked 56/56 candidates -> 92% of the speech replaced), so the
-    4-tier selector must be enforced in code after the draft. Two rules from the founder:
-    - replaced seconds <= density * spoken timeline (the tier the user paid for);
-    - at a partial tier (<90%) the iconic (anthem) lines stay ORIGINAL — keeping favourite
-      quotes is WHY a user picks 75% instead of 100%.
-    Drop order: anthem picks first, then picks buried in contiguous replaced runs (longest slot
-    first, so real original lines resurface between the new ones). The earliest pick is protected
-    (personalize the first ~30s for retention)."""
+    4-tier selector must be enforced in code after the draft:
+    - replaced seconds <= density * spoken timeline (the tier the user chose);
+    - iconic (anthem) lines MAY be personalized at any tier — beat-matched, same thunder as the
+      original climax (founder rule) — and they are the highest-value picks, so the trim drops
+      ORDINARY picks first and keeps the climax transforms.
+    Drop order: ordinary picks buried in contiguous replaced runs (longest slot first, so real
+    original lines resurface between the new ones), then standalone ordinary picks, anthem picks
+    only as a last resort. The earliest pick is protected (personalize the first ~30s for
+    retention)."""
     picked = sorted(overrides, key=lambda o: o["start_ms"])
     if not picked:
         return overrides
 
-    if density < 0.9:
-        anthem_starts = {c["start_ms"] for c in candidates if c.get("is_anthem")}
-        iconic = [o for o in picked if o["start_ms"] in anthem_starts]
-        if iconic:
-            picked = [o for o in picked if o["start_ms"] not in anthem_starts]
-            if verbose:
-                print(f"  kept {len(iconic)} iconic line(s) original (partial tier keeps the quotes)")
-        if not picked:
-            return picked
-
-    non_anthem = [c for c in candidates if not c.get("is_anthem")]
-    total_speech_ms = sum(int(c["duration_s"] * 1000) for c in non_anthem) or 1
+    total_speech_ms = sum(int(c["duration_s"] * 1000) for c in candidates) or 1
     budget_ms = int(total_speech_ms * density)
     replaced = lambda objs: sum(o["end_ms"] - o["start_ms"] for o in objs)
     if replaced(picked) <= budget_ms:
         return picked
 
     first_start = picked[0]["start_ms"]
+    anthem_starts = {c["start_ms"] for c in candidates if c.get("is_anthem")}
     cand_order = sorted(candidates, key=lambda c: c["start_ms"])
     idx_by_start = {c["start_ms"]: i for i, c in enumerate(cand_order)}
 
@@ -807,7 +799,10 @@ def _enforce_density_budget(overrides, candidates, density, verbose=False):
 
     while replaced(picked) > budget_ms and len(picked) > 1:
         starts = {o["start_ms"] for o in picked}
-        droppable = [o for o in picked if o["start_ms"] != first_start]
+        droppable = [o for o in picked
+                     if o["start_ms"] != first_start and o["start_ms"] not in anthem_starts]
+        if not droppable:   # only anthem picks (+ the first) left — drop anthems only as a last resort
+            droppable = [o for o in picked if o["start_ms"] != first_start]
         if not droppable:
             break
         victim = max(droppable, key=lambda o: (run_neighbours(o, starts), o["end_ms"] - o["start_ms"]))
@@ -1004,15 +999,15 @@ def generate_personalization(audio_path: str, user_context: str,
                                      forbidden_names=forbidden)
     overrides.sort(key=lambda s: s["start_ms"])
 
+    # The climax becomes the user's at every tier — beat-matched, same thunder as the original
+    # (founder rule). Injected BEFORE the budget clamp so it counts INSIDE the tier, not on top.
+    overrides = _inject_peak_chant(overrides, candidates, brief, user_name, verbose)
+
     # HARD tier enforcement (the LLM over-picks): clamp the replaced seconds to the density
-    # budget and keep iconic lines original at partial tiers — see _enforce_density_budget.
+    # budget; ordinary picks are dropped before climax transforms — see _enforce_density_budget.
     overrides = _enforce_density_budget(overrides, candidates, density, verbose)
 
-    # Safety nets: transform the iconic peak into the user's chant (only at the near-total tier —
-    # at 25/50/75 the iconic chant is exactly the quote the user kept the original for), then
-    # guarantee no long gaps.
-    if density >= 0.9:
-        overrides = _inject_peak_chant(overrides, candidates, brief, user_name, verbose)
+    # Safety net: guarantee no long stretch without the user present.
     overrides = _fill_gaps(overrides, candidates, brief, user_name, win_ms, verbose)
 
     for i, s in enumerate(overrides, 1):
