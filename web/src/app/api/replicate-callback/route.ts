@@ -6,7 +6,7 @@ import { outputUrl } from "@/lib/replicate";
 import { baseUrl } from "@/lib/base-url";
 import { markJobTerminal } from "@/lib/scale-guard";
 import { chargeReservation, releaseReservation, clearFreeUsageForPrediction } from "@/lib/supabase-admin";
-import { drainQueue } from "@/lib/drain";
+import { drainQueue, reconcileStuckRunning } from "@/lib/drain";
 
 /**
  * POST /api/replicate-callback?email=<addr>
@@ -132,6 +132,10 @@ export async function POST(request: Request) {
         }
       }
       try {
+        // The webhook is the PRIMARY drain trigger (Vercel Hobby can't run per-minute crons — the
+        // GitHub Actions drain-cron is the safety net). Reconcile stale 'running' jobs here too so a
+        // lost webhook gets settled by the next finished run, not only by the external cron.
+        await reconcileStuckRunning();
         await drainQueue();
       } catch (e) {
         console.error("drain after callback failed:", e);

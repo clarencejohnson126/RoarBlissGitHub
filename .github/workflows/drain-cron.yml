@@ -1,0 +1,27 @@
+# Queue-drain + stuck-job-reconcile safety net.
+#
+# Vercel Hobby only allows DAILY crons, so the per-minute drain cron in vercel.json never ran in
+# production. Primary draining happens on every replicate-callback webhook; THIS schedule is the
+# safety net for lost webhooks (a stuck 'running' job otherwise holds a concurrency slot + a minute
+# reservation until the daily Vercel cron). GitHub's scheduler fires roughly every 5 minutes
+# (best-effort) — plenty for a safety net.
+#
+# Requires the repo secret CRON_SECRET = the same value as the Vercel env var CRON_SECRET.
+name: drain-cron
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch: {}
+
+jobs:
+  drain:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Call /api/jobs/drain
+        run: |
+          code=$(curl -s -o /tmp/drain.json -w "%{http_code}" \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            "https://roar-bliss.vercel.app/api/jobs/drain")
+          cat /tmp/drain.json
+          [ "$code" = "200" ] || { echo "drain returned $code"; exit 1; }
