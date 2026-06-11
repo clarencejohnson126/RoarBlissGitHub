@@ -916,26 +916,34 @@
     padding-top: 6rem;
   }
 
-  /* Phone hero ART DIRECTION: the 16:9 artwork (warrior + lion fight + friends + daughter +
-     wife) can't sit behind portrait text without losing its whole right half to the crop.
-     Show the FULL artwork as a cinematic letterboxed band under the navbar; the headline and
-     CTAs live below it on black — film look, nothing of the image lost. */
-  .hero {
+  /* Phone ART DIRECTION (founder-approved on the hero, applied to every media chapter):
+     a 16:9 artwork can't sit behind portrait text without losing most of its content to the
+     cover-crop (the hero lost the lion fight / friends / daughter / wife). Every chapter with
+     a background becomes a stacked layout — the FULL artwork as a cinematic letterboxed band
+     (all section assets are 1672x941 = 16:9, zero crop), text below it on black. Scrims off
+     (the text no longer sits over the image). FinalCta is untouched: its portrait close-up
+     already fits a portrait screen. Desktop unchanged. */
+  .chapter:has(> .bgLayer) {
     flex-direction: column;
     align-items: stretch;
     justify-content: flex-start;
     padding: 4.6rem 0 2.5rem;
+    min-height: auto;   /* stacked band+text sizes itself — a forced 100svh left dead black gaps */
   }
-  .hero .bgLayer {
+  .chapter:has(> .bgLayer) > .bgLayer {
     position: relative;
     inset: auto;
     width: 100%;
     aspect-ratio: 16 / 9;
   }
-  .hero .scrimLeft {
+  .chapter:has(> .bgLayer) > .scrimLeft,
+  .chapter:has(> .bgLayer) > .scrimBottom,
+  .chapter:has(> .bgLayer) > .scrimVignette,
+  .chapter:has(> .bgLayer) > .scrimRadialGold,
+  .chapter:has(> .bgLayer) > .scrimSoft {
     display: none;
   }
-  .hero .inner {
+  .chapter:has(> .bgLayer) > .inner {
     padding: 1.5rem 1.25rem 0;
   }
 }
