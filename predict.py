@@ -835,7 +835,11 @@ class Predictor(BasePredictor):
             verbose=True,
             language=language,
             density=density,
-            breath_ms=breath_ms,
+            # The 1s deliberate breath exists so a snippet never glues onto the SURROUNDING ORIGINAL
+            # sentence. At 100% there IS no surrounding original — every line is generated — and a 1s
+            # gap between every pair of lines perforates a thin music bed ('music on/off every few
+            # seconds', measured: drops every ~3-4s of ~800ms). Natural ~250ms breaths at 100%.
+            breath_ms=breath_ms if tier < 100 else min(breath_ms, 250),
         )
         if result.get("status") != "ok":
             raise RuntimeError(f"pipeline status: {result.get('status')}")

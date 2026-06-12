@@ -409,10 +409,21 @@ def auto_synthesize(audio_path: str, user_context: str,
         tail = min(guard, len(canvas) - (s_ms + remove_ms))
         wipe_start = s_ms - head
         wipe_len = head + remove_ms + tail
-        canvas = canvas[:wipe_start] + AudioSegment.silent(duration=wipe_len) + canvas[wipe_start + wipe_len:]
+        # Micro-fades (8ms) at EVERY splice edge. A hard cut mid-waveform is a discontinuity = an
+        # audible click; after the 14kHz LPF those clicks read as short chirpy 'squeaks' (the founder's
+        # 'squeaky sounds here and there'). 8ms is inaudible as a fade but kills the discontinuity.
+        F = 8
+        pre, post = canvas[:wipe_start], canvas[wipe_start + wipe_len:]
+        if len(pre) > F:
+            pre = pre.fade_out(F)
+        if len(post) > F:
+            post = post.fade_in(F)
+        canvas = pre + AudioSegment.silent(duration=wipe_len) + post
         # DESTRUCTIVE replace (NOT additive overlay): fitted is exactly slot_ms long, so this stays
         # length-invariant AND nothing original can bleed UNDER the clone — overlay() is additive, so any
         # residual original speech in the demucs vocal stem leaked through as the founder's hiss/squeak.
+        if len(fitted) > 2 * F:
+            fitted = fitted.fade_in(F).fade_out(F)
         canvas = canvas[:s_ms] + fitted + canvas[s_ms + len(fitted):]   # slot-locked; guard only widens the SILENCE
 
         audit_slots.append({
