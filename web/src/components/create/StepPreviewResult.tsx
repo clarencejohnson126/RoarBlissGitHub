@@ -1,5 +1,7 @@
 "use client";
 
+import { useState } from "react";
+import Link from "next/link";
 import { motion } from "framer-motion";
 import AudioVisualizer from "@/components/AudioVisualizer";
 import { useCreateFlow } from "./CreateFlowProvider";
@@ -10,6 +12,24 @@ export default function StepPreviewResult() {
   const { data, sessionId, setStep, reset } = useCreateFlow();
   const p = composePayload(data);
   const firstName = (data.userName || "").trim().split(" ")[0] || "warrior";
+  const [copied, setCopied] = useState(false);
+
+  // sessionId is the finished prediction id — its public share page is /t/<id>.
+  const share = async () => {
+    if (!sessionId) return;
+    const url = `${window.location.origin}/t/${sessionId}`;
+    if (navigator.share) {
+      try {
+        await navigator.share({ title: "Roar Bliss", text: "My battle speech — made for me, in the original voice.", url });
+        return;
+      } catch {
+        /* fall through to clipboard */
+      }
+    }
+    await navigator.clipboard.writeText(url);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
 
   const formData = {
     battlefield: p.battlefield,
@@ -46,6 +66,14 @@ export default function StepPreviewResult() {
           </div>
 
           <div className={styles.nav} style={{ justifyContent: "center", flexWrap: "wrap" }}>
+            {sessionId && (
+              <button type="button" className={styles.btnGold} onClick={share}>
+                {copied ? "Link copied ✓" : "Share my roar"}
+              </button>
+            )}
+            <Link href="/community" className={styles.btnGhost} style={{ textDecoration: "none" }}>
+              Post it on the wall
+            </Link>
             <button type="button" className={styles.btnGhost} onClick={() => setStep(5)}>
               Edit my story
             </button>

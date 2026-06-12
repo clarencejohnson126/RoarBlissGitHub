@@ -11,9 +11,26 @@ import { getTrackByPredictionId } from "@/lib/scale-guard";
 export const dynamic = "force-dynamic";
 
 export async function generateMetadata({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
+  const title = "A battle speech made for one person — Roar Bliss";
+  const description = "Listen to a personalized motivational speech, then create your own in minutes.";
   return {
-    title: "A battle speech made for one person — Roar Bliss",
-    description: "Listen to a personalized motivational speech, then create your own in minutes.",
+    title,
+    description,
+    openGraph: {
+      title,
+      description,
+      type: "music.song",
+      url: `/t/${id}`,
+      siteName: "Roar Bliss",
+      images: [{ url: "/images/roarbliss-hero.png", width: 1200, height: 630, alt: "Roar Bliss — your story, your battle, your roar" }],
+    },
+    twitter: {
+      card: "summary_large_image",
+      title,
+      description,
+      images: ["/images/roarbliss-hero.png"],
+    },
   };
 }
 

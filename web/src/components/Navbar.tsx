@@ -7,6 +7,7 @@ import LoginButton from "@/components/LoginButton";
 
 const LINKS = [
   { label: "Pricing", href: "/pricing" },
+  { label: "The Wall", href: "/community" },
   { label: "Dashboard", href: "/dashboard" },
 ];
 

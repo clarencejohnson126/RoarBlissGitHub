@@ -155,6 +155,7 @@ export const NAV = {
     { label: "Your Reason", href: "#chapter-02" },
     { label: "Your Battle", href: "#chapter-03" },
     { label: "The Plan", href: "#chapter-04" },
+    { label: "The Wall", href: "/community" },
     { label: "Questions", href: "#chapter-08" },
   ],
   cta: { label: "Create My Speech", href: "/create" },

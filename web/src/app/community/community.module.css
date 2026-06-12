@@ -1,0 +1,140 @@
+/* Community wall — dark/gold, same cinematic language as pricing/dashboard. */
+.wrap {
+  min-height: 100svh;
+  background: radial-gradient(120% 80% at 50% 0%, #0c0d12 0%, var(--color-black) 60%);
+  color: var(--color-ivory);
+  padding: clamp(5rem, 10vh, 8rem) clamp(1.25rem, 5vw, 3rem) 6rem;
+}
+.inner {
+  max-width: 760px;
+  margin-inline: auto;
+}
+.head {
+  text-align: center;
+  margin-block-end: clamp(2rem, 5vh, 3.5rem);
+}
+.eyebrow {
+  font-family: var(--font-heading, "Outfit", sans-serif);
+  text-transform: uppercase;
+  letter-spacing: 0.28em;
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--color-gold);
+}
+.h1 {
+  font-family: var(--font-serif);
+  font-weight: 800;
+  font-size: clamp(2.1rem, 1.4rem + 3vw, 3.4rem);
+  line-height: 1.05;
+  margin-block: 1rem 1rem;
+  text-wrap: balance;
+}
+.gold { color: var(--color-gold); }
+.sub {
+  font-size: clamp(1rem, 0.95rem + 0.4vw, 1.2rem);
+  line-height: 1.6;
+  color: var(--color-smoke);
+}
+
+/* composer */
+.composer {
+  border: 1px solid rgba(214, 168, 79, 0.22);
+  border-radius: 18px;
+  background: rgba(12, 11, 9, 0.65);
+  padding: 1.4rem;
+  margin-block-end: 2.5rem;
+}
+.composerTitle {
+  font-family: var(--font-serif);
+  font-weight: 800;
+  font-size: 1.15rem;
+  margin-block-end: 0.9rem;
+}
+.field {
+  width: 100%;
+  background: rgba(232, 227, 216, 0.05);
+  border: 1px solid rgba(232, 227, 216, 0.18);
+  border-radius: 10px;
+  color: var(--color-ivory);
+  font-size: 0.95rem;
+  padding: 0.7rem 0.9rem;
+  margin-block-end: 0.8rem;
+}
+.field:focus { outline: none; border-color: var(--color-gold); }
+textarea.field { min-height: 90px; resize: vertical; font-family: inherit; }
+.composerRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+.hint { font-size: 0.8rem; color: var(--color-smoke); }
+.btnGold {
+  font-family: var(--font-heading, "Outfit", sans-serif);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-size: 0.8rem;
+  padding: 0.75rem 1.6rem;
+  border-radius: 10px;
+  border: none;
+  cursor: pointer;
+  background: linear-gradient(135deg, var(--color-gold), var(--color-gold-deep, #a97c2b));
+  color: #1a130a;
+}
+.btnGold:disabled { opacity: 0.5; cursor: default; }
+.btnGhost {
+  font-family: var(--font-heading, "Outfit", sans-serif);
+  font-size: 0.78rem;
+  letter-spacing: 0.03em;
+  padding: 0.55rem 1.1rem;
+  border-radius: 10px;
+  background: rgba(232, 227, 216, 0.05);
+  border: 1px solid rgba(232, 227, 216, 0.25);
+  color: var(--color-ivory);
+  cursor: pointer;
+  text-decoration: none;
+}
+.error { color: #e07a5f; font-size: 0.85rem; margin-block-start: 0.5rem; }
+.ok { color: var(--color-gold); font-size: 0.85rem; margin-block-start: 0.5rem; }
+
+/* feed */
+.post {
+  border: 1px solid rgba(214, 168, 79, 0.14);
+  border-radius: 18px;
+  background: rgba(12, 11, 9, 0.55);
+  padding: 1.3rem 1.4rem;
+  margin-block-end: 1.25rem;
+}
+.postHead {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.8rem;
+  margin-block-end: 0.55rem;
+}
+.postName {
+  font-family: var(--font-serif);
+  font-weight: 800;
+  font-size: 1.05rem;
+  color: var(--color-gold);
+}
+.postDate { font-size: 0.75rem; color: var(--color-smoke); white-space: nowrap; }
+.postComment {
+  font-size: 0.98rem;
+  line-height: 1.6;
+  color: var(--color-ivory);
+  margin-block-end: 0.9rem;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+.postAudio { width: 100%; margin-block-end: 0.8rem; }
+.postActions { display: flex; gap: 0.6rem; flex-wrap: wrap; }
+.empty {
+  text-align: center;
+  color: var(--color-smoke);
+  border: 1px dashed rgba(232, 227, 216, 0.2);
+  border-radius: 18px;
+  padding: 3rem 1.5rem;
+}
