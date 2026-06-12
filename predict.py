@@ -834,7 +834,7 @@ class Predictor(BasePredictor):
                 music_gain_db=music_gain_db, duck_db=duck_db, voice_speed=voice_speed,
                 bed_audio=bed_audio,
             )
-            return self._deliver_gate(final, str(audio), tier, has_music_bed=True)
+            return self._deliver_gate(final, str(audio), tier, has_music_bed=True, language=language, name=name)
 
         result = auto_synthesize(
             audio_path=str(audio),
@@ -855,32 +855,52 @@ class Predictor(BasePredictor):
         if result.get("status") != "ok":
             raise RuntimeError(f"pipeline status: {result.get('status')}")
         return self._deliver_gate(Path(result["final_path"]), str(audio), tier,
-                                  has_music_bed=result.get("music_bed", True))
+                                  has_music_bed=result.get("music_bed", True), language=language, name=name)
 
-    def _deliver_gate(self, final_path, source_audio, tier, has_music_bed=True):
+    def _deliver_gate(self, final_path, source_audio, tier, has_music_bed=True, language="English", name=None):
         """DELIVERY GATE (founder: 'eine fertige Datei muss geprüft werden, bevor es an den User geht').
-        Score the finished file against ITS OWN source with the ear-calibrated, source-relative battery
-        and emit the scorecard as a [[SCORECARD]] log line. The webhook reads it and refuses to deliver a
-        track that failed — the user gets a refund + retry, never a bad file. Measured here (ffmpeg only),
-        not raised here: source-relative checks are robust to the cog's ffmpeg (output vs source, same
-        binary), and keeping the file lets the webhook own the deliver/refund decision. Runtime margins
-        are looser than the offline RELEASE gate so only CLEARLY-bad output is blocked, never borderline."""
+        The POST half of the deterministic double-check. Two graders, then a combined verdict the webhook
+        gates delivery on (a fail → refund + retry, never ship a bad file):
+          1) SIGNAL  (metrics.py, source-relative, ffmpeg-only) — loudness, dead air, music stability.
+          2) MEANING (validators.py) — output LANGUAGE (transcribe + langdetect), content present, music
+             continuity, dead air. This is what the founder's ear caught that the signal score could not.
+        A CRITICAL meaning failure (wrong/mixed language, near-empty content, dead air) blocks delivery
+        even if the signal looks fine. music_continuity is logged as a soft backstop (it is not reliable on
+        a faint bed), not a hard block — the real wobble fix is routing faint-music to the music path."""
         import json as _json
-        verdict = {"passed": None, "failures": [], "measured": {}}
+        sys.path.insert(0, str(_P(__file__).parent / "eval"))
+        signal = {"passed": None, "failures": [], "measured": {}}
+        out_chk = {"passed": None, "failures": [], "checks": {}, "detail": {}}
         try:
-            sys.path.insert(0, str(_P(__file__).parent / "eval"))
             from metrics import score, Gates
-            # delivery margins: lenient (catch clearly-bad, tolerate ffmpeg-variance on borderline)
             g = Gates(music_sigma_margin=3.0, music_level_margin=6.0, lra_margin_vs_source=4.0,
                       dropout_extra_vs_source=6, loudness_margin_vs_source=6.0)
-            # source_audio + has_music_bed → score() runs strictly the ffmpeg signal + source-relative
-            # checks (Whisper/clone/LLM-judge are gated on context keys we omit). has_music_bed scopes the
-            # music-band metrics to sources that actually have a bed (dry speech would falsely fail them). ~1-2s.
             card = score(str(final_path),
                          context={"source_audio": str(source_audio), "has_music_bed": has_music_bed}, gates=g)
-            verdict = {"passed": card.passed, "failures": card.failures(), "measured": card.measured}
-            print(f"[deliver-gate] tier={tier} {'PASS ✓' if card.passed else 'FAIL ✗ ' + str(card.failures())}")
+            signal = {"passed": card.passed, "failures": card.failures(), "measured": card.measured}
+            print(f"[deliver-gate] signal tier={tier} {'PASS ✓' if card.passed else 'FAIL ✗ ' + str(card.failures())}")
         except Exception as e:
-            print("[deliver-gate] skipped (scoring unavailable):", e)
+            print("[deliver-gate] signal skipped:", e)
+        try:
+            from validators import validate_output
+            transcript = None
+            try:
+                sys.path.insert(0, str(_P(__file__).parent / "poc" / "orchestrator"))
+                from feature_extractor import get_whisper
+                transcript = (get_whisper().transcribe(str(final_path), verbose=False) or {}).get("text", "")
+            except Exception as te:
+                print("[output-check] transcript unavailable:", te)
+            ov = validate_output(str(final_path), str(source_audio), tier=tier, target_language=language,
+                                 transcript_text=transcript, expected_name=name)
+            out_chk = ov.to_dict()
+            print(f"[output-check] {'PASS ✓' if ov.passed else 'FAIL ✗ ' + str(ov.failures())} {ov.detail}")
+        except Exception as e:
+            print("[output-check] skipped:", e)
+        # COMBINE: block on a signal fail OR a CRITICAL meaning fail. music_continuity stays a soft warning.
+        critical = [c for c in ("output_language", "content_present", "no_dead_air") if c in out_chk.get("failures", [])]
+        combined = (signal.get("passed") is not False) and not critical
+        verdict = {"passed": combined, "failures": list(signal.get("failures", [])) + critical,
+                   "signal": signal, "output_check": out_chk}
         print("[[SCORECARD]] " + _json.dumps(verdict, default=str))
+        print("[[OUTPUT_CHECK]] " + _json.dumps(out_chk, default=str))
         return final_path

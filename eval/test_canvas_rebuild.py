@@ -199,12 +199,15 @@ def test_music_bed_detection():
     values that fooled the first threshold — if anyone loosens it, this fails."""
     detect = _load_helpers()["_detect_music_bed"]
     cases = [  # (name, accomp_dB, vocals_dB, expect_music_bed)
-        ("clarence_full DRY", -23.1, -17.1, False),
-        ("solo_dry DRY", -23.8, -19.7, False),
+        # The founder's own recordings carry a FAINT but audible bed (~-23dB) — they are MUSIC, not dry.
+        # Routing them to the no-music path dropped that bed under speech (the wobble he heard).
+        ("clarence_full faint-music", -23.1, -17.1, True),
+        ("solo_dry faint-music", -23.8, -19.7, True),
         ("cinematic MUSIC", -17.4, -21.8, True),     # bed LOUDER than the voice
         ("speech_over_music MUSIC", -17.2, -13.4, True),
         ("silent accomp", float("-inf"), -18.0, False),
-        ("quiet music bed", -28.0, -29.0, True),     # soft master, bed ~ voice → still music
+        ("genuine dry voice memo", -48.0, -16.0, False),  # only demucs residual → no bed → close gaps
+        ("quiet music bed", -30.0, -31.0, True),
     ]
     fails = []
     for name, a, v, want in cases:

@@ -38,6 +38,7 @@ build:
     - "demucs==4.0.1"
     - "anthropic==0.75.0"
     - "requests==2.32.3"
+    - "langdetect==1.0.9"   # deterministic (seeded) language detection for the watchdog (validators.py)
     - "setuptools<81"
   run:
     # pyannote.audio is a dotted namespace pkg (Cog's python_packages parser mangles it); install via raw

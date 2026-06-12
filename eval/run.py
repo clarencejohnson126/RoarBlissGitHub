@@ -113,7 +113,33 @@ def run_entry(entry: dict, version: str) -> dict:
     if music_bed is not None:
         ctx["has_music_bed"] = music_bed
     card = metrics.score(str(tmp), context=ctx)
-    result["scorecard"] = card.to_dict()
+    sc = card.to_dict()
+
+    # Fold in the DETERMINISTIC WATCHDOG the cog ran (validators.py): the cog has Whisper, so it checks the
+    # MEANING the signal score can't see — plan (density/repetition/language/remnant) and output
+    # (language/content/dead-air). A critical meaning failure fails the corpus entry too, so the gate can
+    # never go green on a German/English mishmash or "my name is Clarence" filler again.
+    def _last_json(tag):
+        cand = [ln for ln in logs.splitlines() if tag in ln]
+        if not cand:
+            return None
+        try:
+            return json.loads(cand[-1].split(tag, 1)[1].strip())
+        except Exception:
+            return None
+    plan_chk, out_chk = _last_json("[[PLAN_CHECK]]"), _last_json("[[OUTPUT_CHECK]]")
+    result["plan_check"], result["output_check"] = plan_chk, out_chk
+    meaning_fail = []
+    if plan_chk:
+        meaning_fail += [f"plan:{c}" for c in plan_chk.get("failures", [])
+                         if c in ("no_repetition", "full_replacement", "script_language", "density_matches_tier")]
+    if out_chk:
+        meaning_fail += [f"out:{c}" for c in out_chk.get("failures", [])
+                         if c in ("output_language", "content_present", "no_dead_air")]
+    if meaning_fail:
+        sc["passed"] = False
+        sc["failures"] = list(sc.get("failures", [])) + meaning_fail
+    result["scorecard"] = sc
     result["output_file"] = str(tmp)
     return result
 

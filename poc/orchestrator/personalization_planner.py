@@ -823,12 +823,15 @@ def _inject_peak_chant(overrides, candidates, brief, user_name, verbose=False):
     if any(c["start_ms"] in covered for c in anthem_cands):
         return overrides  # the model already personalized the peak
     first = user_name.split()[0].capitalize() if user_name and user_name.lower() != "you" else "Rise"
-    cries = [f"{first}!", f"{first}!", f"This is {first}!", f"{first}!", f"{first} rises!"]
-    for j, c in enumerate(anthem_cands[:5]):
+    # Cap + VARY. This is a FALLBACK (only fires when the LLM left a peak untouched). Injecting the bare
+    # name on every peak is the "my name is Clarence every 30 seconds" degeneracy the founder heard (#3) —
+    # take at most the 2 strongest peaks and never repeat the same cry. (no_repetition watchdog enforces it.)
+    cries = [f"This is {first}.", f"{first} rises.", f"For {first}.", f"{first}, now."]
+    for j, c in enumerate(anthem_cands[:2]):
         target = c["target_syllables"]
         text = cries[j % len(cries)]
         if _count_syllables(text) > max(2, int(target * 1.5)):
-            text = f"{first}!"
+            text = f"{first}."
         avail = c.get("available_emotions") or ["neutral-narrator"]
         emo = next((e for e in avail if "defiant" in e or "strong" in e or "excited" in e), avail[0])
         overrides.append({
@@ -961,7 +964,10 @@ def generate_personalization(audio_path: str, user_context: str,
     # Density (core 4-tier selector): personalize ~`density` of the spoken timeline. 0.25 keeps most
     # of the original speaker; 0.75 makes it overwhelmingly the user's; the rest stays untouched so
     # the source's vibe survives. [PEAK]/[IDENTITY] slots are always taken on top of this floor.
-    density = max(0.1, min(float(density or 0.55), 0.95))
+    # TIER 100 / translation MUST leave ZERO original words (product rule) — the old 0.95 ceiling forced
+    # ~5% of the source to survive, which is exactly the music blip (#4) and the English remnant in a
+    # German translation (#6). Only clamp to 0.95 for PARTIAL tiers; allow a genuine 1.0 at the top.
+    density = max(0.1, min(float(density or 0.55), 1.0 if (density or 0) >= 0.99 else 0.95))
     non_anthem = [c for c in candidates if not c.get("is_anthem")]
     total_speech_s = sum(c["duration_s"] for c in non_anthem) or 1.0
     avg_slot_s = total_speech_s / max(1, len(non_anthem))

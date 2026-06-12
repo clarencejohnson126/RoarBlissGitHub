@@ -105,21 +105,18 @@ def detect_sfx_cover(accomp, start_ms, end_ms):
     return region.dBFS > SFX_DBFS_THRESHOLD
 
 def _detect_music_bed(a_db, v_db):
-    """Does the source have a real music bed? A real bed has substantial SUSTAINED energy in the
-    accompaniment stem; demucs leaves only LOW residual in accomp for a DRY-speech source. Calibrated on
-    real cog stems (dry ≈ -23..-24dB, music ≈ -17dB; a cinematic bed can be LOUDER than the voice):
-      • accomp louder than -22dBFS                → music (a normal-loudness bed)
-      • else accomp within 3dB of the voice or up  → music (quietly-mastered bed, still comparable)
-      • else (accomp low AND well below the voice) → DRY SPEECH (residual only)
-    Mis-detection fails SAFE: the gate still catches a wrong-path output (music wobble / dead air).
-    NOTE: thresholds are locked by eval/test_canvas_rebuild.py against the real measured values."""
+    """Does the source have an AUDIBLE music/sound bed? If so we keep it CONTINUOUS on the music path
+    (never drop it under a new sentence — the founder's #1 rule). Only a source with NO audible bed at all
+    (a genuine dry voice memo) takes the gap-closing no-music path.
+
+    The first version used -22dBFS and wrongly called the founder's own recordings "dry" — they carry a
+    faint bed at ~-21..-23dB, and routing them to the no-music path DROPPED that bed whenever a clone
+    played → the 'music turns off when he speaks' wobble. An audible bed sits FAR above demucs's residual
+    on a truly-dry source (~-45..-55dB), so the cut is low: anything above -40dBFS is a real bed.
+    NOTE: locked by eval/test_canvas_rebuild.py against the real measured values."""
     if a_db == float('-inf'):
         return False
-    if a_db > -22.0:
-        return True
-    if v_db != float('-inf') and a_db >= v_db - 3.0:
-        return True
-    return False
+    return a_db > -40.0
 
 def _bleed_comp_db(full_mix, accomp, cutoff=200, lo=0.0, hi=9.0):
     """CONSTANT bleed compensation (founder's 'replaced slots = music stem + constant bleed comp').
@@ -361,6 +358,28 @@ def auto_synthesize(audio_path: str, user_context: str,
     if not overrides:
         log("No slots to synthesize. Aborting.", "err")
         return {"status": "no_slots", "elapsed_s": time.time() - t0}
+
+    # ── PRE-GEN WATCHDOG (deterministic, NO GPU): grade the PLAN before any TTS ──
+    # Catches the meaning-level defects the signal battery is blind to — repeated filler ("my name is
+    # Clarence"), a mixed/wrong-language script, an untouched original surviving a 100% pass, off-target
+    # density — and logs [[PLAN_CHECK]] so run.py + the founder see it. A CATASTROPHIC plan (degenerate
+    # repetition, or an original line surviving 100%) ABORTS HERE, before a cent of TTS+mix GPU is spent;
+    # softer issues are logged and left to the POST gate. String-based checks only ⇒ safe to abort on.
+    try:
+        sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "eval"))
+        from validators import validate_plan
+        pv = validate_plan(overrides, tier=int(round(density * 100)), target_language=language,
+                           source_texts=[o.get("original_text") for o in overrides],
+                           total_source_lines=plan.get("candidate_count"))
+        print("[[PLAN_CHECK]] " + json.dumps(pv.to_dict(), default=str), flush=True)
+        hard = [c for c in ("no_repetition", "full_replacement", "script_language") if c in pv.failures()]
+        if hard:
+            log(f"PLAN REJECTED before TTS (saves GPU): {hard} — {pv.detail}", "err")
+            return {"status": "plan_rejected", "plan_check": pv.to_dict(), "elapsed_s": time.time() - t0}
+        if not pv.passed:
+            log(f"plan soft warnings {pv.failures()} (proceeding; POST gate is the backstop)", "warn")
+    except Exception as _e:
+        print("[plan-check] skipped:", _e)
 
     # ── Stage B: ORIGINAL-CANVAS rebuild (founder's model) ───────────────────
     # The canvas is the BIT-IDENTICAL ORIGINAL FULL MIX — NOT the demucs vocal stem. Kept regions then
