@@ -771,7 +771,9 @@ class Predictor(BasePredictor):
         # from a separated bed (the step that punched holes on thin-music sources). Only an explicit
         # mode='full_voice' override, or a cross-language translation (forced below), takes the rebuild path.
         use_full_voice = (mode == "full_voice")
-        density = max(0.1, min(tier / 100.0, 0.98))   # 25/50/75/100 -> up to 98% of the words replaced (essentially all); original music kept
+        # 100% must leave ZERO of the original words — replace EVERY spoken slot (density 1.0). The old
+        # 0.95 cap was for partial tiers; here we want a genuine 100% new script over the kept music.
+        density = max(0.1, min(tier / 100.0, 1.0))
         print(f"personalization tier={tier}% -> {'full_voice' if use_full_voice else f'personalize @ density {density:.2f}'}")
 
         # TRANSLATION = the WHOLE track in the target language (never a half-English/half-German mix).
