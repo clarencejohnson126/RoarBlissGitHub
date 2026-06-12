@@ -1,54 +1,54 @@
 {
-  "_comment": "Golden corpus — representative inputs across the audio taxonomy. eval/run.py runs each through the PRODUCTION cog and scores the output with eval/metrics.py. No cog version reaches prod unless this is green. This file GROWS: every real failure (a complaint the battery missed) becomes a permanent entry here, so it can never silently return.",
-  "version": 1,
+  "_comment": "Golden corpus — representative inputs across the audio taxonomy. eval/run.py runs each through the PRODUCTION cog and scores the output with eval/metrics.py + the validators.py watchdog. No cog version reaches prod unless this is green. RULE (learned the hard way 2026-06-13): a SOURCE must be REAL, original audio (a speech, a movie scene, an instrumental) where voice and music are separable. NEVER use a previously-generated RoarBliss output as a source — its voice and music are already glued and demucs cannot un-mix them, which produces a fake 'volume rollercoaster' that is bad TEST DATA, not a pipeline bug. This file GROWS: every real failure becomes a permanent entry.",
+  "version": 2,
   "entries": [
     {
       "id": "instrumental_jon_100",
       "type": "instrumental_template",
-      "note": "Founder case: user uploads an INSTRUMENTAL + picks a library voice (permanent GoT-Jon EL id) + new script. NO separation involved -> the music bed IS the untouched original file; it cannot wobble. This is the future Suno-template flow.",
+      "note": "User uploads an INSTRUMENTAL + picks a library voice (permanent GoT-Jon EL id) + new script. NO separation -> the bed IS the untouched original; it cannot wobble. The Suno-template flow. FOUNDER-APPROVED.",
       "audio": "/Users/clarence/Downloads/Game of Thrones - King of the North  Season 1 (1).mp3",
       "input": { "mode": "full_voice", "personalization": 100, "tts_provider": "elevenlabs", "clone_source_voices": false, "extra_voice_ids": "TCuusGciH6HRSOGrYg31", "paid": true, "voice_speed": 0.93, "name": "Clarence Johnson", "prompt": "Clarence Johnson is building his AI agency Rebelz AI and grinding to find clients. Remind him to never give up, every no brings the yes closer. His mother has heart problems and he carries that worry. He stays calm and strong for his child. Tone: Jon Snow energy - quiet steel, honor, the North remembers." },
       "context": { "name": "Clarence Johnson", "language": "English", "tier": 100 }
     },
     {
-      "id": "clarence_full_100",
-      "type": "solo_100_new_script",
-      "note": "Founder test: 100% new script in Clarence's cloned voice, keeping the original's own audio.",
-      "audio": "/Users/clarence/Music/Music/Media.localized/Music/Unknown Artist/Unknown Album/RoarBliss_Clarence_FULL_2-09.mp3",
-      "input": { "personalization": 100, "tts_provider": "omnivoice", "clone_source_voices": true, "paid": true, "name": "Clarence Johnson", "prompt": "Clarence Johnson is building his AI agency Rebelz AI and grinding to find clients. Remind him to never give up, every no brings the yes closer. His mother has heart problems and he carries that worry. Tone: relentless, warm steel, big-brother energy." },
-      "context": { "name": "Clarence Johnson", "language": "English", "tier": 100 }
-    },
-    {
-      "id": "solo_dry_speech_clarence_75_en",
-      "type": "solo_dry_speech",
-      "note": "Partial tier on a dry-speech source — keeps original speaker, replaces ~75% of lines.",
-      "audio": "/Users/clarence/Desktop/RoarBliss_Clarence.mp3",
-      "input": { "personalization": 75, "tts_provider": "omnivoice", "clone_source_voices": true, "paid": true, "name": "Clarence Johnson", "prompt": "Make Clarence the hero — building his AI agency, staying strong for his mother, calm for his child." },
-      "context": { "name": "Clarence Johnson", "language": "English", "tier": 75, "expected_ms": 127000 }
-    },
-    {
       "id": "cinematic_multivoice_got_75",
       "type": "cinematic_multivoice",
-      "note": "Founder test: multi-voice cinematic source — keep ITS own orchestra, clone EACH voice consistently, replace 75% of lines.",
+      "note": "Multi-voice cinematic source — keep ITS own orchestra, clone EACH voice consistently, replace 75%. FOUNDER-APPROVED (the golden bar).",
       "audio": "/Users/clarence/Music/Music/Media.localized/Music/Peter Gundry/Unknown Album/The Targaryen Wolf (Original Soundtrack) Game of Thrones.mp3",
       "input": { "personalization": 75, "tts_provider": "omnivoice", "clone_source_voices": true, "paid": true, "name": "Clarence Johnson", "min_voices": 2 },
       "context": { "name": "Clarence Johnson", "language": "English", "tier": 75 }
     },
     {
-      "id": "translation_clarence_100_de",
-      "type": "translation",
-      "note": "Cross-language: whole track re-spoken in German. Output language MUST be German.",
-      "audio": "/Users/clarence/Desktop/RoarBliss_Clarence.mp3",
-      "input": { "personalization": 100, "tts_provider": "omnivoice", "clone_source_voices": true, "paid": true, "language": "German", "name": "Clarence Johnson", "prompt": "Clarence baut seine AI-Agentur auf und kaempft um seine ersten Kunden. Niemals aufgeben. Ton: unerbittlich, warmer Stahl." },
-      "context": { "name": "Clarence Johnson", "language": "German", "tier": 100, "expected_ms": 127000 }
-    },
-    {
       "id": "speech_over_music_icandothis_50",
       "type": "speech_over_music",
-      "note": "A motivational speech with music under it — moderate bed, 50% tier.",
+      "note": "A real motivational speech with music under it — moderate bed, 50% tier.",
       "audio": "/Users/clarence/Desktop/Roar Bliss App/I CAN DO THIS - Powerful Motivational Speech.mp3",
       "input": { "personalization": 50, "tts_provider": "omnivoice", "clone_source_voices": true, "paid": true, "name": "Clarence Johnson", "prompt": "Weave Clarence into this — the founder grinding for his first clients, doing it for his kids." },
       "context": { "name": "Clarence Johnson", "language": "English", "tier": 50 }
+    },
+    {
+      "id": "speech_over_music_icandothis_100",
+      "type": "speech_over_music",
+      "note": "Same REAL speech at 100% — tests TRUE 100% (zero original words left) on a valid, separable source. Replaces the old clarence_full (which used a glued RoarBliss output).",
+      "audio": "/Users/clarence/Desktop/Roar Bliss App/I CAN DO THIS - Powerful Motivational Speech.mp3",
+      "input": { "personalization": 100, "tts_provider": "omnivoice", "clone_source_voices": true, "paid": true, "name": "Clarence Johnson", "prompt": "Make this Clarence's anthem — building his AI agency Rebelz, never giving up, every no bringing the yes closer, staying strong for his family. Tone: relentless, warm steel." },
+      "context": { "name": "Clarence Johnson", "language": "English", "tier": 100 }
+    },
+    {
+      "id": "translation_icandothis_de_100",
+      "type": "translation",
+      "note": "Cross-language on a REAL source: the whole speech re-spoken in GERMAN. Output language MUST be German, ZERO English. Replaces the old translation_clarence (glued RoarBliss output).",
+      "audio": "/Users/clarence/Desktop/Roar Bliss App/I CAN DO THIS - Powerful Motivational Speech.mp3",
+      "input": { "personalization": 100, "tts_provider": "omnivoice", "clone_source_voices": true, "paid": true, "language": "German", "name": "Clarence Johnson", "prompt": "Clarence baut seine KI-Agentur Rebelz auf und kaempft um seine ersten Kunden. Niemals aufgeben, jedes Nein bringt das Ja naeher. Er bleibt stark fuer seine Familie. Ton: unerbittlich, warmer Stahl." },
+      "context": { "name": "Clarence Johnson", "language": "German", "tier": 100 }
+    },
+    {
+      "id": "cinematic_got_clone_75",
+      "type": "cinematic_multivoice",
+      "note": "REAL movie scene (GoT King-of-the-North), clone the source speakers, replace 75% — keeps the scene's own music. Replaces the old solo_dry (glued RoarBliss output).",
+      "audio": "/Users/clarence/Downloads/Game of Thrones - King of the North  Season 1 (1).mp3",
+      "input": { "personalization": 75, "tts_provider": "omnivoice", "clone_source_voices": true, "paid": true, "name": "Clarence Johnson", "prompt": "Forge Clarence into the hero of this scene — his name as a banner, building his agency, the North remembers his rise. Tone: quiet steel, honor." },
+      "context": { "name": "Clarence Johnson", "language": "English", "tier": 75 }
     }
   ]
 }
