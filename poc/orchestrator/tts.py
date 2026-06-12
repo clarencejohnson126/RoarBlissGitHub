@@ -418,10 +418,17 @@ def elevenlabs_clone(ref_wav: Path, name: str = "rb_clone") -> str:
     return r.json()["voice_id"]
 
 def elevenlabs_tts(text: str, voice_id: str) -> AudioSegment:
+    # Founder feedback ("mehr Stimmenklang, mehr Betonung"): we were synthesizing with EL DEFAULTS.
+    # stability DOWN -> more expressive delivery, real emphasis on key words (default 0.5 = flat);
+    # similarity UP + speaker_boost -> fuller, closer to the voice's true timbre (Stimmenklang);
+    # style up -> leans into the voice's natural drama. Tempo is NOT set here — the pipeline's
+    # voice_speed knob (atempo per line, founder-proven 0.93) owns pacing, so we never double-slow.
     r = _request_with_retry(
         "POST", f"{ELEVENLABS_API}/text-to-speech/{voice_id}?output_format=mp3_44100_128",
         headers={**_el_headers(), "Content-Type": "application/json"},
-        json={"text": text, "model_id": EL_MODEL},
+        json={"text": text, "model_id": EL_MODEL,
+              "voice_settings": {"stability": 0.35, "similarity_boost": 0.85,
+                                  "style": 0.5, "use_speaker_boost": True}},
         timeout=180,
     )
     r.raise_for_status()

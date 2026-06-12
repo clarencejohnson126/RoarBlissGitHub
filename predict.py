@@ -562,10 +562,15 @@ class Predictor(BasePredictor):
         lang_note = ("" if lang.lower() in ("english", "en", "")
                      else f" Write EVERY line ENTIRELY in {lang} — natural, native {lang}, never a translation.")
         if n_voices <= 1:
-            target_words = max(120, int(window_ms / 1000.0 / 60.0 * 150))   # ~150 wpm = deliberate, not rushed
+            # ~135 wpm: deliberate, weighty pacing (founder: "ohne so schnell zu sprechen").
+            target_words = max(110, int(window_ms / 1000.0 / 60.0 * 135))
             sysmsg = ("You write a single, continuous, first-person motivational monologue the listener "
                       "could record as their own. Echo the cadence and intensity of the STYLE sample, but "
                       "write ORIGINAL lines about the listener's real life — never reuse the sample's words. "
+                      "DELIVERY (the TTS follows your punctuation): write for a SLOW, weighty voice. Short, "
+                      "punchy sentences. Use pauses deliberately — an em dash before the word that matters, "
+                      "an ellipsis before a turn. Put the KEY word at the END of the sentence so it lands. "
+                      "One idea per line; let single short lines stand alone for emphasis. "
                       "Output STRICT JSON ONLY: a list of {\"voice\":0,\"text\":\"...\"} objects, in order. "
                       "No prose, no markdown." + lang_note)
             usr = (f"STYLE (echo delivery, do NOT reuse words):\n\"\"\"\n{style}\n\"\"\"\n\nLISTENER:\n{user_context}\n\n"
