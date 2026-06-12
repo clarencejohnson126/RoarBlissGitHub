@@ -766,8 +766,12 @@ class Predictor(BasePredictor):
         # picked: 25/50/75 = that share of the spoken timeline is replaced; 100 = a fully new script
         # (full_voice, no original text remains). Free runs stay bounded by the 45s cap above + the
         # 1-free-per-device gate in the web layer — NOT by a forced tier.
-        use_full_voice = (mode == "full_voice") or (mode == "auto" and tier >= 100)
-        density = max(0.1, min(tier / 100.0, 0.95))   # fraction of speech to personalize (25/50/75)
+        # 100% now uses the PROVEN partial mechanic (the GoT path): keep the original audio's music/
+        # melody untouched and swap ~all the spoken words IN PLACE. It does NOT reconstruct the audio
+        # from a separated bed (the step that punched holes on thin-music sources). Only an explicit
+        # mode='full_voice' override, or a cross-language translation (forced below), takes the rebuild path.
+        use_full_voice = (mode == "full_voice")
+        density = max(0.1, min(tier / 100.0, 0.98))   # 25/50/75/100 -> up to 98% of the words replaced (essentially all); original music kept
         print(f"personalization tier={tier}% -> {'full_voice' if use_full_voice else f'personalize @ density {density:.2f}'}")
 
         # TRANSLATION = the WHOLE track in the target language (never a half-English/half-German mix).
