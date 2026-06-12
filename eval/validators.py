@@ -124,13 +124,13 @@ def validate_plan(overrides: list, *, tier: int, target_language: str = "English
     counts = {}
     for nrm in norms:
         counts[nrm] = counts.get(nrm, 0) + 1
-    dup = {k: c for k, c in counts.items() if c > 1 and k}
     top = max(counts.values()) if counts else 0
-    # dominance only counts when a line actually REPEATS (top>1); all-unique short plans aren't degenerate.
-    dominant = (top / len(norms)) if (norms and top > 1) else 0.0
-    v.checks["no_repetition"] = (not dup) and dominant <= 0.30
-    v.detail["no_repetition"] = (f"{len(dup)} repeated line(s); top phrase {dominant*100:.0f}% of lines"
-                                 if (dup or dominant > 0.30) else "varied")
+    dominant = (top / len(norms)) if norms else 0.0
+    # A war cry repeated 2-3x is the anthem MOTIF (legit — GoT's "King in the North!" etc.). Flag only
+    # EXTREME repetition: the same line 4+ times, OR one phrase owning >50% of all lines (the "my name is
+    # Clarence everywhere" degeneracy). The old "any duplicate" rule false-killed the golden GoT flow.
+    v.checks["no_repetition"] = top < 4 and dominant <= 0.50
+    v.detail["no_repetition"] = f"top line repeats {top}x, {dominant*100:.0f}% of lines"
 
     # 4) SCRIPT LANGUAGE — every generated line in the target language (catches a mixed script BEFORE TTS).
     want = _LANG_CODE.get((target_language or "english").strip().lower(), (target_language or "en")[:2].lower())

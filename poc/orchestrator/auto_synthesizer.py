@@ -372,12 +372,11 @@ def auto_synthesize(audio_path: str, user_context: str,
                            source_texts=[o.get("original_text") for o in overrides],
                            total_source_lines=plan.get("candidate_count"))
         print("[[PLAN_CHECK]] " + json.dumps(pv.to_dict(), default=str), flush=True)
-        hard = [c for c in ("no_repetition", "full_replacement", "script_language") if c in pv.failures()]
-        if hard:
-            log(f"PLAN REJECTED before TTS (saves GPU): {hard} — {pv.detail}", "err")
-            return {"status": "plan_rejected", "plan_check": pv.to_dict(), "elapsed_s": time.time() - t0}
+        # LOG ONLY — never abort. A false positive here (e.g. flagging a legitimate repeated WAR CRY as
+        # spam) would kill a GOOD generation, which is worse than wasting one render. The corpus gate +
+        # the POST output gate are the enforcement; this is visibility, so a bad plan is never invisible.
         if not pv.passed:
-            log(f"plan soft warnings {pv.failures()} (proceeding; POST gate is the backstop)", "warn")
+            log(f"plan check flagged {pv.failures()} (logged; POST gate + corpus gate enforce)", "warn")
     except Exception as _e:
         print("[plan-check] skipped:", _e)
 

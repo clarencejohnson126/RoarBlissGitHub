@@ -27,8 +27,15 @@ def want(cond, msg):
 print("[plan] degenerate repeated filler (#3):")
 deg = validate_plan([{"text": "My name is Clarence."}] * 6, tier=50, target_language="English",
                     total_source_lines=12)
-want("no_repetition" in deg.failures(), "repeated 'My name is Clarence' -> no_repetition FAIL")
+want("no_repetition" in deg.failures(), "repeated 'My name is Clarence' 6x -> no_repetition FAIL")
 want("density_matches_tier" not in deg.failures(), "6/12 = 50% density is fine; only the CONTENT is degenerate")
+
+print("[plan] legit war-cry repetition (anthem motif — must PASS, NOT a false abort):")
+chant = validate_plan([
+    {"text": "House Johnson rises tonight."}, {"text": "King!"}, {"text": "Clarence holds the line."},
+    {"text": "King!"}, {"text": "For the heirs of his name."}, {"text": "King!"},
+], tier=75, target_language="English", total_source_lines=8)
+want("no_repetition" not in chant.failures(), "3x 'King!' among varied lines is an anthem, not spam -> PASS")
 
 print("[plan] under-density (#3: asked 50%, got ~15%):")
 low = validate_plan([{"text": f"Clarence pushes through day {i}."} for i in range(3)], tier=50,
