@@ -101,7 +101,9 @@ def run_entry(entry: dict, version: str) -> dict:
     out_url = pred["output"][0] if isinstance(pred["output"], list) else pred["output"]
     tmp = ROOT / "eval" / f"_out_{entry['id']}.mp3"
     subprocess.run(["curl", "-s", "-L", "-o", str(tmp), out_url], check=True)
-    card = metrics.score(str(tmp), context=entry.get("context", {}))
+    # source_audio rides along automatically: every corpus run is judged against ITS OWN source
+    # (music isolation, source-relative dynamics) — the founder's "MESSE!" metric.
+    card = metrics.score(str(tmp), context={**entry.get("context", {}), "source_audio": entry["audio"]})
     result["scorecard"] = card.to_dict()
     result["output_file"] = str(tmp)
     return result

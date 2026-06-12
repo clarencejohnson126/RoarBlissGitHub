@@ -3,6 +3,14 @@
   "version": 1,
   "entries": [
     {
+      "id": "instrumental_jon_100",
+      "type": "instrumental_template",
+      "note": "Founder case: user uploads an INSTRUMENTAL + picks a library voice (permanent GoT-Jon EL id) + new script. NO separation involved -> the music bed IS the untouched original file; it cannot wobble. This is the future Suno-template flow.",
+      "audio": "/Users/clarence/Downloads/Game of Thrones - King of the North  Season 1 (1).mp3",
+      "input": { "mode": "full_voice", "personalization": 100, "tts_provider": "elevenlabs", "clone_source_voices": false, "extra_voice_ids": "TCuusGciH6HRSOGrYg31", "paid": true, "name": "Clarence Johnson", "prompt": "Clarence Johnson is building his AI agency Rebelz AI and grinding to find clients. Remind him to never give up, every no brings the yes closer. His mother has heart problems and he carries that worry. He stays calm and strong for his child. Tone: Jon Snow energy - quiet steel, honor, the North remembers." },
+      "context": { "name": "Clarence Johnson", "language": "English", "tier": 100 }
+    },
+    {
       "id": "clarence_full_100",
       "type": "solo_100_new_script",
       "note": "Founder test: 100% new script in Clarence's cloned voice, keeping the original's own audio.",

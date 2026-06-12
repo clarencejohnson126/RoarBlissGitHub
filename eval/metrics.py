@@ -69,6 +69,19 @@ class Gates:
     safety_min: float = 0.99              # must be clean
     ip_overlap_max: float = 0.30          # 100% mode: transcript overlap with the SOURCE script
 
+    # 5) SOURCE-RELATIVE (founder: "MESSE!") -----------------------------------------------------------
+    # When the run's SOURCE file is known, the output is judged against ITS OWN source, never an
+    # absolute number — "keep the original" means: the MUSIC (measured in isolation, <200Hz band where
+    # voice carries ~nothing) may not be more restless or quieter than what the user uploaded, and the
+    # overall dynamics may not exceed the source's. This metric caught the music rollercoaster the
+    # summed-loudness gates missed (output sum was smooth because the VOICE dominated it).
+    music_sigma_margin: float = 1.5    # music band may wobble at most this much MORE than the source (dB σ)
+    music_level_margin: float = 4.0    # music band may be at most this much QUIETER than the source (dB).
+                                       # Calibrated on founder verdicts: GoT v2 (ear: GOOD) = -3.5 dB,
+                                       # Clarence v6 (ear: BAD) = -4.6 dB -> the line sits between.
+    lra_margin_vs_source: float = 2.0  # overall loudness range: at most source LRA + this margin
+    dropout_extra_vs_source: int = 2   # holes: at most the source's own holes + this many
+
 
 DEFAULT_GATES = Gates()
 
@@ -134,6 +147,26 @@ def dropouts(path: str, integrated: Optional[float] = None, *,
     if run_start is not None and last_t is not None and (last_t - run_start) * 1000 >= min_ms:
         holes.append({"start_s": round(run_start, 2), "end_s": round(last_t, 2), "dur_ms": round((last_t - run_start) * 1000)})
     return holes
+
+
+def music_band_stats(path: str) -> Optional[dict]:
+    """THE founder metric ('MESSE!'): the MUSIC measured in ISOLATION from the voice. The <200Hz band
+    belongs to the music bed (speech carries ~nothing there), so its momentary curve over time exposes
+    a music rollercoaster even when the summed loudness looks smooth (the voice dominates the sum).
+    Returns mean level + sigma (the wobble) over the active frames."""
+    txt = _run(["ffmpeg", "-hide_banner", "-i", str(path), "-af", "lowpass=f=200,ebur128", "-f", "null", "-"])
+    vals = []
+    for line in txt.splitlines():
+        if "t:" not in line or "M:" not in line:
+            continue
+        mt, mm = re.search(r"\bt:\s*(-?\d+(?:\.\d+)?)", line), re.search(r"\bM:\s*(-?\d+(?:\.\d+)?)", line)
+        if mt and mm and float(mt.group(1)) > 4 and float(mm.group(1)) > -60:
+            vals.append(float(mm.group(1)))
+    if len(vals) < 12:
+        return None
+    mean = sum(vals) / len(vals)
+    sigma = (sum((v - mean) ** 2 for v in vals) / len(vals)) ** 0.5
+    return {"mean": round(mean, 1), "sigma": round(sigma, 1)}
 
 
 def clip_peak_dbfs(path: str) -> Optional[float]:
@@ -364,9 +397,27 @@ def score(path: str, *, context: Optional[dict] = None, gates: Gates = DEFAULT_G
     m["format"] = audio_format(path)
     if s["integrated_lufs"] is not None:
         ck["loudness_target"] = gates.integrated_lufs_min <= s["integrated_lufs"] <= gates.integrated_lufs_max
-    if s["lra"] is not None:
-        ck["loudness_range"] = gates.lra_min <= s["lra"] <= gates.lra_max   # two-sided
-    ck["no_dropouts"] = len(drops) <= gates.dropout_max_count
+
+    # SOURCE-RELATIVE mode (founder: "MESSE!"): when the source file is known, judge the output against
+    # ITS OWN source instead of absolute numbers — and measure the MUSIC in isolation. This is what the
+    # ear caught and the summed gates missed.
+    src = c.get("source_audio")
+    if src:
+        src_sum = ebur128_summary(src)
+        src_drops = dropouts(src, src_sum["integrated_lufs"], depth_lu=gates.dropout_depth_lu, min_ms=gates.dropout_min_ms)
+        mb_out, mb_src = music_band_stats(path), music_band_stats(src)
+        m["music_band"] = {"out": mb_out, "source": mb_src}
+        m["source"] = {"lra": src_sum["lra"], "dropouts": len(src_drops)}
+        if mb_out and mb_src:
+            ck["music_stability"] = mb_out["sigma"] <= mb_src["sigma"] + gates.music_sigma_margin
+            ck["music_level"] = mb_out["mean"] >= mb_src["mean"] - gates.music_level_margin
+        if s["lra"] is not None and src_sum["lra"] is not None:
+            ck["loudness_range"] = s["lra"] <= src_sum["lra"] + gates.lra_margin_vs_source
+        ck["no_dropouts"] = len(drops) <= len(src_drops) + gates.dropout_extra_vs_source
+    else:
+        if s["lra"] is not None:
+            ck["loudness_range"] = gates.lra_min <= s["lra"] <= gates.lra_max   # two-sided absolute
+        ck["no_dropouts"] = len(drops) <= gates.dropout_max_count
     if m["clip_peak_dbfs"] is not None:
         ck["no_clipping"] = m["clip_peak_dbfs"] < gates.clip_ceiling_dbfs
     if m["hf_sizzle_ratio"] is not None and m["hf_sizzle_ratio"] > gates.hf_sizzle_ratio_max:
