@@ -81,6 +81,8 @@ class Gates:
                                        # Clarence v6 (ear: BAD) = -4.6 dB -> the line sits between.
     lra_margin_vs_source: float = 2.0  # overall loudness range: at most source LRA + this margin
     dropout_extra_vs_source: int = 2   # holes: at most the source's own holes + this many
+    dropout_max_extra_ms: int = 1500   # …and no single real hole longer than the source's longest + this
+                                       # (count alone misses ONE catastrophic 9.8s dead-air hole among short pauses)
     loudness_margin_vs_source: float = 4.0  # integrated loudness within ±this of the source (a voice
                                             # ADDS energy on the instrumental case, so ±4 not absolute)
 
@@ -149,6 +151,31 @@ def dropouts(path: str, integrated: Optional[float] = None, *,
     if run_start is not None and last_t is not None and (last_t - run_start) * 1000 >= min_ms:
         holes.append({"start_s": round(run_start, 2), "end_s": round(last_t, 2), "dur_ms": round((last_t - run_start) * 1000)})
     return holes
+
+
+def source_explained_holes(out_holes: list, src_curve: list, out_curve: list, gap_lu: float = 8.0) -> list:
+    """Keep only the output holes the SOURCE does NOT explain. Compare the two loudness curves DIRECTLY in
+    each hole window: a hole is a real defect only if the OUTPUT is much quieter than the SOURCE there
+    (src_median - out_median >= gap_lu). If the output merely mirrors a soft source passage (a song's quiet
+    outro), the gap is ~0 and it is not counted.
+
+    Comparing output-vs-source (not source-vs-its-own-integrated) is the key: normal soft speech sits well
+    below a track's loud integrated, so an integrated-relative test would wrongly excuse real dead air laid
+    over continuous speech. Direct comparison cannot — if the source is talking and the output is silent,
+    the gap is large and the hole stands."""
+    if not src_curve or not out_curve:
+        return out_holes
+    real = []
+    for h in out_holes:
+        a, b = h["start_s"], h["end_s"]
+        ssrc = sorted(m for (t, m) in src_curve if a <= t <= b)
+        sout = sorted(m for (t, m) in out_curve if a <= t <= b)
+        if ssrc and sout:
+            src_med, out_med = ssrc[len(ssrc) // 2], sout[len(sout) // 2]
+            if src_med - out_med < gap_lu:   # output not much quieter than source → mirrors it, not a cut
+                continue
+        real.append(h)
+    return real
 
 
 def music_band_stats(path: str) -> Optional[dict]:
@@ -403,22 +430,36 @@ def score(path: str, *, context: Optional[dict] = None, gates: Gates = DEFAULT_G
     # SOURCE-RELATIVE mode (founder: "MESSE!"): when the source file is known, judge the output against
     # ITS OWN source instead of absolute numbers — and measure the MUSIC in isolation. This is what the
     # ear caught and the summed gates missed.
+    # has_music_bed: the COG detects this from the demucs stems and emits [[MUSIC_BED]] (run.py threads it in).
+    # A dry-speech source has NO music bed, so the <200Hz "music" metrics would just be measuring the VOICE
+    # (which pauses between sentences) — meaningless and falsely failing. Skip them when there is no bed; the
+    # dead-air guard (no_dropouts) still applies, because a hole in dry speech IS a defect.
+    has_music = c.get("has_music_bed", True)
     src = c.get("source_audio")
     if src:
         src_sum = ebur128_summary(src)
         src_drops = dropouts(src, src_sum["integrated_lufs"], depth_lu=gates.dropout_depth_lu, min_ms=gates.dropout_min_ms)
-        mb_out, mb_src = music_band_stats(path), music_band_stats(src)
-        m["music_band"] = {"out": mb_out, "source": mb_src}
         m["source"] = {"lra": src_sum["lra"], "dropouts": len(src_drops)}
-        if mb_out and mb_src:
-            ck["music_stability"] = mb_out["sigma"] <= mb_src["sigma"] + gates.music_sigma_margin
-            ck["music_level"] = mb_out["mean"] >= mb_src["mean"] - gates.music_level_margin
-        if s["lra"] is not None and src_sum["lra"] is not None:
-            ck["loudness_range"] = s["lra"] <= src_sum["lra"] + gates.lra_margin_vs_source
+        if has_music:
+            mb_out, mb_src = music_band_stats(path), music_band_stats(src)
+            m["music_band"] = {"out": mb_out, "source": mb_src}
+            if mb_out and mb_src:
+                ck["music_stability"] = mb_out["sigma"] <= mb_src["sigma"] + gates.music_sigma_margin
+                ck["music_level"] = mb_out["mean"] >= mb_src["mean"] - gates.music_level_margin
+            if s["lra"] is not None and src_sum["lra"] is not None:
+                ck["loudness_range"] = s["lra"] <= src_sum["lra"] + gates.lra_margin_vs_source
         if s["integrated_lufs"] is not None and src_sum["integrated_lufs"] is not None:
             m["source"]["integrated"] = src_sum["integrated_lufs"]
             ck["loudness_target"] = abs(s["integrated_lufs"] - src_sum["integrated_lufs"]) <= gates.loudness_margin_vs_source
-        ck["no_dropouts"] = len(drops) <= len(src_drops) + gates.dropout_extra_vs_source
+        # Source-aware dropouts: keep only holes where the OUTPUT is much quieter than the SOURCE at that
+        # time (a real cut). Holes that mirror a soft source passage are dropped. Direct out-vs-src compare.
+        real_holes = source_explained_holes(drops, momentary_curve(src), momentary_curve(path))
+        real_max = max((h["dur_ms"] for h in real_holes), default=0)
+        src_max = max((h["dur_ms"] for h in src_drops), default=0)
+        m["real_dropouts"], m["real_dropout_max_ms"] = len(real_holes), real_max
+        # Two-part: not too MANY real holes, AND no single one far LONGER than the source's worst (dead air).
+        ck["no_dropouts"] = (len(real_holes) <= len(src_drops) + gates.dropout_extra_vs_source) and \
+                            (real_max <= src_max + gates.dropout_max_extra_ms)
     else:
         if s["lra"] is not None:
             ck["loudness_range"] = gates.lra_min <= s["lra"] <= gates.lra_max   # two-sided absolute

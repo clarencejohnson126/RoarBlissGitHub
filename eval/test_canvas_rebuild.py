@@ -20,6 +20,7 @@ import tempfile
 
 from pydub import AudioSegment
 from pydub.generators import Sine
+from pydub.silence import detect_leading_silence, detect_silence
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ASYNTH = os.path.join(HERE, "..", "poc", "orchestrator", "auto_synthesizer.py")
@@ -27,14 +28,14 @@ sys.path.insert(0, HERE)  # for metrics
 
 
 def _load_helpers():
-    """Extract just the two pure functions from the shipping file, skipping its heavy module imports."""
+    """Extract the pure functions from the shipping file, skipping its heavy module imports (whisper, …)."""
     tree = ast.parse(open(ASYNTH).read())
-    wanted = {"_bleed_comp_db", "_rebuild_slot"}
+    wanted = {"trim_silence", "_bleed_comp_db", "_rebuild_slot", "_assemble_no_music"}
     nodes = [n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name in wanted]
     assert len(nodes) == len(wanted), f"missing helpers: {wanted - {n.name for n in nodes}}"
-    ns = {"AudioSegment": AudioSegment, "float": float}
+    ns = {"AudioSegment": AudioSegment, "float": float, "detect_leading_silence": detect_leading_silence}
     exec(compile(ast.Module(body=nodes, type_ignores=[]), ASYNTH, "exec"), ns)
-    return ns["_bleed_comp_db"], ns["_rebuild_slot"]
+    return ns
 
 
 def _band_db(seg, lo_ms, hi_ms, cutoff=200):
@@ -42,8 +43,9 @@ def _band_db(seg, lo_ms, hi_ms, cutoff=200):
     return seg[lo_ms:hi_ms].low_pass_filter(cutoff).dBFS
 
 
-def main():
-    bleed_comp_db, rebuild_slot = _load_helpers()
+def test_music():
+    ns = _load_helpers()
+    bleed_comp_db, rebuild_slot = ns["_bleed_comp_db"], ns["_rebuild_slot"]
     rate, chans = 44100, 2
     DUR = 10_000
 
@@ -118,13 +120,87 @@ def main():
     if lift < 1.5:
         fails.append(f"control weak: comp only lifted {lift:.2f}dB — test wouldn't catch a real wobble")
 
+    print("[music ] " + ("FAIL ✗ " + "; ".join(fails) if fails else "PASS ✓  zero drift, kept bit-identical, no slot wobble"))
+    return fails
+
+
+def test_no_music():
+    """Dry-speech / no-music-bed: a short clone in a long slot must NOT leave dead air. The concatenative
+    assembly closes the gap. Mirrors the real corpus failure (solo_dry_speech: 9.8s of -40dB silence)."""
+    ns = _load_helpers()
+    assemble = ns["_assemble_no_music"]
+    rate, chans = 44100, 2
+    DUR = 14_000
+
+    # Continuous dry-speech source (1kHz "voice", no music bed), 14s.
+    full_mix = Sine(1000, sample_rate=rate).to_audio_segment(duration=DUR).apply_gain(-12.0).set_channels(chans)
+    # One BIG slot [2s..12s] (10s) but only a 1s clone — the exact dead-air trap. fitted is slot-padded
+    # like the real loop produces: lead silence + 1s clone + trailing silence out to the full 10s slot.
+    s_ms, slot_ms = 2000, 10000
+    clone = Sine(800, sample_rate=rate).to_audio_segment(duration=1000).apply_gain(-12.0).set_channels(chans)
+    fitted = AudioSegment.silent(duration=80, frame_rate=rate).set_channels(chans) + clone
+    fitted = fitted + AudioSegment.silent(duration=slot_ms - len(fitted), frame_rate=rate).set_channels(chans)
+
+    out = assemble(full_mix, [(s_ms, slot_ms, fitted)], rate, chans, gap_ms=300)
+    fails = []
+
+    # 1) gaps CLOSED: output is much shorter than the window (≈ 2000 kept + 1000 clone + 300 gap + 2000 tail).
+    if len(out) >= DUR - 1000:
+        fails.append(f"timeline not compressed: out {len(out)}ms vs window {DUR}ms (dead air not closed)")
+
+    # 2) NO long dead air: the slot-padded `fitted` HAS a ~9s silence (the trap); the assembled output must NOT.
+    trap = detect_silence(fitted, min_silence_len=600, silence_thresh=-45)
+    trap_max = max((b - a for a, b in trap), default=0)
+    holes = detect_silence(out, min_silence_len=600, silence_thresh=-45)
+    hole_max = max((b - a for a, b in holes), default=0)
+    print(f"[no-mus] dead air: trap(padded fitted)={trap_max}ms → assembled output longest hole={hole_max}ms")
+    if trap_max < 5000:
+        fails.append(f"control weak: trap only {trap_max}ms — test wouldn't catch real dead air")
+    if hole_max >= 600:
+        fails.append(f"dead air NOT closed: {hole_max}ms silent hole remains in the output")
+
+    # 3) retained original kept verbatim (frame-exact) away from the join.
+    if out[200:1700].raw_data != full_mix[200:1700].raw_data:
+        fails.append("retained original chunk not bit-identical")
+
+    print("[no-mus] " + ("FAIL ✗ " + "; ".join(fails) if fails else "PASS ✓  gaps closed, no dead air, retained verbatim"))
+    return fails
+
+
+def test_dropout_calibration():
+    """Lock the source-aware dropout gate so the dangerous false-pass can NEVER return: real DEAD AIR over a
+    talking source must FAIL; an output that merely MIRRORS a soft source passage must PASS. Uses the real
+    metric on synthetic files."""
+    import tempfile
+    from metrics import score
+    rate, chans = 44100, 2
+    voice = Sine(200, sample_rate=rate).to_audio_segment(duration=20_000).apply_gain(-16.0).set_channels(chans)
+    src = voice[:16_000] + voice[16_000:].apply_gain(-16.0)        # last 4s = soft outro (-32dBFS)
+    bad = src[:4_000] + AudioSegment.silent(duration=9_000, frame_rate=rate).set_channels(chans) + src[13_000:]
+    good = src                                                     # identical → soft outro mirrored, no cut
+    fails = []
+    with tempfile.TemporaryDirectory() as d:
+        sp = f"{d}/src.wav"; src.export(sp, format="wav")
+        for name, seg, want_pass in [("dead-air", bad, False), ("mirror-quiet", good, True)]:
+            p = f"{d}/{name}.wav"; seg.export(p, format="wav")
+            c = score(p, context={"source_audio": sp, "has_music_bed": False})
+            ok_drops = "no_dropouts" not in c.failures()
+            m = c.measured
+            print(f"[drop-cal] {name:12s} no_dropouts={'PASS' if ok_drops else 'FAIL'} "
+                  f"(real={m.get('real_dropouts')} longest={m.get('real_dropout_max_ms')}ms)  want_pass={want_pass}")
+            if ok_drops != want_pass:
+                fails.append(f"{name}: no_dropouts {'passed' if ok_drops else 'failed'} but wanted {'pass' if want_pass else 'fail'}")
+    print("[drop-cal] " + ("FAIL ✗ " + "; ".join(fails) if fails else "PASS ✓  dead air fails, mirrored-quiet passes"))
+    return fails
+
+
+def main():
+    fails = test_music() + test_no_music() + test_dropout_calibration()
     print("=" * 60)
     if fails:
-        print("FAIL ✗")
-        for f in fails:
-            print("  -", f)
+        print("OVERALL FAIL ✗")
         sys.exit(1)
-    print("PASS ✓  — zero drift, kept bit-identical, no slot wobble")
+    print("OVERALL PASS ✓")
 
 
 if __name__ == "__main__":

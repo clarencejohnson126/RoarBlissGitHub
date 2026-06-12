@@ -829,7 +829,7 @@ class Predictor(BasePredictor):
                 music_gain_db=music_gain_db, duck_db=duck_db, voice_speed=voice_speed,
                 bed_audio=bed_audio,
             )
-            return self._deliver_gate(final, str(audio), tier)
+            return self._deliver_gate(final, str(audio), tier, has_music_bed=True)
 
         result = auto_synthesize(
             audio_path=str(audio),
@@ -849,9 +849,10 @@ class Predictor(BasePredictor):
         )
         if result.get("status") != "ok":
             raise RuntimeError(f"pipeline status: {result.get('status')}")
-        return self._deliver_gate(Path(result["final_path"]), str(audio), tier)
+        return self._deliver_gate(Path(result["final_path"]), str(audio), tier,
+                                  has_music_bed=result.get("music_bed", True))
 
-    def _deliver_gate(self, final_path, source_audio, tier):
+    def _deliver_gate(self, final_path, source_audio, tier, has_music_bed=True):
         """DELIVERY GATE (founder: 'eine fertige Datei muss geprüft werden, bevor es an den User geht').
         Score the finished file against ITS OWN source with the ear-calibrated, source-relative battery
         and emit the scorecard as a [[SCORECARD]] log line. The webhook reads it and refuses to deliver a
@@ -867,9 +868,11 @@ class Predictor(BasePredictor):
             # delivery margins: lenient (catch clearly-bad, tolerate ffmpeg-variance on borderline)
             g = Gates(music_sigma_margin=3.0, music_level_margin=6.0, lra_margin_vs_source=4.0,
                       dropout_extra_vs_source=6, loudness_margin_vs_source=6.0)
-            # source_audio ONLY → score() runs strictly the ffmpeg signal + source-relative music/loudness
-            # checks (Whisper/clone/LLM-judge are all gated on context keys we deliberately omit). ~1-2s.
-            card = score(str(final_path), context={"source_audio": str(source_audio)}, gates=g)
+            # source_audio + has_music_bed → score() runs strictly the ffmpeg signal + source-relative
+            # checks (Whisper/clone/LLM-judge are gated on context keys we omit). has_music_bed scopes the
+            # music-band metrics to sources that actually have a bed (dry speech would falsely fail them). ~1-2s.
+            card = score(str(final_path),
+                         context={"source_audio": str(source_audio), "has_music_bed": has_music_bed}, gates=g)
             verdict = {"passed": card.passed, "failures": card.failures(), "measured": card.measured}
             print(f"[deliver-gate] tier={tier} {'PASS ✓' if card.passed else 'FAIL ✗ ' + str(card.failures())}")
         except Exception as e:

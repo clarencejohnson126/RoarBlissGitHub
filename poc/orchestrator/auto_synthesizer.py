@@ -170,6 +170,30 @@ def _rebuild_slot(canvas, accomp, s_ms, slot_ms, fitted, comp_db, rate, chans, g
         fitted = fitted.fade_in(F).fade_out(F)
     return canvas.overlay(fitted, position=s_ms)
 
+def _assemble_no_music(full_mix, placements, rate, chans, gap_ms=300):
+    """NO-MUSIC assembly (dry speech). The fixed-length canvas model is right for music (keeps the bed in
+    sync) but WRONG for a source with no music bed: a clone shorter than its slot leaves DEAD AIR (measured:
+    9.8s of -40dB silence where the source talks). With no music to carry the gap, assemble by CONCATENATION
+    instead — retained original chunks BETWEEN slots kept verbatim (frame-exact, they carry their own
+    pauses), each replaced slot = just the clone + one short natural pause (gap_ms), NOT the full original
+    slot length. The timeline compresses; that's correct when there's nothing to stay in sync with.
+    Returns the assembled segment (shorter than the window by the closed dead air)."""
+    placements = sorted(placements, key=lambda p: p[0])
+    out = full_mix[:0]                                    # empty, same rate/channels
+    pause = AudioSegment.silent(duration=gap_ms, frame_rate=rate).set_channels(chans)
+    cursor = 0
+    for (s_ms, slot_ms, fitted) in placements:
+        if s_ms > cursor:                                 # retained original chunk before this slot
+            fs = int(rate * cursor / 1000.0); fe = int(rate * s_ms / 1000.0)
+            out += full_mix.get_sample_slice(fs, fe)
+        clone = trim_silence(fitted)                       # recover the clone body from the slot-padded seg
+        if len(clone) > 0:
+            out += clone + pause
+        cursor = s_ms + int(slot_ms)
+    if cursor < len(full_mix):                             # retained tail
+        out += full_mix.get_sample_slice(int(rate * cursor / 1000.0), None)
+    return out
+
 # ──────────────────────────────────────────────────────────────────────────────
 # Reference resolution — orchestrator output → reference audio file
 # ──────────────────────────────────────────────────────────────────────────────
@@ -336,8 +360,18 @@ def auto_synthesize(audio_path: str, user_context: str,
     accomp = accomp[:window_ms]
     canvas = canvas[:window_ms]
     comp_db = _bleed_comp_db(canvas, accomp)
+    # MUSIC-BED DETECTION. If the accompaniment stem is far below the vocal stem, demucs found no real music
+    # (dry speech). The fixed-length canvas would then leave DEAD AIR at every short clone (no bed to carry
+    # the gap) — so we switch to the concatenative, gap-closing assembly (_assemble_no_music). Relative
+    # threshold (robust across loudness): accomp within 18dB of vocals = a real bed.
+    a_db, v_db = accomp.dBFS, vocals.dBFS
+    music_bed = (a_db > v_db - 18.0) if v_db != float('-inf') else (a_db > -38.0)
+    # Emit the decision so the offline gate (run.py) and the runtime delivery gate score with the SAME
+    # music/no-music knowledge the cog used — music-band metrics only apply where there's a bed.
+    print(f"[[MUSIC_BED]] {'true' if music_bed else 'false'}", flush=True)
     if verbose:
-        log(f"canvas(full mix): {len(canvas)/1000:.2f}s @ {rate}Hz x{chans}; bleed comp {comp_db:+.2f}dB", "ok")
+        mode = "MUSIC bed → timeline-locked canvas" if music_bed else "NO music (dry speech) → gap-closing assembly"
+        log(f"canvas(full mix): {len(canvas)/1000:.2f}s @ {rate}Hz x{chans}; accomp {a_db:.1f}dB vs vocals {v_db:.1f}dB → {mode}; bleed comp {comp_db:+.2f}dB", "ok")
 
     # ── Stage C: per-slot synthesis ───────────────────────────────────────
     if verbose: log(f"Stage C: synthesize {len(overrides)} clones via TTS provider '{current_provider_label()}'...", "step")
@@ -357,6 +391,7 @@ def auto_synthesize(audio_path: str, user_context: str,
                 log(f"  voice clone failed for {spk}: {ex}", "warn")
 
     audit_slots = []
+    placements = []   # (s_ms, slot_ms, fitted) per slot — assembled after the loop per music/no-music mode
     for ov in overrides:
         sid, spk, emo = ov["id"], ov["speaker"], ov["emotion"]
         s_ms, e_ms = ov["start_ms"], ov["end_ms"]
@@ -469,10 +504,9 @@ def auto_synthesize(audio_path: str, user_context: str,
         elif len(fitted) > budget:
             fitted = fitted[:budget]
 
-        # ORIGINAL-CANVAS replace (pure helper, see _rebuild_slot): carve the slot(+guard) out of the FULL
-        # MIX, refill it with the accomp stem + constant bleed comp (music only), lay the clone over it.
-        # Kept regions on either side stay BIT-IDENTICAL original; length-invariant => ZERO drift.
-        canvas = _rebuild_slot(canvas, accomp, s_ms, slot_ms, fitted, comp_db, rate, chans)
+        # Collect the placement; assembly happens after the loop (music → in-place canvas replace;
+        # no music → gap-closing concatenation). Decoupling lets us pick the mode once, after all clones.
+        placements.append((s_ms, slot_ms, fitted))
 
         audit_slots.append({
             "id": sid, "speaker": spk, "emotion": emo,
@@ -491,11 +525,22 @@ def auto_synthesize(audio_path: str, user_context: str,
             elevenlabs_delete(vid)
         log(f"deleted {len(el_voices)} cloned voice(s)", "ok")
 
+    # ── Assembly: pick the mode ONCE, now that every clone is made ─────────────
+    if music_bed:
+        # MUSIC: replace each slot in place on the full-mix canvas (timeline-locked → music stays in sync).
+        for (s_ms, slot_ms, fitted) in placements:
+            canvas = _rebuild_slot(canvas, accomp, s_ms, slot_ms, fitted, comp_db, rate, chans)
+    else:
+        # NO MUSIC: concatenate, closing the dead air a fixed-length canvas would leave (the dry-speech fix).
+        canvas = _assemble_no_music(canvas, placements, rate, chans, gap_ms=min(int(breath_ms), 320))
+        if verbose: log(f"no-music assembly: gaps closed → {len(canvas)/1000:.2f}s (window was {window_ms/1000:.2f}s)", "ok")
+
     # ── Stage D: drift check + save the personalized full-mix pre-master ──────
-    drift_ms = abs(len(canvas) - window_ms)
-    if drift_ms > 50:   # >50ms now signals a real bug (should be ~0 after slot-locking), not rounding
-        log(f"UNEXPECTED canvas drift {drift_ms}ms (should be ~0 after slot-locking) — investigate", "err")
-    canvas = canvas[:window_ms]   # final safety clamp only
+    if music_bed:
+        drift_ms = abs(len(canvas) - window_ms)
+        if drift_ms > 50:   # >50ms signals a real bug on the timeline-locked path (should be ~0), not rounding
+            log(f"UNEXPECTED canvas drift {drift_ms}ms (should be ~0 after slot-locking) — investigate", "err")
+    canvas = canvas[:window_ms]   # ceiling clamp (no-op for the no-music path, which is already ≤ window)
     pv_path = out_dir / "vocals_personalized.wav"   # filename kept for audit compat; content = full pre-master
     canvas.export(str(pv_path), format="wav")
     if verbose: log(f"personalized full-mix pre-master saved: {pv_path}", "ok")
@@ -531,6 +576,7 @@ def auto_synthesize(audio_path: str, user_context: str,
         "audio_type_label": plan["type_label"],
         "user_brief": plan["brief"],
         "window_ms": window_ms,
+        "music_bed": music_bed,
         "final_mix_ms": len(final),
         "drift_ms": abs(len(final) - window_ms),
         "slot_count": len(overrides),

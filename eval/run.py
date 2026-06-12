@@ -95,6 +95,11 @@ def run_entry(entry: dict, version: str) -> dict:
     logs = pred.get("logs") or ""
     sc = [ln.strip() for ln in logs.splitlines() if "[self-check]" in ln]
     result["cog_self_check"] = sc[-2:] if sc else []
+    # the cog detects whether the source has a music bed and emits [[MUSIC_BED]]; thread it into scoring so
+    # the offline gate scopes the music-band metrics exactly like the cog did (dry speech has no bed).
+    mb = [ln for ln in logs.splitlines() if "[[MUSIC_BED]]" in ln]
+    music_bed = mb[-1].split("[[MUSIC_BED]]", 1)[1].strip().lower().startswith("true") if mb else None
+    result["music_bed"] = music_bed
     if pred["status"] != "succeeded" or not pred.get("output"):
         result["scorecard"] = {"passed": False, "error": pred.get("error") or "no output"}
         return result
@@ -102,8 +107,12 @@ def run_entry(entry: dict, version: str) -> dict:
     tmp = ROOT / "eval" / f"_out_{entry['id']}.mp3"
     subprocess.run(["curl", "-s", "-L", "-o", str(tmp), out_url], check=True)
     # source_audio rides along automatically: every corpus run is judged against ITS OWN source
-    # (music isolation, source-relative dynamics) — the founder's "MESSE!" metric.
-    card = metrics.score(str(tmp), context={**entry.get("context", {}), "source_audio": entry["audio"]})
+    # (music isolation, source-relative dynamics) — the founder's "MESSE!" metric. has_music_bed (from the
+    # cog) scopes the music-band checks; full_voice runs emit none -> default True (they always have a bed).
+    ctx = {**entry.get("context", {}), "source_audio": entry["audio"]}
+    if music_bed is not None:
+        ctx["has_music_bed"] = music_bed
+    card = metrics.score(str(tmp), context=ctx)
     result["scorecard"] = card.to_dict()
     result["output_file"] = str(tmp)
     return result
