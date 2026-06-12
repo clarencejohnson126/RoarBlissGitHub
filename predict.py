@@ -325,13 +325,13 @@ class Predictor(BasePredictor):
                 rendered[idx] = self._stretch(rendered[idx], work, voice_speed)
         items = [(idx, len(rendered[idx]), int(lines[idx].get("voice", 0)) % n) for idx in ordered]
 
-        # BED = the ORIGINAL audio, always. RoarBliss keeps the source's own music/sound/melody and
-        # changes ONLY the spoken words — we NEVER impose or invent a bed. The new lines are placed back
-        # on the original timeline, over the source's own separated music. The ONLY exception is an
-        # explicitly chosen template (bed_audio) for the instrumental side-project (a picked voice over a
-        # picked instrumental). No solo/dry auto-substitution; no constant default.
+        # BED = the ORIGINAL audio, always (its own music/sound/melody). We change ONLY the spoken words.
+        # The new 100% script FLOWS CONTINUOUSLY over that original music — we do NOT drop the new lines
+        # into the original's pause slots (that left ~60s of gaps where a light bed shows as 'music on/
+        # off'). Continuous voice masks a sparse bed; a strong bed (GoT) still plays through underneath.
+        # The only chosen-bed case is an explicit template (bed_audio) for the instrumental side-project.
         use_constant_bed = bool(bed_audio)
-        do_timeline = bool(speech_windows) and not use_constant_bed
+        do_timeline = False
 
         if do_timeline:
             placements = self._place_on_timeline(items, speech_windows, window_ms)
