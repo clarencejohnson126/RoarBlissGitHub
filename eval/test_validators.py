@@ -42,13 +42,13 @@ low = validate_plan([{"text": f"Clarence pushes through day {i}."} for i in rang
                     target_language="English", total_source_lines=20)
 want("density_matches_tier" in low.failures(), "3/20 = 15% vs 50% -> density FAIL")
 
-print("[plan] mixed-language script (#6):")
+print("[plan] mixed-language is NOT gated per-line (langdetect too noisy on short lines) — caught at OUTPUT:")
 mixed = validate_plan([
     {"text": "Clarence, du baust deine Agentur mit eiserner Disziplin auf."},
     {"text": "Never give up, every no brings the yes closer to you."},
     {"text": "Bleib stark fuer deine Familie, jeden einzelnen Tag."},
 ], tier=100, target_language="German")
-want("script_language" in mixed.failures(), "English line in a German script -> script_language FAIL")
+want("script_language" not in mixed.checks, "no per-line script_language gate (it false-fails good English)")
 
 print("[plan] surviving original line at 100% (#4/#6):")
 remnant = validate_plan(

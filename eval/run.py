@@ -132,7 +132,7 @@ def run_entry(entry: dict, version: str) -> dict:
     meaning_fail = []
     if plan_chk:
         meaning_fail += [f"plan:{c}" for c in plan_chk.get("failures", [])
-                         if c in ("no_repetition", "full_replacement", "script_language", "density_matches_tier")]
+                         if c in ("no_repetition", "full_replacement", "density_matches_tier")]
     if out_chk:
         meaning_fail += [f"out:{c}" for c in out_chk.get("failures", [])
                          if c in ("output_language", "content_present", "no_dead_air")]
