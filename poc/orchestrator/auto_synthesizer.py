@@ -448,20 +448,34 @@ def auto_synthesize(audio_path: str, user_context: str,
     final_path = out_dir / "personalized_output.mp3"
     # ...then trim any dead trailing silence (sources often end with a silent tail; we leave ~1s so it
     # doesn't end abruptly) so the track never finishes with a long stretch of nothing.
+    # NO dynamics processor on the bus. The old alimiter pumped: the instant a word was spoken the
+    # SUM hit the ceiling and the limiter pulled EVERYTHING (music included) down, releasing in the
+    # pauses — the founder's "music drops the moment speech starts, swells back in silence". Clip
+    # safety is a TWO-PASS STATIC gain instead: render the sum untouched, measure its true peak, and
+    # apply ONE constant attenuation to the whole mix. One level start-to-finish; music untouched.
+    raw_path = out_dir / "mix_raw.wav"
     cmd = ["ffmpeg","-y","-loglevel","error","-i",str(pv_path),"-i",str(accomp_trimmed),
-             # Music stays at volume=1.0 (HARD RULE: never altered). A brickwall limiter on the COMBINED
-             # mix bus (after amix) catches any residual peak so the SUM never clips into distortion — it
-             # limits the bus, not the music's pre-mix content.
              # Voice bus only: HPF 80Hz kills sub-bass rumble, LPF 14kHz kills the >14kHz hiss/sizzle that
              # demucs vocal separation leaves in BOTH the clones and the kept-original. Music ([1:a]) is
              # NOT filtered — it stays volume=1.0, full-band, untouched (HARD RULE).
-             "-filter_complex","[0:a]volume=1.0,highpass=f=80,lowpass=f=14000[s];[1:a]volume=1.0[m];[s][m]amix=inputs=2:duration=longest:normalize=0,"
-             "alimiter=limit=0.97:level=false,"
-             "areverse,silenceremove=start_periods=1:start_threshold=-50dB:start_silence=1.0,areverse",
-             "-ac","2","-ar","44100","-b:a","320k", str(final_path)]
+             "-filter_complex","[0:a]volume=1.0,highpass=f=80,lowpass=f=14000[s];[1:a]volume=1.0[m];[s][m]amix=inputs=2:duration=longest:normalize=0",
+             "-ac","2","-ar","44100", str(raw_path)]
     r = subprocess.run(cmd, capture_output=True, text=True)
     if r.returncode != 0:
         log(f"FFmpeg mix failed: {r.stderr}", "err")
+        return {"status": "mix_failed", "elapsed_s": time.time() - t0}
+    raw_mix = AudioSegment.from_wav(str(raw_path))
+    peak = raw_mix.max_dBFS
+    static_db = -(peak + 1.0) if peak > -1.0 else 0.0   # constant headroom trim ONLY if the sum would clip
+    vol = f"volume={static_db:.2f}dB," if static_db < 0 else ""
+    if static_db < 0 and verbose:
+        log(f"static headroom trim {static_db:.2f}dB (constant — no limiter, no pumping)", "ok")
+    cmd2 = ["ffmpeg","-y","-loglevel","error","-i",str(raw_path),
+            "-af", f"{vol}areverse,silenceremove=start_periods=1:start_threshold=-50dB:start_silence=1.0,areverse",
+            "-ac","2","-ar","44100","-b:a","320k", str(final_path)]
+    r = subprocess.run(cmd2, capture_output=True, text=True)
+    if r.returncode != 0:
+        log(f"FFmpeg encode failed: {r.stderr}", "err")
         return {"status": "mix_failed", "elapsed_s": time.time() - t0}
     if verbose: log(f"final mix: {final_path}", "ok")
 

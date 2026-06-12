@@ -679,15 +679,19 @@ class Predictor(BasePredictor):
         try:
             vfull.export(str(vpath), format="wav"); music.export(str(mpath), format="wav")
             mg = f"volume={music_gain_db:.1f}dB," if abs(music_gain_db) > 0.01 else ""   # manual knob only
+            # NO limiter on the bus (it pumped the music down under every spoken word). Clip safety =
+            # one constant headroom trim measured AFTER the untouched sum (below).
             chain = (f"[0:a]{mg}aresample=44100,aformat=channel_layouts=stereo[m];"
                      f"[1:a]aresample=44100,aformat=channel_layouts=stereo[v];"
-                     f"[m][v]amix=inputs=2:duration=longest:normalize=0[mx];"
-                     f"[mx]alimiter=limit=0.97:level=false[out]")
+                     f"[m][v]amix=inputs=2:duration=longest:normalize=0[out]")
             subprocess.run(["ffmpeg", "-y", "-i", str(mpath), "-i", str(vpath),
                             "-filter_complex", chain, "-map", "[out]", str(opath)],
                            capture_output=True, check=True)
-            print(f"flat mix (RULE #1): music at original level, music_gain_db={music_gain_db} (manual only)")
-            return AudioSegment.from_wav(str(opath))
+            mixed = AudioSegment.from_wav(str(opath))
+            if mixed.max_dBFS > -1.0:   # constant trim only if the sum would clip — never dynamic
+                mixed = mixed.apply_gain(-(mixed.max_dBFS + 1.0))
+            print(f"flat mix (RULE #1): music at original level, no limiter, music_gain_db={music_gain_db} (manual only)")
+            return mixed
         except Exception as e:
             print("flat mix failed -> simple overlay:", e)
             return music.overlay(vfull)
