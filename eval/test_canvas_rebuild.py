@@ -30,7 +30,7 @@ sys.path.insert(0, HERE)  # for metrics
 def _load_helpers():
     """Extract the pure functions from the shipping file, skipping its heavy module imports (whisper, …)."""
     tree = ast.parse(open(ASYNTH).read())
-    wanted = {"trim_silence", "_bleed_comp_db", "_rebuild_slot", "_assemble_no_music"}
+    wanted = {"trim_silence", "_bleed_comp_db", "_rebuild_slot", "_assemble_no_music", "_detect_music_bed"}
     nodes = [n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name in wanted]
     assert len(nodes) == len(wanted), f"missing helpers: {wanted - {n.name for n in nodes}}"
     ns = {"AudioSegment": AudioSegment, "float": float, "detect_leading_silence": detect_leading_silence}
@@ -194,8 +194,29 @@ def test_dropout_calibration():
     return fails
 
 
+def test_music_bed_detection():
+    """Lock the music-bed detector against the REAL measured cog stems (accomp dB, vocals dB). These are the
+    values that fooled the first threshold — if anyone loosens it, this fails."""
+    detect = _load_helpers()["_detect_music_bed"]
+    cases = [  # (name, accomp_dB, vocals_dB, expect_music_bed)
+        ("clarence_full DRY", -23.1, -17.1, False),
+        ("solo_dry DRY", -23.8, -19.7, False),
+        ("cinematic MUSIC", -17.4, -21.8, True),     # bed LOUDER than the voice
+        ("speech_over_music MUSIC", -17.2, -13.4, True),
+        ("silent accomp", float("-inf"), -18.0, False),
+        ("quiet music bed", -28.0, -29.0, True),     # soft master, bed ~ voice → still music
+    ]
+    fails = []
+    for name, a, v, want in cases:
+        got = detect(a, v)
+        if got != want:
+            fails.append(f"{name}: got music_bed={got}, want {want}")
+    print("[bed-det] " + ("FAIL ✗ " + "; ".join(fails) if fails else "PASS ✓  dry vs music separated on real values"))
+    return fails
+
+
 def main():
-    fails = test_music() + test_no_music() + test_dropout_calibration()
+    fails = test_music() + test_no_music() + test_dropout_calibration() + test_music_bed_detection()
     print("=" * 60)
     if fails:
         print("OVERALL FAIL ✗")

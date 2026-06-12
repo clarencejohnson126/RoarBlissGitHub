@@ -104,6 +104,23 @@ def detect_sfx_cover(accomp, start_ms, end_ms):
     if len(region) == 0: return False
     return region.dBFS > SFX_DBFS_THRESHOLD
 
+def _detect_music_bed(a_db, v_db):
+    """Does the source have a real music bed? A real bed has substantial SUSTAINED energy in the
+    accompaniment stem; demucs leaves only LOW residual in accomp for a DRY-speech source. Calibrated on
+    real cog stems (dry ≈ -23..-24dB, music ≈ -17dB; a cinematic bed can be LOUDER than the voice):
+      • accomp louder than -22dBFS                → music (a normal-loudness bed)
+      • else accomp within 3dB of the voice or up  → music (quietly-mastered bed, still comparable)
+      • else (accomp low AND well below the voice) → DRY SPEECH (residual only)
+    Mis-detection fails SAFE: the gate still catches a wrong-path output (music wobble / dead air).
+    NOTE: thresholds are locked by eval/test_canvas_rebuild.py against the real measured values."""
+    if a_db == float('-inf'):
+        return False
+    if a_db > -22.0:
+        return True
+    if v_db != float('-inf') and a_db >= v_db - 3.0:
+        return True
+    return False
+
 def _bleed_comp_db(full_mix, accomp, cutoff=200, lo=0.0, hi=9.0):
     """CONSTANT bleed compensation (founder's 'replaced slots = music stem + constant bleed comp').
     demucs leaks part of the music into the DISCARDED vocal stem, so the accompaniment stem we lay under a
@@ -365,7 +382,7 @@ def auto_synthesize(audio_path: str, user_context: str,
     # the gap) — so we switch to the concatenative, gap-closing assembly (_assemble_no_music). Relative
     # threshold (robust across loudness): accomp within 18dB of vocals = a real bed.
     a_db, v_db = accomp.dBFS, vocals.dBFS
-    music_bed = (a_db > v_db - 18.0) if v_db != float('-inf') else (a_db > -38.0)
+    music_bed = _detect_music_bed(a_db, v_db)
     # Emit the decision so the offline gate (run.py) and the runtime delivery gate score with the SAME
     # music/no-music knowledge the cog used — music-band metrics only apply where there's a bed.
     print(f"[[MUSIC_BED]] {'true' if music_bed else 'false'}", flush=True)

@@ -473,7 +473,11 @@ def score(path: str, *, context: Optional[dict] = None, gates: Gates = DEFAULT_G
     if s["true_peak_dbtp"] is not None and s["true_peak_dbtp"] > gates.true_peak_warn_dbtp:
         warn.append(f"true peak {s['true_peak_dbtp']} dBTP > {gates.true_peak_warn_dbtp}")
     if c.get("expected_ms") and m["duration_s"] is not None:
-        ck["not_cut_short"] = (m["duration_s"] * 1000) >= c["expected_ms"] * 0.9
+        # Music: output stays timeline-locked to the source (≈ same length). No music: the dead-air-closing
+        # assembly INTENTIONALLY compresses, so a shorter output is correct — only flag a near-total collapse
+        # (most clones failed), not the expected shortening.
+        factor = 0.9 if has_music else 0.4
+        ck["not_cut_short"] = (m["duration_s"] * 1000) >= c["expected_ms"] * factor
 
     # 2) SPEECH (one transcription, reused across checks) ---------------------------------------------
     tr = _whisper_transcribe(path) if (c.get("expected_text") or c.get("lines") or c.get("name") or c.get("language")) else None
