@@ -567,10 +567,10 @@ class Predictor(BasePredictor):
             sysmsg = ("You write a single, continuous, first-person motivational monologue the listener "
                       "could record as their own. Echo the cadence and intensity of the STYLE sample, but "
                       "write ORIGINAL lines about the listener's real life — never reuse the sample's words. "
-                      "DELIVERY (the TTS follows your punctuation): write for a SLOW, weighty voice. Short, "
-                      "punchy sentences. Use pauses deliberately — an em dash before the word that matters, "
-                      "an ellipsis before a turn. Put the KEY word at the END of the sentence so it lands. "
-                      "One idea per line; let single short lines stand alone for emphasis. "
+                      "DELIVERY: write for a SLOW, weighty voice. Short, punchy sentences — one idea per "
+                      "line. Put the KEY word at the END of the sentence so it lands. Let single short "
+                      "lines stand alone for emphasis. Use ONLY normal punctuation (. , ?) — NO ellipses "
+                      "or dashes (the voice reads them as hesitations/cut-offs). "
                       "Output STRICT JSON ONLY: a list of {\"voice\":0,\"text\":\"...\"} objects, in order. "
                       "No prose, no markdown." + lang_note)
             usr = (f"STYLE (echo delivery, do NOT reuse words):\n\"\"\"\n{style}\n\"\"\"\n\nLISTENER:\n{user_context}\n\n"
@@ -821,7 +821,7 @@ class Predictor(BasePredictor):
             # full_voice discovers + clones voices from the FULL separated vocals, but sizes the script
             # and bed to out_window — so we can clone all 5+ characters from a 3-min montage yet render 2 min.
             out_window = min(window_ms, output_seconds * 1000) if output_seconds and output_seconds > 0 else window_ms
-            return self._full_voice(
+            final = self._full_voice(
                 vocals, accomp, str(audio),
                 ctx,
                 out_window, work, min_voices=min_voices, extra_voice_ids=extra_voice_ids,
@@ -829,6 +829,7 @@ class Predictor(BasePredictor):
                 music_gain_db=music_gain_db, duck_db=duck_db, voice_speed=voice_speed,
                 bed_audio=bed_audio,
             )
+            return self._deliver_gate(final, str(audio), tier)
 
         result = auto_synthesize(
             audio_path=str(audio),
@@ -848,4 +849,30 @@ class Predictor(BasePredictor):
         )
         if result.get("status") != "ok":
             raise RuntimeError(f"pipeline status: {result.get('status')}")
-        return Path(result["final_path"])
+        return self._deliver_gate(Path(result["final_path"]), str(audio), tier)
+
+    def _deliver_gate(self, final_path, source_audio, tier):
+        """DELIVERY GATE (founder: 'eine fertige Datei muss geprüft werden, bevor es an den User geht').
+        Score the finished file against ITS OWN source with the ear-calibrated, source-relative battery
+        and emit the scorecard as a [[SCORECARD]] log line. The webhook reads it and refuses to deliver a
+        track that failed — the user gets a refund + retry, never a bad file. Measured here (ffmpeg only),
+        not raised here: source-relative checks are robust to the cog's ffmpeg (output vs source, same
+        binary), and keeping the file lets the webhook own the deliver/refund decision. Runtime margins
+        are looser than the offline RELEASE gate so only CLEARLY-bad output is blocked, never borderline."""
+        import json as _json
+        verdict = {"passed": None, "failures": [], "measured": {}}
+        try:
+            sys.path.insert(0, str(_P(__file__).parent / "eval"))
+            from metrics import score, Gates
+            # delivery margins: lenient (catch clearly-bad, tolerate ffmpeg-variance on borderline)
+            g = Gates(music_sigma_margin=3.0, music_level_margin=6.0, lra_margin_vs_source=4.0,
+                      dropout_extra_vs_source=6, loudness_margin_vs_source=6.0)
+            # source_audio ONLY → score() runs strictly the ffmpeg signal + source-relative music/loudness
+            # checks (Whisper/clone/LLM-judge are all gated on context keys we deliberately omit). ~1-2s.
+            card = score(str(final_path), context={"source_audio": str(source_audio)}, gates=g)
+            verdict = {"passed": card.passed, "failures": card.failures(), "measured": card.measured}
+            print(f"[deliver-gate] tier={tier} {'PASS ✓' if card.passed else 'FAIL ✗ ' + str(card.failures())}")
+        except Exception as e:
+            print("[deliver-gate] skipped (scoring unavailable):", e)
+        print("[[SCORECARD]] " + _json.dumps(verdict, default=str))
+        return final_path

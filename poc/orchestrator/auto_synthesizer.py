@@ -104,6 +104,72 @@ def detect_sfx_cover(accomp, start_ms, end_ms):
     if len(region) == 0: return False
     return region.dBFS > SFX_DBFS_THRESHOLD
 
+def _bleed_comp_db(full_mix, accomp, cutoff=200, lo=0.0, hi=9.0):
+    """CONSTANT bleed compensation (founder's 'replaced slots = music stem + constant bleed comp').
+    demucs leaks part of the music into the DISCARDED vocal stem, so the accompaniment stem we lay under a
+    replaced slot is QUIETER than the music the listener hears in the kept original. Measure that deficit
+    ONCE in the music band (<200Hz, where music carries and speech ~doesn't) and lift the slot music by that
+    constant amount so its level matches the kept regions. CONSTANT by design: one gain everywhere => no
+    per-slot variation => no 'music on/off' wobble. Clamped [0,9]dB: never duck the slot music below the
+    stem, never over-boost the bass into a thump."""
+    f = full_mix.low_pass_filter(cutoff).dBFS
+    a = accomp.low_pass_filter(cutoff).dBFS
+    if f == float('-inf') or a == float('-inf'):
+        return 0.0
+    return max(lo, min(hi, f - a))
+
+def _rebuild_slot(canvas, accomp, s_ms, slot_ms, fitted, comp_db, rate, chans, guard=200, F=8):
+    """Replace ONE slot on the FULL-MIX canvas, pure + length-invariant. The slot(+guard) span currently
+    holds the original VOICE *and* its music; carve it out and refill with MUSIC ONLY — the accomp stem for
+    the exact span, lifted by the CONSTANT bleed comp so its level matches the kept regions — then lay the
+    clone over it. Kept regions on either side are untouched (bit-identical original). Returns new canvas.
+
+    Invariants (asserted in eval/test_canvas_rebuild.py):
+      • len(out) == len(canvas)            → ZERO drift, music stays locked to the 1.0x grid
+      • kept interior == original samples  → kept regions bit-identical (except an 8ms cosmetic seam fade)
+      • no music dropout at the slot       → accomp+comp matches the kept-region <200Hz music level
+    """
+    remove_ms = int(slot_ms)
+    # Whisper sentence-group edges sit inside breaths; the original's head/tail word can bleed just outside
+    # [s_ms,e_ms]. Carve a small guard on BOTH sides so NO original word survives — but refill with MUSIC
+    # (not silence), so the bed never drops at the seam.
+    head = min(guard, s_ms)
+    tail = min(guard, len(canvas) - (s_ms + remove_ms))
+    wipe_start = s_ms - head
+    wipe_end = wipe_start + head + remove_ms + tail
+    # FRAME-EXACT tiling (not ms slicing). 1ms = 44.1 frames, so ms-boundary slices round and would shift
+    # the kept `post` by a sample or two PER slot — drifting the bit-identical promise. Cutting on exact
+    # frame indices makes pre|slot_music|post tile perfectly: post lands back on its original frame `fwe`,
+    # so every kept region stays sample-for-sample the original.
+    fr = canvas.frame_rate
+    fws = int(fr * wipe_start / 1000.0)
+    fwe = int(fr * wipe_end / 1000.0)
+    need = fwe - fws                                  # exact frames the reconstructed span must fill
+    pre = canvas.get_sample_slice(0, fws)
+    post = canvas.get_sample_slice(fwe, None)
+    slot_music = accomp.get_sample_slice(fws, fwe)
+    if comp_db:
+        slot_music = slot_music + comp_db             # gain only — never changes frame count
+    # force EXACTLY `need` frames (accomp can be a hair short at the very tail)
+    have = int(slot_music.frame_count())
+    if have < need:
+        pad_ms = (need - have) * 1000.0 / fr + 2
+        slot_music = slot_music + AudioSegment.silent(duration=pad_ms, frame_rate=fr).set_channels(chans)
+    slot_music = slot_music.get_sample_slice(0, need)
+    # NO seam fades on pre/slot_music/post. We carve MUSIC out and refill with MUSIC at a MATCHED level
+    # (comp), so the seam is music→music with a tiny sample step — not the old cut-to-silence that needed a
+    # ramp. Crucially, pydub's fade_*() silently DROPS a frame (an 8ms fade on a 79380-frame slice returns
+    # 79379), which would shift the kept `post` early and break bit-identity. Hard, frame-exact joins keep
+    # every kept region sample-for-sample the original.
+    canvas = pre + slot_music + post   # frame-exact: |pre|=fws, |slot_music|=need, post starts at fwe
+    # Lay the clone OVER the reconstructed slot music at s_ms. overlay() is additive — but the base is MUSIC
+    # ONLY (the original voice was carved out), so nothing original bleeds under the clone. The clone keeps
+    # its own 8ms edge fades (it rides over the music; its frame count doesn't affect kept alignment).
+    fitted = fitted.set_frame_rate(rate).set_channels(chans)
+    if len(fitted) > 2 * F:
+        fitted = fitted.fade_in(F).fade_out(F)
+    return canvas.overlay(fitted, position=s_ms)
+
 # ──────────────────────────────────────────────────────────────────────────────
 # Reference resolution — orchestrator output → reference audio file
 # ──────────────────────────────────────────────────────────────────────────────
@@ -255,16 +321,23 @@ def auto_synthesize(audio_path: str, user_context: str,
         log("No slots to synthesize. Aborting.", "err")
         return {"status": "no_slots", "elapsed_s": time.time() - t0}
 
-    # ── Stage B: load source vocals + accompaniment ──────────────────────
-    if verbose: log(f"Stage B: load vocals ({vocals_path}) and accompaniment ({accomp_path})...", "step")
-    vocals = AudioSegment.from_wav(str(vocals_path))
-    accomp = AudioSegment.from_wav(str(accomp_path))
-    canvas = AudioSegment.from_wav(str(vocals_path))
-    # Trim to window
+    # ── Stage B: ORIGINAL-CANVAS rebuild (founder's model) ───────────────────
+    # The canvas is the BIT-IDENTICAL ORIGINAL FULL MIX — NOT the demucs vocal stem. Kept regions then
+    # carry the real music+voice with ZERO separation loss; ONLY the replaced slots get reconstructed
+    # (accomp stem + constant bleed comp + clone). This kills the demucs-bleed 'music on/off' wobble the
+    # old vocals-stem canvas produced at every replaced slot on thin-music sources. vocals/accomp are still
+    # loaded (reference clips, per-slot loudness, slot-music reconstruction) and aligned to the full mix.
+    if verbose: log(f"Stage B: original-canvas rebuild (full mix = {audio_path})...", "step")
+    canvas = AudioSegment.from_file(str(audio_path))
+    rate, chans = canvas.frame_rate, canvas.channels
+    vocals = AudioSegment.from_wav(str(vocals_path)).set_frame_rate(rate).set_channels(chans)
+    accomp = AudioSegment.from_wav(str(accomp_path)).set_frame_rate(rate).set_channels(chans)
     vocals = vocals[:window_ms]
     accomp = accomp[:window_ms]
     canvas = canvas[:window_ms]
-    if verbose: log(f"canvas: {len(canvas)/1000:.2f}s @ {canvas.frame_rate}Hz", "ok")
+    comp_db = _bleed_comp_db(canvas, accomp)
+    if verbose:
+        log(f"canvas(full mix): {len(canvas)/1000:.2f}s @ {rate}Hz x{chans}; bleed comp {comp_db:+.2f}dB", "ok")
 
     # ── Stage C: per-slot synthesis ───────────────────────────────────────
     if verbose: log(f"Stage C: synthesize {len(overrides)} clones via TTS provider '{current_provider_label()}'...", "step")
@@ -353,6 +426,10 @@ def auto_synthesize(audio_path: str, user_context: str,
         # it runs past the slot it just overwrites that much more of the FOLLOWING original vocal
         # (we're replacing a whole sentence — that's intended). The music stem is separate, so timing
         # stays in sync. A clone shorter than the slot leaves natural breathing silence after it.
+        # Filter the CLONE only (never the kept full-mix music). The clone is fresh TTS — no demucs hiss —
+        # but a light HPF80 kills sub-bass rumble and an LPF14k trims synthetic sizzle so it sits cleanly
+        # over the real music. Moved here from the old global bus filter, which dulled the kept original.
+        clone = clone.high_pass_filter(80).low_pass_filter(14000)
         fitted = clone
         silence_after = max(0, slot_ms - raw_ms)
         decision = f"natural-full ({raw_ms}ms)"
@@ -392,39 +469,10 @@ def auto_synthesize(audio_path: str, user_context: str,
         elif len(fitted) > budget:
             fitted = fitted[:budget]
 
-        # REPLACE the original sentence ENTIRELY with the clone (hard rule: snippets replace original speech,
-        # they never overlay it). Remove AT LEAST the full original slot and fill it with SILENCE — not a
-        # muffled copy of the original. The old "continuity bed" leaked the original under the clone AND filled
-        # the breath padding so it never actually breathed (the snippet glued onto the original). The music
-        # stem (added in the final mix) carries continuity; on dry speech the leftover is a real pause/breath.
-        # Length-invariant: remove EXACTLY the slot + a small guard margin, fill with silence, overlay the
-        # slot-sized clone at s_ms. remove_ms == slot_ms keeps len(canvas) unchanged => every downstream s_ms
-        # stays a valid musical instant => ZERO drift, speech stays locked to the (untouched 1.0x) music.
-        remove_ms = int(slot_ms)
-        # Whisper sentence-group edges sit inside breaths; the original's head/tail word can bleed just
-        # outside [s_ms,e_ms]. Silence a small guard on BOTH sides — but keep length invariant and keep the
-        # overlay anchored at s_ms (moving it would re-introduce drift).
-        guard = 200   # widen the silenced margin around each slot so NO original word bleeds in at the seams
-        head = min(guard, s_ms)
-        tail = min(guard, len(canvas) - (s_ms + remove_ms))
-        wipe_start = s_ms - head
-        wipe_len = head + remove_ms + tail
-        # Micro-fades (8ms) at EVERY splice edge. A hard cut mid-waveform is a discontinuity = an
-        # audible click; after the 14kHz LPF those clicks read as short chirpy 'squeaks' (the founder's
-        # 'squeaky sounds here and there'). 8ms is inaudible as a fade but kills the discontinuity.
-        F = 8
-        pre, post = canvas[:wipe_start], canvas[wipe_start + wipe_len:]
-        if len(pre) > F:
-            pre = pre.fade_out(F)
-        if len(post) > F:
-            post = post.fade_in(F)
-        canvas = pre + AudioSegment.silent(duration=wipe_len) + post
-        # DESTRUCTIVE replace (NOT additive overlay): fitted is exactly slot_ms long, so this stays
-        # length-invariant AND nothing original can bleed UNDER the clone — overlay() is additive, so any
-        # residual original speech in the demucs vocal stem leaked through as the founder's hiss/squeak.
-        if len(fitted) > 2 * F:
-            fitted = fitted.fade_in(F).fade_out(F)
-        canvas = canvas[:s_ms] + fitted + canvas[s_ms + len(fitted):]   # slot-locked; guard only widens the SILENCE
+        # ORIGINAL-CANVAS replace (pure helper, see _rebuild_slot): carve the slot(+guard) out of the FULL
+        # MIX, refill it with the accomp stem + constant bleed comp (music only), lay the clone over it.
+        # Kept regions on either side stay BIT-IDENTICAL original; length-invariant => ZERO drift.
+        canvas = _rebuild_slot(canvas, accomp, s_ms, slot_ms, fitted, comp_db, rate, chans)
 
         audit_slots.append({
             "id": sid, "speaker": spk, "emotion": emo,
@@ -443,52 +491,36 @@ def auto_synthesize(audio_path: str, user_context: str,
             elevenlabs_delete(vid)
         log(f"deleted {len(el_voices)} cloned voice(s)", "ok")
 
-    # ── Stage D: drift check + save vocals_personalized ──────────────────
+    # ── Stage D: drift check + save the personalized full-mix pre-master ──────
     drift_ms = abs(len(canvas) - window_ms)
     if drift_ms > 50:   # >50ms now signals a real bug (should be ~0 after slot-locking), not rounding
         log(f"UNEXPECTED canvas drift {drift_ms}ms (should be ~0 after slot-locking) — investigate", "err")
     canvas = canvas[:window_ms]   # final safety clamp only
-    pv_path = out_dir / "vocals_personalized.wav"
+    pv_path = out_dir / "vocals_personalized.wav"   # filename kept for audit compat; content = full pre-master
     canvas.export(str(pv_path), format="wav")
-    if verbose: log(f"personalized vocals saved: {pv_path}", "ok")
+    if verbose: log(f"personalized full-mix pre-master saved: {pv_path}", "ok")
 
-    # ── Stage E: mix vocals + accompaniment (music left at full, constant volume) ──
-    if verbose: log("Stage E: mix vocals + accompaniment via ffmpeg...", "step")
-    accomp_trimmed = out_dir / "accompaniment_window.wav"
-    accomp.export(str(accomp_trimmed), format="wav")
+    # ── Stage E: master the canvas (it IS the full mix already — no stem re-summing) ──
+    # The canvas is the finished pre-master: kept regions = bit-identical original full mix, replaced slots
+    # = reconstructed music + clone. There is NOTHING to add here — the old code re-summed the accomp stem,
+    # which on a FULL-MIX canvas would DOUBLE the music in every kept region. No bus limiter (it pumped),
+    # no bus LPF (it dulled the kept original). Just ONE constant headroom trim if the peak would clip, then
+    # trim the dead trailing silence (leave ~1s so it doesn't end abruptly).
+    if verbose: log("Stage E: master canvas (static headroom + tail trim — no re-sum, no limiter)...", "step")
     final_path = out_dir / "personalized_output.mp3"
-    # ...then trim any dead trailing silence (sources often end with a silent tail; we leave ~1s so it
-    # doesn't end abruptly) so the track never finishes with a long stretch of nothing.
-    # NO dynamics processor on the bus. The old alimiter pumped: the instant a word was spoken the
-    # SUM hit the ceiling and the limiter pulled EVERYTHING (music included) down, releasing in the
-    # pauses — the founder's "music drops the moment speech starts, swells back in silence". Clip
-    # safety is a TWO-PASS STATIC gain instead: render the sum untouched, measure its true peak, and
-    # apply ONE constant attenuation to the whole mix. One level start-to-finish; music untouched.
-    raw_path = out_dir / "mix_raw.wav"
-    cmd = ["ffmpeg","-y","-loglevel","error","-i",str(pv_path),"-i",str(accomp_trimmed),
-             # Voice bus only: HPF 80Hz kills sub-bass rumble, LPF 14kHz kills the >14kHz hiss/sizzle that
-             # demucs vocal separation leaves in BOTH the clones and the kept-original. Music ([1:a]) is
-             # NOT filtered — it stays volume=1.0, full-band, untouched (HARD RULE).
-             "-filter_complex","[0:a]volume=1.0,highpass=f=80,lowpass=f=14000[s];[1:a]volume=1.0[m];[s][m]amix=inputs=2:duration=longest:normalize=0",
-             "-ac","2","-ar","44100", str(raw_path)]
-    r = subprocess.run(cmd, capture_output=True, text=True)
-    if r.returncode != 0:
-        log(f"FFmpeg mix failed: {r.stderr}", "err")
-        return {"status": "mix_failed", "elapsed_s": time.time() - t0}
-    raw_mix = AudioSegment.from_wav(str(raw_path))
-    peak = raw_mix.max_dBFS
-    static_db = -(peak + 1.0) if peak > -1.0 else 0.0   # constant headroom trim ONLY if the sum would clip
+    peak = canvas.max_dBFS
+    static_db = -(peak + 1.0) if peak > -1.0 else 0.0   # constant headroom trim ONLY if the canvas would clip
     vol = f"volume={static_db:.2f}dB," if static_db < 0 else ""
     if static_db < 0 and verbose:
         log(f"static headroom trim {static_db:.2f}dB (constant — no limiter, no pumping)", "ok")
-    cmd2 = ["ffmpeg","-y","-loglevel","error","-i",str(raw_path),
+    cmd2 = ["ffmpeg","-y","-loglevel","error","-i",str(pv_path),
             "-af", f"{vol}areverse,silenceremove=start_periods=1:start_threshold=-50dB:start_silence=1.0,areverse",
             "-ac","2","-ar","44100","-b:a","320k", str(final_path)]
     r = subprocess.run(cmd2, capture_output=True, text=True)
     if r.returncode != 0:
         log(f"FFmpeg encode failed: {r.stderr}", "err")
         return {"status": "mix_failed", "elapsed_s": time.time() - t0}
-    if verbose: log(f"final mix: {final_path}", "ok")
+    if verbose: log(f"final master: {final_path}", "ok")
 
     # ── Stage F: audit ────────────────────────────────────────────────────
     final = AudioSegment.from_file(str(final_path))

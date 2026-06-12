@@ -4,7 +4,7 @@ import { Resend } from "resend";
 import { del, put } from "@vercel/blob";
 import { outputUrl } from "@/lib/replicate";
 import { baseUrl } from "@/lib/base-url";
-import { markJobTerminal, setJobOutputUrl } from "@/lib/scale-guard";
+import { markJobTerminal, setJobOutputUrl, setJobScorecard } from "@/lib/scale-guard";
 import { chargeReservation, releaseReservation, clearFreeUsageForPrediction } from "@/lib/supabase-admin";
 import { drainQueue, reconcileStuckRunning } from "@/lib/drain";
 
@@ -45,6 +45,33 @@ function verifyReplicateWebhook(req: Request, rawBody: string): boolean {
   }
 }
 
+/**
+ * DELIVERY GATE — read the cog's [[SCORECARD]] log line. The cog scores the FINISHED file against its own
+ * source (source-relative, ear-calibrated battery) and prints one JSON line. A run whose `passed === false`
+ * is treated as a non-delivery downstream: refunded + a "retry" email, NEVER shipped to the user. The whole
+ * scorecard is the JSON object on one line, so a greedy match to end-of-line is correct even with nesting.
+ * Fail-OPEN: a missing/garbled scorecard (older cog, truncated logs) never blocks a good run — we only
+ * block on an explicit `false`.
+ */
+function parseScorecard(
+  logs: string,
+): { passed: boolean | null; failures: string[]; measured?: unknown } | null {
+  if (!logs) return null;
+  const matches = [...logs.matchAll(/\[\[SCORECARD\]\]\s*(\{.*\})\s*$/gm)];
+  const last = matches[matches.length - 1]; // a retried run logs more than once → last wins
+  if (!last) return null;
+  try {
+    const d = JSON.parse(last[1]);
+    return {
+      passed: typeof d.passed === "boolean" ? d.passed : null,
+      failures: Array.isArray(d.failures) ? d.failures : [],
+      measured: d.measured,
+    };
+  } catch {
+    return null;
+  }
+}
+
 export async function POST(request: Request) {
   try {
     // SECURITY: verify the webhook signature over the RAW body BEFORE any billing/blob/email action.
@@ -59,6 +86,7 @@ export async function POST(request: Request) {
       status?: string;
       error?: string | null;
       output?: string | string[] | null;
+      logs?: string | null;
       input?: { name?: string; audio?: string; paid?: boolean };
     } = {};
     try {
@@ -76,9 +104,24 @@ export async function POST(request: Request) {
     // A run only "delivered" if it succeeded AND produced an output file the user can actually play —
     // a succeeded-but-empty result counts as a non-delivery (so the credit gets refunded below).
     const produced = !!outputUrl({ output: payload.output ?? null });
-    const delivered = status === "succeeded" && produced;
+
+    // DELIVERY GATE (founder: 'eine fertige Datei muss geprüft werden, bevor es an den User geht'). The cog
+    // measured the finished file against its own source and logged the verdict. A run that produced a file
+    // but FAILED the quality gate is treated as a NON-delivery: refunded + sent the "retry" email, never
+    // shipped. Fail-open — a missing scorecard never blocks delivery (we only block on an explicit `false`).
+    const scorecard = parseScorecard(payload.logs || "");
+    const qualityFailed = scorecard?.passed === false;
+    const delivered = status === "succeeded" && produced && !qualityFailed;
+    if (qualityFailed) {
+      console.warn(
+        `[deliver-gate] BLOCKED delivery for ${id} — quality gate failed: ${JSON.stringify(scorecard?.failures)}`,
+      );
+    }
 
     const terminal = status === "succeeded" || status === "failed" || status === "canceled";
+
+    // Capture the scorecard on the run (learning loop joins feedback to these numbers). Best-effort.
+    if (id && scorecard) await setJobScorecard(id, scorecard);
 
     // Mark terminal ONCE. Side-effects (blob persist, email, drain, source delete) run only on this
     // first transition, so a Replicate RETRY (e.g. after a charge failure below) can't double-send the
@@ -127,6 +170,9 @@ export async function POST(request: Request) {
         try {
           if (delivered) {
             await resend.emails.send({ from, to: email, subject: `Your personalized Roar Bliss track is ready, ${name}`, html: doneHtml(name, listen, base) });
+          } else if (qualityFailed) {
+            // The track rendered but failed our own quality gate — we'd rather not send it. No charge.
+            await resend.emails.send({ from, to: email, subject: `We're re-rolling your Roar Bliss track`, html: qualityHtml(name, base) });
           } else {
             await resend.emails.send({ from, to: email, subject: `Roar Bliss hit a snag with your track`, html: failHtml(name, String(payload.error || "")) });
           }
@@ -192,5 +238,17 @@ function failHtml(name: string, error: string): string {
       <p>Hey ${esc(name)} — the personalization for your audio didn't complete this time.</p>
       <p style="font-family:monospace;background:#1a1a1d;padding:12px;border-radius:6px;font-size:12px">${esc(error.substring(0, 200))}</p>
       <p style="margin-top:24px">Just try again with the same or different audio — it usually works on the next pass.</p>
+    </div>`;
+}
+
+// A run that finished but failed our OWN quality gate. The user was NOT charged. Honest, reassuring,
+// and points them straight back to /create to regenerate.
+function qualityHtml(name: string, base: string): string {
+  return `
+    <div style="font-family:system-ui,sans-serif;max-width:560px;margin:0 auto;padding:24px;background:#0a0a0c;color:#e6e6e8;border-radius:12px">
+      <h2 style="color:#ffd166;margin:0 0 16px">🎚️ We held this one back</h2>
+      <p>Hey ${esc(name)} — your track finished rendering, but it didn't pass our quality check, so we didn't send it. We're picky on purpose: the music has to stay rock-steady under your voice.</p>
+      <p><strong>You weren't charged</strong> — your minutes (or your free track) are right back where they were.</p>
+      <p style="margin-top:24px"><a href="${esc(base)}/create" style="background:#ffd166;color:#0a0a0c;padding:12px 20px;border-radius:8px;text-decoration:none;font-weight:600">Generate it again →</a></p>
     </div>`;
 }

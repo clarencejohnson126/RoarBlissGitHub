@@ -311,6 +311,22 @@ export async function setJobOutputUrl(predictionId: string, outputUrl: string): 
   }
 }
 
+/**
+ * Persist the cog's delivery-gate scorecard (the source-relative quality verdict) onto the run. This is
+ * the capture layer of the learning loop: feedback rows later JOIN on this to tell battery-caught from
+ * battery-missed. Best-effort — a write failure here never blocks billing or delivery.
+ */
+export async function setJobScorecard(predictionId: string, scorecard: unknown): Promise<void> {
+  try {
+    await supabaseAdmin()
+      .from("jobs")
+      .update({ scorecard, updated_at: new Date().toISOString() })
+      .eq("prediction_id", predictionId);
+  } catch (e) {
+    console.warn("setJobScorecard skipped:", (e as Error).message);
+  }
+}
+
 /** A user's finished tracks, newest first (the dashboard "Your speeches" library). */
 export async function listUserTracks(
   userId: string,
