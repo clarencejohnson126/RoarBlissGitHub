@@ -81,6 +81,8 @@ class Gates:
                                        # Clarence v6 (ear: BAD) = -4.6 dB -> the line sits between.
     lra_margin_vs_source: float = 2.0  # overall loudness range: at most source LRA + this margin
     dropout_extra_vs_source: int = 2   # holes: at most the source's own holes + this many
+    loudness_margin_vs_source: float = 4.0  # integrated loudness within ±this of the source (a voice
+                                            # ADDS energy on the instrumental case, so ±4 not absolute)
 
 
 DEFAULT_GATES = Gates()
@@ -413,6 +415,9 @@ def score(path: str, *, context: Optional[dict] = None, gates: Gates = DEFAULT_G
             ck["music_level"] = mb_out["mean"] >= mb_src["mean"] - gates.music_level_margin
         if s["lra"] is not None and src_sum["lra"] is not None:
             ck["loudness_range"] = s["lra"] <= src_sum["lra"] + gates.lra_margin_vs_source
+        if s["integrated_lufs"] is not None and src_sum["integrated_lufs"] is not None:
+            m["source"]["integrated"] = src_sum["integrated_lufs"]
+            ck["loudness_target"] = abs(s["integrated_lufs"] - src_sum["integrated_lufs"]) <= gates.loudness_margin_vs_source
         ck["no_dropouts"] = len(drops) <= len(src_drops) + gates.dropout_extra_vs_source
     else:
         if s["lra"] is not None:
