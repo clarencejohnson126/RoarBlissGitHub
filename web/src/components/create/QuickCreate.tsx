@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { UploadCloud, FileAudio, Sparkles, Mic } from "lucide-react";
 import { useCreateFlow } from "./CreateFlowProvider";
-import { BATTLES, TONES, LANGUAGES, DEPTHS, type Depth, type Intensity } from "./createData";
+import { BATTLES, TONES, DEPTHS, type Depth, type Intensity } from "./createData";
 import styles from "./create.module.css";
 
 const INTENSITIES: { value: Intensity; label: string }[] = [
@@ -137,11 +137,12 @@ export default function QuickCreate({ onFullSetup }: { onFullSetup?: () => void 
             </div>
           </div>
 
-          {/* Language / translate */}
+          {/* Language / translate — v1: ENGLISH ONLY. Cross-lingual translation is held to v2 (strong source
+              accent + the script doesn't span the full track → ~1-min music-only tail). See TODO_GAPS.md. */}
           <div className={styles.qcField}>
-            <label className={styles.qcLabel}>Language <span className={styles.qcHint}>(translate — keeps the same voice)</span></label>
+            <label className={styles.qcLabel}>Language <span className={styles.qcHint}>(more languages coming soon)</span></label>
             <select className={styles.qcSelect} value={data.language} onChange={(e) => update({ language: e.target.value })}>
-              {LANGUAGES.map((l) => (
+              {["English"].map((l) => (
                 <option key={l} value={l}>{l}</option>
               ))}
             </select>
