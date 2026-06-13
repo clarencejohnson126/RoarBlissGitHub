@@ -17,7 +17,7 @@ function token(): string {
 function headers(extra: Record<string, string> = {}): Record<string, string> {
   return {
     Authorization: `Bearer ${token()}`,
-    "User-Agent": "roar-bliss/1.0 (+https://roar-bliss.vercel.app)",
+    "User-Agent": "roar-bliss/1.0 (+https://roarbliss.com)",
     ...extra,
   };
 }
