@@ -785,20 +785,20 @@ class Predictor(BasePredictor):
         density = max(0.1, min(tier / 100.0, 1.0))
         print(f"personalization tier={tier}% -> {'full_voice' if use_full_voice else f'personalize @ density {density:.2f}'}")
 
-        # TRANSLATION = the WHOLE track in the target language (never a half-English/half-German mix).
-        # If the chosen language differs from the source's language, force 100% density through the
-        # PERSONALIZE path (auto_synthesize), NOT full_voice. At density 1.0 every slot is replaced (no
-        # source-language remnant), and — crucially — auto_synthesize's no-music assembly closes the
-        # trailing dead air full_voice leaves when the target language is shorter than the source (the
-        # German-shorter-than-English tail). A dry-speech translation then becomes the exact twin of a 100%
-        # same-language re-voice (clarence_full_100), which is clean. Music translations keep their bed via
-        # the timeline-locked canvas. (An explicit mode='full_voice' override still wins — handled above.)
+        # TRANSLATION = the WHOLE track re-spoken in the target language (never a half-source/half-target mix).
+        # Two decisions, both learned from the founder's ear:
+        #   1) PATH = full_voice. It re-voices the ENTIRE track continuously, so NO source-language line can
+        #      survive (the auto_synthesize/density path left ~9% original = the English remnant he heard).
+        #   2) ENGINE = ElevenLabs multilingual. It carries the speaker's TIMBRE but applies NATIVE target-
+        #      language pronunciation — same voice, clean German. OmniVoice cross-lingual carries the source
+        #      accent and garbles words ("rückwärts", unintelligible), so it is the wrong tool here.
         if (language or "").strip().lower() not in ("", "english", "en") and not use_full_voice:
             tgt = LANG_CODE.get((language or "").strip().lower())
             src = self._detect_source_lang(str(audio)) if tgt else None
             if tgt and src and src != tgt:
-                density, tier = 1.0, 100
-                print(f"translation {src}->{tgt}: forcing density 1.0 (whole track re-spoken in target language via auto_synthesize)")
+                use_full_voice = True
+                os.environ["TTS_PROVIDER"] = "elevenlabs"
+                print(f"translation {src}->{tgt}: full_voice via ElevenLabs multilingual (same voice, native {tgt}, no source remnant)")
 
         # DETERMINISTIC voice sourcing. Only separate (and later clone) the source's speakers when the
         # job actually needs it. "Chosen voices over a pure bed" (instrumental + your voice, or N picked

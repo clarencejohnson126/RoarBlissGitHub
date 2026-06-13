@@ -16,7 +16,7 @@ Adapter responsibilities:
   - Mix vocals_personalized + accompaniment via ffmpeg
 """
 
-import os, sys, json, base64, hashlib, io, subprocess, tempfile, time, warnings
+import os, sys, json, base64, hashlib, io, subprocess, tempfile, time, warnings, array
 from pathlib import Path
 from datetime import datetime
 warnings.filterwarnings("ignore")
@@ -132,6 +132,26 @@ def _bleed_comp_db(full_mix, accomp, cutoff=200, lo=0.0, hi=9.0):
         return 0.0
     return max(lo, min(hi, f - a))
 
+def _ramp_edge(seg, ms, fade_in=True):
+    """Linear ramp on the first/last `ms` of a segment, applied on the SAMPLE ARRAY so the FRAME COUNT is
+    preserved EXACTLY. pydub's fade_in/out silently drop a frame, which would shift a kept region and break
+    the bit-identical splice grid — this does not. Per-frame gain (same for L+R). Used to ramp the touching
+    edges of a splice to zero so a hard music→music cut has no click, with zero length change."""
+    if ms <= 0:
+        return seg
+    ch = max(1, seg.channels)
+    samples = array.array(seg.array_type, seg.get_array_of_samples())
+    total = len(samples)
+    frames = min(int(seg.frame_rate * ms / 1000.0), total // ch)
+    if frames <= 1:
+        return seg
+    for f in range(frames):
+        g = (f / frames) if fade_in else ((frames - f) / frames)
+        base = (f * ch) if fade_in else (total - (frames - f) * ch)
+        for c in range(ch):
+            samples[base + c] = int(samples[base + c] * g)
+    return seg._spawn(samples)
+
 def _rebuild_slot(canvas, accomp, s_ms, slot_ms, fitted, comp_db, rate, chans, guard=200, F=8):
     """Replace ONE slot on the FULL-MIX canvas, pure + length-invariant. The slot(+guard) span currently
     holds the original VOICE *and* its music; carve it out and refill with MUSIC ONLY — the accomp stem for
@@ -170,11 +190,15 @@ def _rebuild_slot(canvas, accomp, s_ms, slot_ms, fitted, comp_db, rate, chans, g
         pad_ms = (need - have) * 1000.0 / fr + 2
         slot_music = slot_music + AudioSegment.silent(duration=pad_ms, frame_rate=fr).set_channels(chans)
     slot_music = slot_music.get_sample_slice(0, need)
-    # NO seam fades on pre/slot_music/post. We carve MUSIC out and refill with MUSIC at a MATCHED level
-    # (comp), so the seam is music→music with a tiny sample step — not the old cut-to-silence that needed a
-    # ramp. Crucially, pydub's fade_*() silently DROPS a frame (an 8ms fade on a 79380-frame slice returns
-    # 79379), which would shift the kept `post` early and break bit-identity. Hard, frame-exact joins keep
-    # every kept region sample-for-sample the original.
+    # SEAM SMOOTHING — kill the faint 'vinyl scrub' the founder heard at slot edges. The two sides are
+    # DIFFERENT music signals (full mix vs accomp+comp), so a hard cut is a sample-step discontinuity = a
+    # click. pydub's fade_*() can't be used (it silently DROPS a frame → shifts the kept `post` and breaks
+    # bit-identity). Instead ramp the touching edges to zero on the SAMPLE ARRAY (frame count preserved):
+    # pre's tail down + slot_music's head up at the first seam, slot_music's tail down + post's head up at
+    # the second. A ~6ms ramp-to-zero on each side removes the step without a perceptible gap.
+    pre = _ramp_edge(pre, F, fade_in=False)
+    slot_music = _ramp_edge(_ramp_edge(slot_music, F, fade_in=True), F, fade_in=False)
+    post = _ramp_edge(post, F, fade_in=True)
     canvas = pre + slot_music + post   # frame-exact: |pre|=fws, |slot_music|=need, post starts at fwe
     # Lay the clone OVER the reconstructed slot music at s_ms. overlay() is additive — but the base is MUSIC
     # ONLY (the original voice was carved out), so nothing original bleeds under the clone. The clone keeps

@@ -30,10 +30,11 @@ sys.path.insert(0, HERE)  # for metrics
 def _load_helpers():
     """Extract the pure functions from the shipping file, skipping its heavy module imports (whisper, …)."""
     tree = ast.parse(open(ASYNTH).read())
-    wanted = {"trim_silence", "_bleed_comp_db", "_rebuild_slot", "_assemble_no_music", "_detect_music_bed"}
+    wanted = {"trim_silence", "_bleed_comp_db", "_rebuild_slot", "_assemble_no_music", "_detect_music_bed", "_ramp_edge"}
     nodes = [n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name in wanted]
     assert len(nodes) == len(wanted), f"missing helpers: {wanted - {n.name for n in nodes}}"
-    ns = {"AudioSegment": AudioSegment, "float": float, "detect_leading_silence": detect_leading_silence}
+    import array as _array
+    ns = {"AudioSegment": AudioSegment, "float": float, "detect_leading_silence": detect_leading_silence, "array": _array}
     exec(compile(ast.Module(body=nodes, type_ignores=[]), ASYNTH, "exec"), ns)
     return ns
 

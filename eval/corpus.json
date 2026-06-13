@@ -41,14 +41,6 @@
       "audio": "/Users/clarence/Desktop/Roar Bliss App/I CAN DO THIS - Powerful Motivational Speech.mp3",
       "input": { "personalization": 100, "tts_provider": "omnivoice", "clone_source_voices": true, "paid": true, "language": "German", "name": "Clarence Johnson", "prompt": "Clarence baut seine KI-Agentur Rebelz auf und kaempft um seine ersten Kunden. Niemals aufgeben, jedes Nein bringt das Ja naeher. Er bleibt stark fuer seine Familie. Ton: unerbittlich, warmer Stahl." },
       "context": { "name": "Clarence Johnson", "language": "German", "tier": 100 }
-    },
-    {
-      "id": "cinematic_got_clone_75",
-      "type": "cinematic_multivoice",
-      "note": "REAL movie scene (GoT King-of-the-North), clone the source speakers, replace 75% — keeps the scene's own music. Replaces the old solo_dry (glued RoarBliss output).",
-      "audio": "/Users/clarence/Downloads/Game of Thrones - King of the North  Season 1 (1).mp3",
-      "input": { "personalization": 75, "tts_provider": "omnivoice", "clone_source_voices": true, "paid": true, "name": "Clarence Johnson", "prompt": "Forge Clarence into the hero of this scene — his name as a banner, building his agency, the North remembers his rise. Tone: quiet steel, honor." },
-      "context": { "name": "Clarence Johnson", "language": "English", "tier": 75 }
     }
   ]
 }
