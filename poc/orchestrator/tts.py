@@ -371,14 +371,20 @@ def synthesize_omnivoice(text: str, ref_path: Path, ref_text: str, slot_ms: int,
     # Reuse ONE locked clone prompt for this speaker (consistent voice); fall back to per-line ref only
     # if the prompt couldn't be built.
     prompt = _omnivoice_prompt(model, cref, ref_text)
+    # CROSS-LINGUAL TUNING. Cloning an English voice into German is harder: too few diffusion steps leave the
+    # target-language phonemes unconverged → the "rückwärts"/garbled words the founder heard. Give the
+    # non-English path MORE steps + higher guidance so German resolves cleanly and stays intelligible.
+    # English (same-language) keeps the fast, proven 48/2.0.
+    cross_lingual = language.strip().lower() not in ("english", "en", "")
+    ns, gs = (80, 3.0) if cross_lingual else (48, 2.0)
     last_ms = None
     for attempt in range(1, 4):
         if prompt is not None:
             audios = model.generate(text=text, language=language, voice_clone_prompt=prompt,
-                                    num_step=48, guidance_scale=2.0, speed=1.0)
+                                    num_step=ns, guidance_scale=gs, speed=1.0)
         else:
             audios = model.generate(text=text, language=language, ref_audio=ref_use,
-                                    ref_text=ref_text or "", num_step=48, guidance_scale=2.0, speed=1.0)
+                                    ref_text=ref_text or "", num_step=ns, guidance_scale=gs, speed=1.0)
         tmp = cache_dir / f"_omni_tmp_{key}.wav"
         torchaudio.save(str(tmp), audios[0].float().cpu(), model.sampling_rate)
         clone = trim_silence(AudioSegment.from_wav(str(tmp)))
