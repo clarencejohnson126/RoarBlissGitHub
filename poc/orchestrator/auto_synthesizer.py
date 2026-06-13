@@ -394,7 +394,8 @@ def auto_synthesize(audio_path: str, user_context: str,
         from validators import validate_plan
         pv = validate_plan(overrides, tier=int(round(density * 100)), target_language=language,
                            source_texts=[o.get("original_text") for o in overrides],
-                           total_source_lines=plan.get("candidate_count"))
+                           total_source_lines=plan.get("candidate_count"),
+                           total_speech_ms=plan.get("total_speech_ms"))
         print("[[PLAN_CHECK]] " + json.dumps(pv.to_dict(), default=str), flush=True)
         # LOG ONLY — never abort. A false positive here (e.g. flagging a legitimate repeated WAR CRY as
         # spam) would kill a GOOD generation, which is worse than wasting one render. The corpus gate +

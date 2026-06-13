@@ -786,17 +786,18 @@ class Predictor(BasePredictor):
         print(f"personalization tier={tier}% -> {'full_voice' if use_full_voice else f'personalize @ density {density:.2f}'}")
 
         # TRANSLATION = the WHOLE track re-spoken in the target language (never a half-source/half-target mix).
-        # PATH = full_voice: it re-voices the ENTIRE track continuously, so NO source-language line survives
-        # (the auto_synthesize/density path left ~9% original = the English remnant). ENGINE stays OmniVoice
-        # (the ONE engine — no ElevenLabs). OmniVoice supports cross-lingual natively; native target-language
-        # pronunciation is a CONFIG matter (cross-lingual num_step + dropping the source-language ref_text
-        # from the clone prompt), handled in tts.synthesize_omnivoice — NOT an engine swap.
+        # PATH = full_voice (re-voices the ENTIRE track → NO source-language line survives). ENGINE = OmniVoice
+        # — the ONE engine; ElevenLabs is OUT (its per-clone slot cap does NOT scale: 100 simultaneous
+        # translations = 100 simultaneous EL slots = impossible). OmniVoice produces the target language with
+        # a residual SOURCE accent (founder: acceptable for now, accent removal is a v2 polish). The strong
+        # American accent on German is the known v2 gap (TODO_GAPS) — a future config lever or a scalable
+        # self-hostable multilingual cloner, NEVER a non-scaling EL slot.
         if (language or "").strip().lower() not in ("", "english", "en") and not use_full_voice:
             tgt = LANG_CODE.get((language or "").strip().lower())
             src = self._detect_source_lang(str(audio)) if tgt else None
             if tgt and src and src != tgt:
                 use_full_voice = True
-                print(f"translation {src}->{tgt}: full_voice, whole track re-spoken in {tgt} (OmniVoice cross-lingual, no source remnant)")
+                print(f"translation {src}->{tgt}: full_voice, whole track re-spoken in {tgt} (OmniVoice — scalable; residual accent is a v2 polish)")
 
         # DETERMINISTIC voice sourcing. Only separate (and later clone) the source's speakers when the
         # job actually needs it. "Chosen voices over a pure bed" (instrumental + your voice, or N picked
@@ -894,8 +895,10 @@ class Predictor(BasePredictor):
             print(f"[output-check] {'PASS ✓' if ov.passed else 'FAIL ✗ ' + str(ov.failures())} {ov.detail}")
         except Exception as e:
             print("[output-check] skipped:", e)
-        # COMBINE: block on a signal fail OR a CRITICAL meaning fail. music_continuity stays a soft warning.
-        critical = [c for c in ("output_language", "content_present", "no_dead_air") if c in out_chk.get("failures", [])]
+        # COMBINE: block on a signal fail OR a CRITICAL meaning fail. output_language + music_continuity are
+        # SOFT warnings (langdetect can't tell accented target-language from a mishmash; accent = v2 polish).
+        # The real source-language guard is full_replacement (plan-side). Block only on empty/dead-air.
+        critical = [c for c in ("content_present", "no_dead_air") if c in out_chk.get("failures", [])]
         combined = (signal.get("passed") is not False) and not critical
         verdict = {"passed": combined, "failures": list(signal.get("failures", [])) + critical,
                    "signal": signal, "output_check": out_chk}

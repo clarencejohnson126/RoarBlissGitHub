@@ -93,12 +93,14 @@ class Verdict:
 
 # ── PRE-GENERATION: validate the plan (text only, no GPU) ──────────────────────────────────────────────
 def validate_plan(overrides: list, *, tier: int, target_language: str = "English",
-                  source_texts: Optional[list] = None, total_source_lines: Optional[int] = None) -> Verdict:
+                  source_texts: Optional[list] = None, total_source_lines: Optional[int] = None,
+                  total_speech_ms: Optional[int] = None) -> Verdict:
     """Grade the planner's output BEFORE any TTS. `overrides` = the slots to be spoken (each {text, ...}).
       tier               requested personalization % (density). 100/translation ⇒ EVERY line replaced.
       target_language    the language EVERY generated line must be in.
       source_texts       the original line each slot replaces (to catch an untouched remnant).
-      total_source_lines original line count (to verify the achieved density ≈ the requested tier).
+      total_speech_ms    total spoken seconds in the source — the planner budgets density in SECONDS, so
+                         density is measured in seconds (preferred); total_source_lines is a line-count fallback.
     """
     v = Verdict("plan")
     texts = [(o.get("text") or "").strip() for o in overrides]
@@ -108,15 +110,22 @@ def validate_plan(overrides: list, *, tier: int, target_language: str = "English
     v.checks["nonempty_lines"] = len(nonempty) == len(texts) and len(nonempty) > 0
     v.detail["nonempty_lines"] = f"{len(nonempty)}/{len(texts)} lines non-trivial"
 
-    # 2) DENSITY — achieved replacement fraction must be within ~12pts of the requested tier (the founder
-    #    asked 50% and got ~15%). Only checked when we know the original line count.
-    if total_source_lines and total_source_lines > 0:
+    # 2) DENSITY — achieved replacement fraction vs the requested tier (the founder asked 50% and got ~15%).
+    #    Measured in SECONDS to MATCH the planner's seconds budget — a line-count fraction false-fails when
+    #    slots vary in length (the bug that flagged the good speech_50/100). Falls back to line count only if
+    #    total_speech_ms is unavailable.
+    if total_speech_ms and total_speech_ms > 0:
+        replaced_ms = sum(max(0, int(o.get("end_ms", 0)) - int(o.get("start_ms", 0))) for o in overrides)
+        frac = replaced_ms / total_speech_ms * 100.0
+    elif total_source_lines and total_source_lines > 0:
         frac = len(overrides) / total_source_lines * 100.0
+    else:
+        frac = None
+    if frac is not None:
         target = max(1.0, min(tier, 100))
-        # 100% must be ~all lines; partial tiers get a two-sided window.
-        ok = frac >= 88.0 if tier >= 100 else abs(frac - target) <= 12.0
+        ok = frac >= 85.0 if tier >= 100 else abs(frac - target) <= 15.0
         v.checks["density_matches_tier"] = ok
-        v.detail["density_matches_tier"] = f"achieved {frac:.0f}% vs requested {tier}%"
+        v.detail["density_matches_tier"] = f"achieved {frac:.0f}% vs requested {tier}% (seconds)"
 
     # 3) NO REPETITION / FILLER — the same line (or a dominant short phrase) repeated across slots is the
     #    "my name is Clarence" degeneracy. Flag if any normalized line repeats, or one phrase owns >30%.

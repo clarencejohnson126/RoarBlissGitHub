@@ -1032,6 +1032,7 @@ def generate_personalization(audio_path: str, user_context: str,
         "brief": brief,
         "target_slot_count": len(overrides),
         "candidate_count": len(candidates),
+        "total_speech_ms": int(sum(c.get("duration_s", 0) * 1000 for c in candidates)),
         "overrides": overrides,
     }
 

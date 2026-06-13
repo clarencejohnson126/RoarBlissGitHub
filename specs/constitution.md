@@ -57,13 +57,18 @@ acceptance criteria back to named checks in that gate.
   cross-lingual (translation). OmniVoice (Higgs Audio v2) is local/in-cog on GPU with **no per-op
   clone-slot limit → it scales.** This is the founder's hard directive: a complete switch to OmniVoice,
   **no ElevenLabs cloning.**
-- **NO ElevenLabs for cloning, ever.** EL's clone-slot cap + scoped-key `403`s on `/voices/add` are exactly
-  the fragility we are removing. (We hit a real `403 Forbidden` on EL voice-add — the reason to drop it.)
-- **Cross-lingual / translation = OmniVoice cross-lingual** (646 languages incl. cross-lingual). The
-  American-accent + garbled-German we saw is a **CONFIG matter, not an engine limit:** the fix is more
-  diffusion steps + higher guidance for non-English (`num_step=80, guidance=3.0` when target≠English in
-  `tts.synthesize_omnivoice`) and, if still accented, dropping the source-language `ref_text` from the clone
-  prompt so German is not biased by English phonetics. **NEVER swap the engine to solve this.**
+- **NO ElevenLabs for cloning, ever — the deciding reason is SCALE.** A per-clone slot cap cannot serve
+  e.g. 100 simultaneous translations (= 100 simultaneous EL slots = impossible on any tier). The
+  create→delete trick only bounds concurrency, it doesn't remove the cap. (We also hit a scoped-key `403`
+  on `/voices/add`.) OmniVoice is local with no slot cap → it is the only path that scales.
+- **Cross-lingual / translation = OmniVoice cross-lingual.** It DOES produce the target language, but with a
+  residual SOURCE ACCENT (a strong American accent on German). `num_step=80, guidance=3.0` for non-English
+  reduced garbling but did NOT remove the accent (proven, run #9). **Founder decision: the accent is
+  ACCEPTED for launch — accent removal is a v2 polish, NOT a launch blocker, and NEVER a reason to swap to
+  a non-scaling engine.** v2 levers (TODO_GAPS): drop the source-language `ref_text` from the clone prompt;
+  or evaluate a SCALABLE (self-hostable / no-slot-cap) multilingual cloner. The gate's `output_language`
+  check is therefore SOFT (langdetect can't tell accented-German from a mishmash); the hard guard against an
+  actual source-language remnant is `full_replacement`.
 - **Library voices = the ONLY exception, and ONLY for INSTRUMENTALS** (no voice to clone → the user picks a
   permanent, pre-existing voice). A library voice is permanent/shared, so it does NOT consume a per-user
   clone slot — no scale problem. It MAY remain an external voice id for now (e.g. the `instrumental_jon`
