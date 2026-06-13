@@ -31,6 +31,17 @@ export default function Navbar() {
             style={{ display: "block" }}
           />
           <span>ROAR<span className="bm-gold">BLISS</span></span>
+          <span
+            aria-label="Beta"
+            style={{
+              fontSize: "0.6rem", fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase",
+              padding: "0.12rem 0.4rem", borderRadius: "999px", lineHeight: 1,
+              background: "rgba(212,175,55,0.18)", color: "var(--bm-gold, #d4af37)",
+              border: "1px solid rgba(212,175,55,0.45)", alignSelf: "flex-start", marginTop: "0.1rem",
+            }}
+          >
+            Beta
+          </span>
         </Link>
 
         <nav className={`nav-links${open ? " open" : ""}`}>

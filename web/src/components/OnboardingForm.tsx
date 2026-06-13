@@ -510,15 +510,14 @@ export default function OnboardingForm({ onComplete }: OnboardingFormProps) {
             </p>
           </div>
 
-          {/* Core feature 2: target language (cloned voice is kept).
-              v1: ENGLISH ONLY. Cross-lingual translation is held back to v2 — it currently leaves a strong
-              source accent AND a ~1-minute music-only tail (the script doesn't span the full track). Do not
-              expose it until v2 fixes both. (TODO_GAPS.md → "TRANSLATION — DEFERRED TO v2".) */}
+          {/* Core feature 2: target language (cloned voice is kept). Translation is a BETA feature — offered
+              with a clear disclaimer (see below) per the founder's go-live decision. Known beta limits:
+              strong source accent + the speech can be shorter than the original. (TODO_GAPS.md) */}
           <div className="form-group">
             <label className="form-label" htmlFor="output-language">
               Language
               <span style={{ fontSize: "0.75rem", color: "var(--color-text-muted)", marginInlineStart: "0.5rem" }}>
-                — more languages coming soon
+                — the cloned voice speaks this language
               </span>
             </label>
             <select
@@ -527,10 +526,17 @@ export default function OnboardingForm({ onComplete }: OnboardingFormProps) {
               value={language}
               onChange={(e) => setLanguage(e.target.value)}
             >
-              {["English"].map((l) => (
+              {["English", "German", "Spanish", "French", "Italian", "Portuguese", "Dutch", "Polish"].map((l) => (
                 <option key={l} value={l}>{l}</option>
               ))}
             </select>
+            {language !== "English" && (
+              <p style={{ fontSize: "0.75rem", color: "var(--color-text-muted)", marginTop: "0.4rem", lineHeight: 1.4 }}>
+                <strong>Beta — translation:</strong> your voice is kept, but the result can carry a strong
+                English/American accent, and the spoken part may be shorter than the original (the music can
+                play on at the end). We&apos;re improving this fast.
+              </p>
+            )}
           </div>
 
           <div className="form-group">

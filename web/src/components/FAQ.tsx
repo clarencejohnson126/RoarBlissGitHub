@@ -2,6 +2,10 @@ import React from "react";
 
 const QA = [
   {
+    q: "Roar Bliss is in Beta — what should I expect?",
+    a: "The core is solid and improving every week. A few small things you'll forgive a beta: generation takes ~5–7 minutes per track (real voice-cloning + mixing on a GPU, not instant); the cloned voice is ~90% you, so a word can occasionally sound slightly off; at lighter tiers (25/50%) a new line can be a touch shorter than the original, leaving a brief breathing gap the music carries; on tracks with very faint background music the separation can leave a subtle texture; translation is beta (see below); and rarely a track needs a quick regenerate — you're never charged for a failed run.",
+  },
+  {
     q: "What audio can I upload?",
     a: "Any motivational speech, song, or podcast stem you own or have permission to use. RoarBliss is built for permitted audio adaptation and your own original content.",
   },
@@ -14,8 +18,8 @@ const QA = [
     a: "You decide: 25%, 50%, 75%, or a full rewrite. Light personalization keeps most of the original; a full rewrite makes the whole speech your own — while the music stays the same.",
   },
   {
-    q: "Can it be in another language?",
-    a: "Yes. Choose a target language and the whole speech is delivered in it, with the original tone preserved.",
+    q: "Can it be in another language? (Beta)",
+    a: "Yes — translation is in beta. Choose a target language and the whole speech is re-spoken in it, keeping your cloned voice. Heads-up while we polish it: the result can carry a strong English/American accent, and the translated speech may be a bit shorter than the original (so the music can play on at the end). Same-language tracks are not affected.",
   },
   {
     q: "How long does it take?",

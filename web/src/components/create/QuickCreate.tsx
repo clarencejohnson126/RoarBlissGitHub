@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { UploadCloud, FileAudio, Sparkles, Mic } from "lucide-react";
 import { useCreateFlow } from "./CreateFlowProvider";
-import { BATTLES, TONES, DEPTHS, type Depth, type Intensity } from "./createData";
+import { BATTLES, TONES, LANGUAGES, DEPTHS, type Depth, type Intensity } from "./createData";
 import styles from "./create.module.css";
 
 const INTENSITIES: { value: Intensity; label: string }[] = [
@@ -137,15 +137,21 @@ export default function QuickCreate({ onFullSetup }: { onFullSetup?: () => void 
             </div>
           </div>
 
-          {/* Language / translate — v1: ENGLISH ONLY. Cross-lingual translation is held to v2 (strong source
-              accent + the script doesn't span the full track → ~1-min music-only tail). See TODO_GAPS.md. */}
+          {/* Language / translate — BETA (offered with a disclaimer per the founder's go-live decision).
+              Known beta limits: strong source accent + the speech can be shorter than the original. */}
           <div className={styles.qcField}>
-            <label className={styles.qcLabel}>Language <span className={styles.qcHint}>(more languages coming soon)</span></label>
+            <label className={styles.qcLabel}>Language <span className={styles.qcHint}>(translate — keeps the same voice)</span></label>
             <select className={styles.qcSelect} value={data.language} onChange={(e) => update({ language: e.target.value })}>
-              {["English"].map((l) => (
+              {LANGUAGES.map((l) => (
                 <option key={l} value={l}>{l}</option>
               ))}
             </select>
+            {data.language && data.language !== "English" && (
+              <p className={styles.qcHint} style={{ marginTop: "0.4rem", lineHeight: 1.4 }}>
+                <strong>Beta:</strong> translation keeps your voice but can have a strong English/American
+                accent, and the speech may be shorter than the original (the music can play on at the end).
+              </p>
+            )}
           </div>
 
           {/* Per-speech prompt (optional, not saved to the profile) */}
