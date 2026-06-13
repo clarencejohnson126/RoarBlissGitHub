@@ -137,8 +137,7 @@ export default function QuickCreate({ onFullSetup }: { onFullSetup?: () => void 
             </div>
           </div>
 
-          {/* Language / translate — BETA (offered with a disclaimer per the founder's go-live decision).
-              Known beta limits: strong source accent + the speech can be shorter than the original. */}
+          {/* Language / translate — BETA (offered with an accent disclaimer per the founder's go-live decision). */}
           <div className={styles.qcField}>
             <label className={styles.qcLabel}>Language <span className={styles.qcHint}>(translate — keeps the same voice)</span></label>
             <select className={styles.qcSelect} value={data.language} onChange={(e) => update({ language: e.target.value })}>
@@ -148,8 +147,7 @@ export default function QuickCreate({ onFullSetup }: { onFullSetup?: () => void 
             </select>
             {data.language && data.language !== "English" && (
               <p className={styles.qcHint} style={{ marginTop: "0.4rem", lineHeight: 1.4 }}>
-                <strong>Beta:</strong> translation keeps your voice but can have a strong English/American
-                accent, and the speech may be shorter than the original (the music can play on at the end).
+                <strong>Beta:</strong> translation keeps your voice but can have a strong English/American accent.
               </p>
             )}
           </div>

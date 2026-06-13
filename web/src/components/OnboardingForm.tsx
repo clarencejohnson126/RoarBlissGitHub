@@ -146,7 +146,8 @@ export default function OnboardingForm({ onComplete }: OnboardingFormProps) {
               1. Choose Your <span className="text-highlight-gold">Audio Source</span>
             </h2>
             <p style={{ color: "var(--color-text-secondary)", fontSize: "0.9rem", lineHeight: "1.4" }}>
-              Upload your favorite motivational speech, song, or podcast stem to customize. Alternatively, test instantly with our preloaded motivational speaker track.
+              Upload your favorite motivational speech, song, or podcast stem to customize. Alternatively, test instantly with our preloaded motivational speaker track.{" "}
+              <strong>Tip:</strong> the better the audio quality you give Roar Bliss, the better your result — upload a clean, high-quality track.
             </p>
           </div>
 
@@ -511,8 +512,7 @@ export default function OnboardingForm({ onComplete }: OnboardingFormProps) {
           </div>
 
           {/* Core feature 2: target language (cloned voice is kept). Translation is a BETA feature — offered
-              with a clear disclaimer (see below) per the founder's go-live decision. Known beta limits:
-              strong source accent + the speech can be shorter than the original. (TODO_GAPS.md) */}
+              with a clear accent disclaimer (see below) per the founder's go-live decision. (TODO_GAPS.md) */}
           <div className="form-group">
             <label className="form-label" htmlFor="output-language">
               Language
@@ -533,8 +533,7 @@ export default function OnboardingForm({ onComplete }: OnboardingFormProps) {
             {language !== "English" && (
               <p style={{ fontSize: "0.75rem", color: "var(--color-text-muted)", marginTop: "0.4rem", lineHeight: 1.4 }}>
                 <strong>Beta — translation:</strong> your voice is kept, but the result can carry a strong
-                English/American accent, and the spoken part may be shorter than the original (the music can
-                play on at the end). We&apos;re improving this fast.
+                English/American accent. We&apos;re improving this fast.
               </p>
             )}
           </div>
@@ -543,7 +542,7 @@ export default function OnboardingForm({ onComplete }: OnboardingFormProps) {
             <label className="form-label" htmlFor="user-email">
               Email (optional)
               <span style={{ fontSize: "0.75rem", color: "var(--color-text-muted)", marginInlineStart: "0.5rem" }}>
-                — we&apos;ll send the track when ready (5-7 min). You can also just wait on this page.
+                — we&apos;ll send the track when ready (up to 5 min). You can also just wait on this page.
               </span>
             </label>
             <input
