@@ -86,6 +86,25 @@ export default function DashboardPage() {
     setVoices((v) => (v || []).filter((x) => x.id !== id));
   };
 
+  // Open the Stripe Customer Portal (cancel / update payment / invoices). Resolves the customer server-side.
+  const [billingBusy, setBillingBusy] = useState(false);
+  const [billingMsg, setBillingMsg] = useState("");
+  const manageBilling = async () => {
+    if (!token || billingBusy) return;
+    setBillingBusy(true);
+    setBillingMsg("");
+    try {
+      const r = await fetch("/api/billing-portal", { method: "POST", headers: { Authorization: `Bearer ${token}` } });
+      const j = (await r.json()) as { url?: string; error?: string };
+      if (r.ok && j.url) { window.location.href = j.url; return; }
+      setBillingMsg(j.error || "Could not open the billing portal. Please try again.");
+    } catch {
+      setBillingMsg("Could not open the billing portal. Please try again.");
+    } finally {
+      setBillingBusy(false);
+    }
+  };
+
   useEffect(() => {
     const sb = supabaseBrowser();
     sb.auth.getSession().then(({ data }) => {
@@ -281,7 +300,13 @@ export default function DashboardPage() {
 
             <div className={styles.actions}>
               <Link href="/create" className={styles.btnGold}>Create new speech</Link>
-              <Link href="/pricing" className={styles.btnGhost}>{tier ? "Manage plan" : "Upgrade plan"}</Link>
+              {tier ? (
+                <button className={styles.btnGhost} onClick={manageBilling} disabled={billingBusy}>
+                  {billingBusy ? "Opening…" : "Manage plan"}
+                </button>
+              ) : (
+                <Link href="/pricing" className={styles.btnGhost}>Upgrade plan</Link>
+              )}
             </div>
 
             <div className={styles.section}>
@@ -421,8 +446,15 @@ export default function DashboardPage() {
                 <div className={styles.rowLabel}>Subscription</div>
                 <div className={styles.rowSub}>{tier ? `${tier.name} — ${tier.minutes} min/month` : "Free — no active subscription"}</div>
               </div>
-              <Link href="/pricing" className={styles.btnGhost}>{tier ? "Change plan" : "Upgrade"}</Link>
+              {tier ? (
+                <button className={styles.btnGhost} onClick={manageBilling} disabled={billingBusy}>
+                  {billingBusy ? "Opening…" : "Manage / cancel"}
+                </button>
+              ) : (
+                <Link href="/pricing" className={styles.btnGhost}>Upgrade</Link>
+              )}
             </div>
+            {billingMsg && <p className={styles.sub} style={{ color: "var(--color-gold)", fontSize: "0.82rem" }}>{billingMsg}</p>}
             <div className={styles.row}>
               <div>
                 <div className={styles.rowLabel}>Minutes this month</div>
@@ -436,7 +468,7 @@ export default function DashboardPage() {
               <button className={styles.btnDanger} onClick={signOut}>Sign out</button>
             </div>
             <p className={styles.sub} style={{ marginTop: "1.5rem", fontSize: "0.82rem" }}>
-              Need to cancel or update billing? Manage your subscription from the plan page. To delete your account, contact support.
+              Need to cancel or update billing? Use <strong>Manage / cancel</strong> above to open the secure Stripe portal — cancel anytime (you keep access until the period ends), update your card, or download invoices. To delete your account, contact support.
             </p>
           </div>
         )}

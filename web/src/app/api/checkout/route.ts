@@ -1,10 +1,10 @@
 import { NextResponse } from "next/server";
 import { verifyUser } from "@/lib/supabase-admin";
-import { stripe, bearerToken, tierById, CREDITS_PER_PURCHASE, PRICE_CENTS, CURRENCY } from "@/lib/stripe";
+import { stripe, bearerToken, tierById, tierProductId, CREDITS_PER_PURCHASE, PRICE_CENTS, CURRENCY } from "@/lib/stripe";
 import { baseUrl } from "@/lib/base-url";
 
 /**
- * POST /api/checkout — start a Stripe TEST checkout.
+ * POST /api/checkout — start a Stripe checkout (LIVE in prod, TEST elsewhere).
  *   body { tier: "starter"|"warrior"|"legend" } → a recurring monthly SUBSCRIPTION for that tier
  *   no body / unknown tier                       → the legacy one-time pack of 5 paid tracks
  * Requires a signed-in user (Authorization: Bearer <supabase access token>). Returns { url }.
@@ -21,6 +21,12 @@ export async function POST(req: Request) {
   try {
     if (tier) {
       const meta = { userId: user.id, credits: String(tier.monthlyCredits), tier: tier.id };
+      // Attach the subscription to the canonical Stripe Product in prod (so the Customer Portal + dashboard
+      // show "Roar Bliss Warrior" etc.); fall back to an inline product in preview/local (test keys, no products).
+      const pid = tierProductId(tier.id);
+      const productField = pid
+        ? { product: pid }
+        : { product_data: { name: `Roar Bliss ${tier.name} — ${tier.minutes} min / month` } };
       const session = await stripe().checkout.sessions.create({
         mode: "subscription",
         line_items: [
@@ -30,7 +36,7 @@ export async function POST(req: Request) {
               currency: useUsd ? "usd" : CURRENCY,
               unit_amount: useUsd ? tier.priceCentsUsd : tier.priceCents,
               recurring: { interval: "month" },
-              product_data: { name: `Roar Bliss ${tier.name} — ${tier.minutes} min / month` },
+              ...productField,
             },
           },
         ],
