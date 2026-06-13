@@ -137,6 +137,7 @@ def validate_plan(overrides: list, *, tier: int, target_language: str = "English
     #    script ~15% of the time. The language defenses that DON'T need per-line detection are stronger:
     #    full_replacement (below) catches an untouched source-language line by string match, and
     #    validate_output checks the language on the whole transcript (long text -> langdetect is reliable).
+    want = _LANG_CODE.get((target_language or "english").strip().lower(), (target_language or "en")[:2].lower())
 
     # 5) FULL REPLACEMENT at 100% / translation — no slot may keep the ORIGINAL line. (#4 music blip / #6
     #    English remnant were untouched source lines surviving a "100%" pass.)
