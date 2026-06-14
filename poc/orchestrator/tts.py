@@ -295,6 +295,77 @@ def synthesize_chatterbox(text: str, ref_path: Path, ref_text: str, slot_ms: int
     raise RuntimeError(f"Chatterbox returned clone {last_ms}ms > sane {max_ms}ms after 3 attempts")
 
 
+# Provider: Chatterbox MULTILINGUAL (Resemble AI) on Replicate — 23 langs incl. German, zero-shot
+# cross-lingual clone, MIT-licensed, no per-op limit. Candidate translation engine to sidestep the
+# OmniVoice cross-lingual CUDA garbling. Different input names than base: text/language/reference_audio.
+CHATTERBOX_ML_MODEL = "resemble-ai/chatterbox-multilingual"
+_CB_LANG = {  # TTS_LANGUAGE full name -> chatterbox-multilingual ISO code (enum is the 23 below)
+    "arabic": "ar", "danish": "da", "german": "de", "greek": "el", "english": "en", "spanish": "es",
+    "finnish": "fi", "french": "fr", "hebrew": "he", "hindi": "hi", "italian": "it", "japanese": "ja",
+    "korean": "ko", "malay": "ms", "dutch": "nl", "norwegian": "no", "polish": "pl", "portuguese": "pt",
+    "russian": "ru", "swedish": "sv", "swahili": "sw", "turkish": "tr", "chinese": "zh",
+}
+
+def synthesize_chatterbox_ml(text: str, ref_path: Path, ref_text: str, slot_ms: int, cache_dir: Path) -> AudioSegment:
+    language = (os.environ.get("TTS_LANGUAGE") or "English").strip()
+    code = _CB_LANG.get(language.lower(), language.lower() if len(language) == 2 else "en")
+    key = cache_key("chatterbox-ml", f"{code}|{text}", ref_path)
+    cache_file = cache_dir / f"clone_{key}.wav"
+    max_ms = sane_max_ms(slot_ms)
+    if cache_file.exists():
+        cached = AudioSegment.from_wav(str(cache_file))
+        if len(cached) <= max_ms:
+            return cached
+        os.unlink(cache_file)
+    # Same ref-padding as base chatterbox (needs >5s reference) + public ref url for Replicate to fetch.
+    ref_for_upload = ref_path
+    try:
+        seg = AudioSegment.from_file(ref_path)
+        if len(seg) < 5500:
+            reps = (6500 // max(len(seg), 1)) + 1
+            seg = (seg * reps)[:6500]
+            ref_for_upload = cache_dir / f"cbmlref_{cache_key('cbmlref', '', ref_path)}.wav"
+            seg.export(str(ref_for_upload), format="wav")
+    except Exception as ex:
+        print(f"    [chatterbox-ml ref-pad skipped: {ex}]")
+    ref_url = _blob_upload_file(ref_for_upload)
+    last_ms = None
+    for attempt in range(1, 4):
+        create = _request_with_retry(
+            "POST", f"{REPLICATE_API}/models/{CHATTERBOX_ML_MODEL}/predictions",
+            headers=_replicate_headers(),
+            json={"input": {"text": text[:300], "language": code, "reference_audio": ref_url}},
+            timeout=30,
+        )
+        create.raise_for_status()
+        pid = create.json()["id"]
+        deadline = time.time() + 180
+        out_url = None
+        while time.time() < deadline:
+            r = _request_with_retry("GET", f"{REPLICATE_API}/predictions/{pid}", headers=_replicate_headers(), timeout=30)
+            r.raise_for_status()
+            st = r.json()
+            if st["status"] == "succeeded":
+                out_url = st["output"]
+                if isinstance(out_url, list):
+                    out_url = out_url[0]
+                break
+            if st["status"] in ("failed", "canceled"):
+                raise RuntimeError(f"Chatterbox-ML {pid} {st['status']}: {st.get('error')}")
+            time.sleep(1.5)
+        if not out_url:
+            raise TimeoutError(f"Chatterbox-ML {pid} did not finish within 180s")
+        ar = _request_with_retry("GET", out_url, timeout=60)
+        ar.raise_for_status()
+        clone = trim_silence(AudioSegment.from_file(io.BytesIO(ar.content)))
+        if len(clone) <= max_ms:
+            clone.export(str(cache_file), format="wav")
+            return clone
+        last_ms = len(clone)
+        print(f"    [chatterbox-ml attempt {attempt}: clone {len(clone)}ms > sane {max_ms}ms — retry]")
+    raise RuntimeError(f"Chatterbox-ML returned clone {last_ms}ms > sane {max_ms}ms after 3 attempts")
+
+
 # ──────────────────────────────────────────────────────────────────────────
 # Provider: OmniVoice (Higgs Audio v2) — LOCAL zero-shot clone (Apple Silicon MPS / CUDA), NO per-op
 # limit, NO API cost. Best clone fidelity in our tests. Self-hostable on rented GPU for cloud scale.
@@ -491,6 +562,8 @@ def synthesize_clone(text: str, ref_path: Path, ref_text: str, slot_ms: int, cac
         return synthesize_replicate(text, ref_path, ref_text, slot_ms, cache_dir)
     elif provider == "chatterbox":
         return synthesize_chatterbox(text, ref_path, ref_text, slot_ms, cache_dir)
+    elif provider == "chatterbox_ml":
+        return synthesize_chatterbox_ml(text, ref_path, ref_text, slot_ms, cache_dir)
     elif provider == "omnivoice":
         return synthesize_omnivoice(text, ref_path, ref_text, slot_ms, cache_dir)
     elif provider == "qwen3_mlx" or provider == "qwen3":
