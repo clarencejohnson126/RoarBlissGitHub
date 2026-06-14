@@ -302,6 +302,7 @@ def synthesize_chatterbox(text: str, ref_path: Path, ref_text: str, slot_ms: int
 # ──────────────────────────────────────────────────────────────────────────
 OMNIVOICE_MODEL_ID = os.environ.get("OMNIVOICE_MODEL", "k2-fsa/OmniVoice")
 _OMNI = None
+_OMNI_DTYPE = None   # which dtype string the cached model was loaded with (reload if it changes)
 # ONE reusable voice-clone prompt PER speaker reference (keyed by the cleaned ref path). Reusing the
 # SAME prompt across all of a speaker's lines LOCKS that speaker's voice — no per-line drift, which is
 # what made a long script sound like several different people. A source with N distinct speakers gets
@@ -310,17 +311,26 @@ _OMNI = None
 _OMNI_PROMPTS = {}
 
 def _get_omnivoice():
-    global _OMNI
-    if _OMNI is None:
-        import torch
+    global _OMNI, _OMNI_DTYPE
+    import torch
+    # EXPERIMENT (cross-lingual quality, 2026-06-14): the compute dtype. float16 (default) garbles
+    # cross-lingual German on CUDA — cross-lingual uses num_step=80 (vs 48 for English), so fp16 error
+    # accumulates over more diffusion steps until phonemes scramble (local MPS fp16 tolerates it; CUDA
+    # fp16 does not). bfloat16 has fp32's exponent range (no underflow) → the prime fix; float32 is the
+    # safe-but-slow fallback. Toggle per-run via OMNIVOICE_DTYPE (Cog input `omnivoice_dtype`).
+    want = (os.environ.get("OMNIVOICE_DTYPE") or "float16").strip().lower()
+    dtype = {"bfloat16": torch.bfloat16, "bf16": torch.bfloat16,
+             "float32": torch.float32, "fp32": torch.float32}.get(want, torch.float16)
+    if _OMNI is None or _OMNI_DTYPE != want:
         from omnivoice.models.omnivoice import OmniVoice
         dev = "cuda" if torch.cuda.is_available() else ("mps" if torch.backends.mps.is_available() else "cpu")
-        print(f"    [omnivoice: loading {OMNIVOICE_MODEL_ID} on {dev} ...]")
+        print(f"    [omnivoice: loading {OMNIVOICE_MODEL_ID} on {dev} dtype={want} ...]")
         # attn_implementation="eager" — NOT flex_attention. OmniVoice's forward uses torch.nn.attention
         # flex_attention, which is BUGGY in torch 2.5.1 (the only torch with cu121 wheels that Cog's CUDA
         # 12.1 supports): it clones the VOICE correctly but SCRAMBLES the text (gibberish/backwards). eager
         # is the stable reference attention — slower but CORRECT. (sdpa isn't supported by OmniVoice yet.)
-        _OMNI = OmniVoice.from_pretrained(OMNIVOICE_MODEL_ID, device_map=dev, dtype=torch.float16, attn_implementation="eager")
+        _OMNI = OmniVoice.from_pretrained(OMNIVOICE_MODEL_ID, device_map=dev, dtype=dtype, attn_implementation="eager")
+        _OMNI_DTYPE = want
     return _OMNI
 
 def _omnivoice_prompt(model, cref_path, ref_text):
