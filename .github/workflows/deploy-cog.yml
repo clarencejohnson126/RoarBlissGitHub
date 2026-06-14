@@ -28,19 +28,12 @@ jobs:
           large-packages: true
           swap-storage: true
 
-      - name: Install Cog (no login — v0.20 login wants a CLI auth token, not the r8_ API token)
+      - name: Install + authenticate Cog
         uses: replicate/setup-cog@v2
         with:
-          # Pin a RECENT cog: the action defaults to v0.9.8, which has NO cuDNN map for CUDA 12.4
-          # (latestCuDNNForCUDA panics). v0.20.0 maps 12.4/12.6 → required for torch 2.6 (no cu121 past 2.5.1).
-          # NOTE: do NOT pass `token:` here — v0.20's `cog login --token-stdin` rejects the r8_ API token.
-          cog-version: "v0.20.0"
+          token: ${{ secrets.REPLICATE_API_TOKEN }}
 
       - name: Build + push the model to Replicate (cloud build, ~20–35 min)
-        env:
-          # cog push reads the API token from the env directly (no `cog login` needed).
-          REPLICATE_API_TOKEN: ${{ secrets.REPLICATE_API_TOKEN }}
-          COG_TOKEN: ${{ secrets.REPLICATE_API_TOKEN }}
         run: |
           USER="$(printf '%s' "${{ secrets.REPLICATE_USERNAME }}" | tr -d '[:space:]')"
           echo "Pushing to r8.im/${USER}/roar-bliss"
