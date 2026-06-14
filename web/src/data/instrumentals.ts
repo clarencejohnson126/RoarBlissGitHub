@@ -27,6 +27,15 @@ export const INSTRUMENTALS: Instrumental[] = [
     recommendedFor: ["Fatherhood", "Business Comeback", "Discipline"],
   },
   {
+    id: "oath-of-stone",
+    title: "Oath of Stone",
+    mood: "Epic · ceremonial · unbreakable",
+    category: "Epic",
+    src: "/audio/instrumentals/oath-of-stone.mp3",
+    intensity: "epic",
+    recommendedFor: ["Discipline", "Business Comeback", "Warrior"],
+  },
+  {
     id: "gravity-of-hope",
     title: "Gravity of Hope",
     mood: "Emotional · cosmic · reflective",
