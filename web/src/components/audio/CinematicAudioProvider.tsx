@@ -47,14 +47,13 @@ export default function CinematicAudioProvider({ children }: { children: ReactNo
   const [trackError, setTrackError] = useState(false);
   const [progress, setProgress] = useState(0); // 0..1 — the player's seek bar starts at the far left
 
-  // restore the saved choice
+  // Restore the saved "for your speech" choice for the grid + /create — but the OPENING music is
+  // ALWAYS Cinematic Oath (the branded default). We deliberately do NOT restore `currentId` here, so
+  // a returning visitor who previously picked another bed still hears Cinematic Oath auto-play first.
   useEffect(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEY);
-      if (saved && getInstrumental(saved)) {
-        setSelectedId(saved);
-        setCurrentId(saved);
-      }
+      if (saved && getInstrumental(saved)) setSelectedId(saved);
     } catch {
       /* ignore */
     }
