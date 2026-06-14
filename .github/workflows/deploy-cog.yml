@@ -28,12 +28,19 @@ jobs:
           large-packages: true
           swap-storage: true
 
-      - name: Install + authenticate Cog
+      - name: Install Cog v0.19.3 (maps CUDA 12.4; avoids v0.20's buggy new Docker-context system)
         uses: replicate/setup-cog@v2
         with:
-          token: ${{ secrets.REPLICATE_API_TOKEN }}
+          # v0.9.8 (the action default) panics on cuda 12.4 (no cuDNN map). v0.20.0 maps 12.4 but its NEW
+          # ".cog/ build-context" system (#3000/#3004) fails the remote push with
+          # 'rpc error NotFound: no access allowed to dir "context"'. v0.19.3 = the sweet spot: new enough
+          # to map 12.4, old enough to use the proven context system. No `token:` — auth via env on push.
+          cog-version: "v0.19.3"
 
       - name: Build + push the model to Replicate (cloud build, ~20–35 min)
+        env:
+          REPLICATE_API_TOKEN: ${{ secrets.REPLICATE_API_TOKEN }}
+          COG_TOKEN: ${{ secrets.REPLICATE_API_TOKEN }}
         run: |
           USER="$(printf '%s' "${{ secrets.REPLICATE_USERNAME }}" | tr -d '[:space:]')"
           echo "Pushing to r8.im/${USER}/roar-bliss"
