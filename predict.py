@@ -730,6 +730,7 @@ class Predictor(BasePredictor):
         breath_ms: int = Input(default=1000, description="Partial tiers (25/50/75): deliberate pause (ms) before + after each personalized snippet so it never glues straight onto the surrounding original sentence (which sounds rushed/choppy/fake). ~1000 = a full ~1s breath; 0 = off. Tune per run — no rebuild needed."),
         language: str = Input(default="English", description="Target language for the generated lines (e.g. 'German', 'Spanish', 'French'). ElevenLabs multilingual_v2 keeps the cloned timbre and the writer composes natively; the source audio can be any language."),
         tts_provider: str = Input(default="auto", choices=["auto", "elevenlabs", "chatterbox", "omnivoice", "replicate"], description="Voice engine. 'auto' = ElevenLabs if its key is set, else Replicate F5. 'omnivoice' = OmniVoice/Higgs Audio v2 IN-COG on GPU (local zero-shot clone, NO per-op limit, multi-speaker + 646 langs incl. cross-lingual — the chosen engine). 'chatterbox' = Resemble Chatterbox-Turbo on Replicate. 'replicate' = F5-TTS."),
+        xlingual_drop_reftext: bool = Input(default=False, description="EXPERIMENT (translation quality): for CROSS-LINGUAL runs only, drop the source-language ref_text from the OmniVoice clone prompt (audio-only conditioning). The source transcript may anchor OmniVoice on source phonetics → garbled/accented target language; dropping it may resolve more natively. No effect on same-language runs."),
         bed_audio: Path = Input(default=None, description="full_voice only: an optional CLEAN, pre-mastered instrumental bed (e.g. a Suno template). When set, the generated voice rides over THIS constant bed instead of the source's separated music — used for the template-creation flow and for dry-speech sources. Leave unset: a cinematic source keeps its own bed, a dry-speech source auto-falls back to the bundled constant bed."),
     ) -> Path:
         from auto_synthesizer import auto_synthesize
@@ -762,6 +763,8 @@ class Predictor(BasePredictor):
         # generate() call; it was hardcoded to "English", which broke multilingual output (German
         # text got English phonemization → garbled). The writer already composes in this language.
         os.environ["TTS_LANGUAGE"] = (language or "English").strip() or "English"
+        # EXPERIMENT toggle (translation quality): drop source-language ref_text for cross-lingual clones.
+        os.environ["OMNI_XLINGUAL_DROP_REFTEXT"] = "1" if xlingual_drop_reftext else "0"
 
         work = _P(tempfile.mkdtemp())
         cap = PAID_MAX_MS if paid else FREE_MAX_MS

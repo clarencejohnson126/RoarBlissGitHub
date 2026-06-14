@@ -368,15 +368,23 @@ def synthesize_omnivoice(text: str, ref_path: Path, ref_text: str, slot_ms: int,
         except Exception:
             cref = Path(ref_path)   # fall back to the raw reference if cleaning fails
     ref_use = str(cref)
-    # Reuse ONE locked clone prompt for this speaker (consistent voice); fall back to per-line ref only
-    # if the prompt couldn't be built.
-    prompt = _omnivoice_prompt(model, cref, ref_text)
     # CROSS-LINGUAL TUNING. Cloning an English voice into German is harder: too few diffusion steps leave the
     # target-language phonemes unconverged → the "rückwärts"/garbled words the founder heard. Give the
     # non-English path MORE steps + higher guidance so German resolves cleanly and stays intelligible.
     # English (same-language) keeps the fast, proven 48/2.0.
     cross_lingual = language.strip().lower() not in ("english", "en", "")
     ns, gs = (80, 3.0) if cross_lingual else (48, 2.0)
+    # EXPERIMENT (founder translation test, 2026-06-14): for cross-lingual ONLY, optionally DROP the
+    # source-language ref_text from the clone prompt. The English transcript anchors OmniVoice on English
+    # phonetics — a prime suspect for the garbled/accented German. Audio-only conditioning (short clean
+    # ref, NO transcript) may let the target language resolve more natively. Toggle per-run via env
+    # OMNI_XLINGUAL_DROP_REFTEXT (Cog input `xlingual_drop_reftext`) — no rebuild needed to flip it.
+    # NOTE: this is the SHORT (≤12s) clean ref, NOT the 40s-ref+empty-text combo that gibberished before.
+    drop_reftext = cross_lingual and os.environ.get("OMNI_XLINGUAL_DROP_REFTEXT", "0") == "1"
+    eff_ref_text = None if drop_reftext else ref_text
+    # Reuse ONE locked clone prompt for this speaker (consistent voice); fall back to per-line ref only
+    # if the prompt couldn't be built.
+    prompt = _omnivoice_prompt(model, cref, eff_ref_text)
     last_ms = None
     for attempt in range(1, 4):
         if prompt is not None:
@@ -384,7 +392,7 @@ def synthesize_omnivoice(text: str, ref_path: Path, ref_text: str, slot_ms: int,
                                     num_step=ns, guidance_scale=gs, speed=1.0)
         else:
             audios = model.generate(text=text, language=language, ref_audio=ref_use,
-                                    ref_text=ref_text or "", num_step=ns, guidance_scale=gs, speed=1.0)
+                                    ref_text=("" if drop_reftext else (ref_text or "")), num_step=ns, guidance_scale=gs, speed=1.0)
         tmp = cache_dir / f"_omni_tmp_{key}.wav"
         torchaudio.save(str(tmp), audios[0].float().cpu(), model.sampling_rate)
         clone = trim_silence(AudioSegment.from_wav(str(tmp)))
