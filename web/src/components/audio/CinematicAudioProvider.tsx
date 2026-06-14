@@ -16,12 +16,14 @@ type AudioCtx = {
   selectedId: string; // the track chosen "for your speech"
   currentId: string; // the track currently loaded in the player
   trackError: boolean;
+  progress: number; // 0..1 playback position of the current track
   unlock: (withSound: boolean) => void;
   playTrack: (id: string) => void; // preview / play a track
   selectTrack: (id: string) => void; // choose for speech + play
   togglePlay: () => void;
   toggleMute: () => void;
   setVolume: (v: number) => void;
+  seek: (fraction: number) => void; // jump to 0..1 of the current track
 };
 
 const Ctx = createContext<AudioCtx | null>(null);
@@ -43,6 +45,7 @@ export default function CinematicAudioProvider({ children }: { children: ReactNo
   const [selectedId, setSelectedId] = useState(DEFAULT_INSTRUMENTAL_ID);
   const [currentId, setCurrentId] = useState(DEFAULT_INSTRUMENTAL_ID);
   const [trackError, setTrackError] = useState(false);
+  const [progress, setProgress] = useState(0); // 0..1 — the player's seek bar starts at the far left
 
   // restore the saved choice
   useEffect(() => {
@@ -89,6 +92,7 @@ export default function CinematicAudioProvider({ children }: { children: ReactNo
       if (!el || !track) return;
       setTrackError(false);
       setCurrentId(id);
+      setProgress(0); // a freshly loaded track starts at the beginning (slider far left)
       el.src = track.src;
       el.load();
       el.muted = isMuted;
@@ -185,14 +189,29 @@ export default function CinematicAudioProvider({ children }: { children: ReactNo
     if (el && !fadeRaf.current && !el.muted) el.volume = v;
   }, []);
 
+  const seek = useCallback((fraction: number) => {
+    const el = audioRef.current;
+    if (!el || !el.duration || !isFinite(el.duration)) return;
+    const f = Math.max(0, Math.min(1, fraction));
+    el.currentTime = f * el.duration;
+    setProgress(f);
+  }, []);
+
+  // keep the seek bar in sync with playback (fires ~4x/s while playing)
+  const onTimeUpdate = useCallback(() => {
+    const el = audioRef.current;
+    if (!el || !el.duration || !isFinite(el.duration)) return;
+    setProgress(el.currentTime / el.duration);
+  }, []);
+
   useEffect(() => () => cancelFade(), []);
 
   return (
     <Ctx.Provider
-      value={{ unlocked, playing, muted, volume, selectedId, currentId, trackError, unlock, playTrack, selectTrack, togglePlay, toggleMute, setVolume }}
+      value={{ unlocked, playing, muted, volume, selectedId, currentId, trackError, progress, unlock, playTrack, selectTrack, togglePlay, toggleMute, setVolume, seek }}
     >
       {/* single audio element for the whole experience */}
-      <audio ref={audioRef} loop preload="auto" onError={onError} />
+      <audio ref={audioRef} loop preload="auto" onError={onError} onTimeUpdate={onTimeUpdate} />
       {children}
       {unlocked && <GlobalAudioPlayer />}
       <AudioUnlockOverlay />

@@ -197,6 +197,40 @@
   height: 4px;
   cursor: pointer;
 }
+/* Playback seek bar — starts at the far left (0%) and fills gold as the track plays.
+   --p (set inline from progress) paints the elapsed portion; the rest is a faint track. */
+.progress {
+  flex: 1 1 auto;
+  height: 4px;
+  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+  border-radius: 999px;
+  background: linear-gradient(
+    to right,
+    var(--color-gold) 0%,
+    var(--color-gold) var(--p, 0%),
+    rgba(232, 227, 216, 0.18) var(--p, 0%),
+    rgba(232, 227, 216, 0.18) 100%
+  );
+}
+.progress::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--color-gold);
+  cursor: pointer;
+  box-shadow: 0 0 0 3px rgba(214, 168, 79, 0.25);
+}
+.progress::-moz-range-thumb {
+  width: 12px;
+  height: 12px;
+  border: none;
+  border-radius: 50%;
+  background: var(--color-gold);
+  cursor: pointer;
+}
 .changeBtn {
   background: none;
   border: none;

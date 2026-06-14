@@ -12,7 +12,7 @@ import styles from "./audio.module.css";
  *  On phones it collapses to a small floating button (the full card covered card CTAs / footer
  *  content on a 390px screen) — tap to expand, chevron to tuck it away again. */
 export default function GlobalAudioPlayer() {
-  const { playing, muted, volume, currentId, trackError, togglePlay, toggleMute, setVolume } = useAudio();
+  const { playing, muted, currentId, trackError, progress, togglePlay, toggleMute, seek } = useAudio();
   const track = getInstrumental(currentId);
   const router = useRouter();
   const [expanded, setExpanded] = useState(false);
@@ -69,14 +69,15 @@ export default function GlobalAudioPlayer() {
 
       <div className={styles.playerBottom}>
         <input
-          className={styles.volume}
+          className={styles.progress}
           type="range"
           min={0}
           max={1}
-          step={0.01}
-          value={volume}
-          onChange={(e) => setVolume(parseFloat(e.target.value))}
-          aria-label="Volume"
+          step={0.001}
+          value={progress}
+          onChange={(e) => seek(parseFloat(e.target.value))}
+          aria-label="Playback position"
+          style={{ ["--p" as string]: `${Math.round(progress * 100)}%` }}
         />
         <button className={styles.changeBtn} onClick={changeSound}>
           Change Sound
