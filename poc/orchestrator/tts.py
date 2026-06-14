@@ -465,7 +465,14 @@ def synthesize_omnivoice(text: str, ref_path: Path, ref_text: str, slot_ms: int,
     # non-English path MORE steps + higher guidance so German resolves cleanly and stays intelligible.
     # English (same-language) keeps the fast, proven 48/2.0.
     cross_lingual = language.strip().lower() not in ("english", "en", "")
-    ns, gs = (80, 3.0) if cross_lingual else (48, 2.0)
+    # EXPERIMENT (2026-06-15): cross-lingual num_step/guidance are overridable per-run. Default 80/3.0 is the
+    # founder-approved LOCAL setting; on the cloud (torch 2.5.1 CUDA) 80 steps garble → test 48/2.0 (the clean
+    # English-on-cloud values). Toggle via OMNI_XLINGUAL_NUM_STEP / OMNI_XLINGUAL_GUIDANCE. English keeps 48/2.0.
+    if cross_lingual:
+        ns = int(os.environ.get("OMNI_XLINGUAL_NUM_STEP") or 80)
+        gs = float(os.environ.get("OMNI_XLINGUAL_GUIDANCE") or 3.0)
+    else:
+        ns, gs = 48, 2.0
     # EXPERIMENT (founder translation test, 2026-06-14): for cross-lingual ONLY, optionally DROP the
     # source-language ref_text from the clone prompt. The English transcript anchors OmniVoice on English
     # phonetics — a prime suspect for the garbled/accented German. Audio-only conditioning (short clean

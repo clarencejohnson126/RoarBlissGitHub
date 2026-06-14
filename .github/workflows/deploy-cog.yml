@@ -31,6 +31,9 @@ jobs:
       - name: Install + authenticate Cog
         uses: replicate/setup-cog@v2
         with:
+          # Pin a RECENT cog: the action defaults to v0.9.8, which has NO cuDNN map for CUDA 12.4
+          # (latestCuDNNForCUDA panics). v0.20.0 maps 12.4/12.6 → required for torch 2.6 (no cu121 past 2.5.1).
+          cog-version: "v0.20.0"
           token: ${{ secrets.REPLICATE_API_TOKEN }}
 
       - name: Build + push the model to Replicate (cloud build, ~20–35 min)
