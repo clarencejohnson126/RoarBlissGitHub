@@ -299,6 +299,16 @@ def synthesize_chatterbox(text: str, ref_path: Path, ref_text: str, slot_ms: int
 # cross-lingual clone, MIT-licensed, no per-op limit. Candidate translation engine to sidestep the
 # OmniVoice cross-lingual CUDA garbling. Different input names than base: text/language/reference_audio.
 CHATTERBOX_ML_MODEL = "resemble-ai/chatterbox-multilingual"
+_CB_ML_VERSION = None
+def _chatterbox_ml_version():
+    # chatterbox-multilingual is NOT an "official model", so POST /models/{m}/predictions 404s — it needs
+    # a VERSION-based prediction (POST /predictions with {"version": ...}). Resolve the latest version once.
+    global _CB_ML_VERSION
+    if _CB_ML_VERSION is None:
+        r = _request_with_retry("GET", f"{REPLICATE_API}/models/{CHATTERBOX_ML_MODEL}", headers=_replicate_headers(), timeout=30)
+        r.raise_for_status()
+        _CB_ML_VERSION = r.json()["latest_version"]["id"]
+    return _CB_ML_VERSION
 _CB_LANG = {  # TTS_LANGUAGE full name -> chatterbox-multilingual ISO code (enum is the 23 below)
     "arabic": "ar", "danish": "da", "german": "de", "greek": "el", "english": "en", "spanish": "es",
     "finnish": "fi", "french": "fr", "hebrew": "he", "hindi": "hi", "italian": "it", "japanese": "ja",
@@ -332,9 +342,10 @@ def synthesize_chatterbox_ml(text: str, ref_path: Path, ref_text: str, slot_ms: 
     last_ms = None
     for attempt in range(1, 4):
         create = _request_with_retry(
-            "POST", f"{REPLICATE_API}/models/{CHATTERBOX_ML_MODEL}/predictions",
+            "POST", f"{REPLICATE_API}/predictions",
             headers=_replicate_headers(),
-            json={"input": {"text": text[:300], "language": code, "reference_audio": ref_url}},
+            json={"version": _chatterbox_ml_version(),
+                  "input": {"text": text[:300], "language": code, "reference_audio": ref_url}},
             timeout=30,
         )
         create.raise_for_status()
