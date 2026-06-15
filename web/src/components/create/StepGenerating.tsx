@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import Link from "next/link";
 import { Check, Loader2 } from "lucide-react";
 import { supabaseBrowser } from "@/lib/supabase-browser";
 import { useCreateFlow } from "./CreateFlowProvider";
@@ -21,6 +22,7 @@ export default function StepGenerating() {
   const [phase, setPhase] = useState(0);
   const [error, setError] = useState("");
   const [queued, setQueued] = useState(false);
+  const [needsUpgrade, setNeedsUpgrade] = useState(false);  // free-limit reached → show an Upgrade CTA
   const started = useRef(false);
   const firstName = (data.userName || "").trim().split(" ")[0] || "warrior";
 
@@ -102,7 +104,7 @@ export default function StepGenerating() {
         });
         if (!res.ok) {
           const e = await res.json().catch(() => ({}));
-          if (e.freeLimitReached) throw new Error("Your free preview is used up (one per device). Create an account to make more.");
+          if (e.freeLimitReached) { setNeedsUpgrade(true); throw new Error("Your free preview is used up — one per device. Pick a plan to create full tracks (up to 6 minutes) every month."); }
           if (e.budgetReached) throw new Error("We've hit today's capacity. Please try again a little later — we'll be back shortly.");
           if (e.userLimitReached) throw new Error("You've reached today's limit on this device. Please come back tomorrow.");
           throw new Error(e.error || `The server rejected the run (${res.status}).`);
@@ -230,7 +232,10 @@ export default function StepGenerating() {
               <p className={styles.sub} style={{ marginInline: "auto" }}>
                 {error}
               </p>
-              <div className={styles.nav} style={{ justifyContent: "center" }}>
+              <div className={styles.nav} style={{ justifyContent: "center", gap: "0.75rem", flexWrap: "wrap" }}>
+                {needsUpgrade && (
+                  <Link href="/pricing" className={styles.btnGold}>See plans &amp; upgrade</Link>
+                )}
                 <button type="button" className={styles.btnGhost} onClick={() => setStep(5)}>
                   Edit my story
                 </button>
