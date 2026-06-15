@@ -28,18 +28,10 @@ jobs:
           large-packages: true
           swap-storage: true
 
-      - name: Install + authenticate Cog v0.19.3 (maps CUDA 12.4; avoids v0.20's context bug; accepts the r8_ token at login)
+      - name: Install + authenticate Cog
         uses: replicate/setup-cog@v2
         with:
-          # v0.9.8 (action default) panics on cuda 12.4. v0.20.0 maps 12.4 but (a) its NEW .cog/ build-context
-          # system fails the push ('no access allowed to dir context') AND (b) `cog login` rejects the r8_ API
-          # token. v0.19.3 = the sweet spot: maps 12.4, proven context system, and `cog login` still accepts
-          # the r8_ API token (the rejection landed in v0.20). So use the ORIGINAL token-login here.
-          cog-version: "v0.19.3"
-          # cog >=v0.19 login requires a CLI AUTH TOKEN (from https://replicate.com/auth/token), NOT the
-          # r8_ API token. Add a GitHub secret REPLICATE_CLI_AUTH_TOKEN with that value. Falls back to the
-          # API token only so older-cog builds still work if someone reverts cog-version.
-          token: ${{ secrets.REPLICATE_CLI_AUTH_TOKEN || secrets.REPLICATE_API_TOKEN }}
+          token: ${{ secrets.REPLICATE_API_TOKEN }}
 
       - name: Build + push the model to Replicate (cloud build, ~20–35 min)
         run: |
