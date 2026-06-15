@@ -4,49 +4,38 @@ import React, { useRef, useState, useEffect } from "react";
 import { supabaseBrowser } from "@/lib/supabase-browser";
 
 interface AudioVisualizerProps {
-  formData: {
-    battlefield: string;
-    name: string;
-    family: string;
-    location: string;
-    struggle: string;
-    champion: string;
-  };
+  /** The user's name — used in the title + download filename. */
+  name: string;
+  /** Finished prediction id — its audio streams from /api/audio and its share page is /t/<id>. */
   sessionId: string;
+  /** VISUAL theme only (crimson vs gold), derived from the user's real tone/intensity. NOT a voice
+   *  or celebrity claim — the player must never assert a named/cloned voice it can't verify. */
+  highEnergy?: boolean;
 }
 
-export default function AudioVisualizer({ formData, sessionId }: AudioVisualizerProps) {
+export default function AudioVisualizer({ name, sessionId, highEnergy = false }: AudioVisualizerProps) {
   const audioRef = useRef<HTMLAudioElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const animationRef = useRef<number | null>(null);
-  
+
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
   const [duration, setDuration] = useState(0);
 
-  // The free track is already capped at 45s by the pipeline, so it plays in full (no preview lock).
-  const [isLocked, setIsLocked] = useState(false);
-  const [showLockOverlay, setShowLockOverlay] = useState(false);
-  const [email, setEmail] = useState("");
-  const [waitlistStatus, setWaitlistStatus] = useState<{
-    type: "idle" | "loading" | "success" | "error";
-    message: string;
-  }>({ type: "idle", message: "" });
-
-  // Download is gated behind login: free users HEAR the track, but keeping the file needs an account.
+  // Download is gated behind login: free users HEAR the full (server-capped) track, but keeping the
+  // file needs an account. The gate only ever appears for a logged-OUT visitor who taps Download.
   const [showAuthGate, setShowAuthGate] = useState(false);
   const [authEmail, setAuthEmail] = useState("");
   const [authMsg, setAuthMsg] = useState("");
   const [downloadState, setDownloadState] = useState<"idle" | "working" | "error">("idle");
 
-  // Web Audio Nodes refs to prevent re-connections
+  // Web Audio nodes (refs to prevent re-connections)
   const audioCtxRef = useRef<AudioContext | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
   const sourceConnectedRef = useRef(false);
 
-  const isGladiator = formData.champion === "Eric Thomas";
-  const themeColor = isGladiator ? "#e63946" : "#ffd700"; // Crimson vs Gold
-  const accentColor = isGladiator ? "#ff8a93" : "#fff8c4";
+  const themeColor = highEnergy ? "#e63946" : "#ffd700"; // Crimson vs Gold
+  const accentColor = highEnergy ? "#ff8a93" : "#fff8c4";
 
   // Handle Play/Pause
   const togglePlay = async () => {
@@ -75,7 +64,7 @@ export default function AudioVisualizer({ formData, sessionId }: AudioVisualizer
         if (!sourceConnectedRef.current && audioRef.current) {
           analyserRef.current = audioCtxRef.current.createAnalyser();
           analyserRef.current.fftSize = 256;
-          
+
           try {
             const source = audioCtxRef.current.createMediaElementSource(audioRef.current);
             source.connect(analyserRef.current);
@@ -94,35 +83,14 @@ export default function AudioVisualizer({ formData, sessionId }: AudioVisualizer
     }
   };
 
-  // Timeline Progress
+  // Timeline progress — the full track plays through (the free track is already length-capped server-side).
   useEffect(() => {
     const audio = audioRef.current;
     if (!audio) return;
 
-    const handleTimeUpdate = () => {
-      setCurrentTime(audio.currentTime);
-      
-      // Auto-lock interceptor precisely at 30 seconds (or when preview finishes)
-      if (isLocked && audio.currentTime >= 29.8) {
-        audio.pause();
-        setIsPlaying(false);
-        audio.currentTime = 30; // snap
-        setCurrentTime(30);
-        setShowLockOverlay(true);
-      }
-    };
-    
-    const handleDurationChange = () => {
-      // Preview duration is capped at 30s, Full duration is real length
-      setDuration(isLocked ? 30 : (audio.duration || 180));
-    };
-    
-    const handleEnded = () => {
-      setIsPlaying(false);
-      if (isLocked) {
-        setShowLockOverlay(true);
-      }
-    };
+    const handleTimeUpdate = () => setCurrentTime(audio.currentTime);
+    const handleDurationChange = () => setDuration(Number.isFinite(audio.duration) ? audio.duration : 0);
+    const handleEnded = () => setIsPlaying(false);
 
     audio.addEventListener("timeupdate", handleTimeUpdate);
     audio.addEventListener("durationchange", handleDurationChange);
@@ -133,74 +101,7 @@ export default function AudioVisualizer({ formData, sessionId }: AudioVisualizer
       audio.removeEventListener("durationchange", handleDurationChange);
       audio.removeEventListener("ended", handleEnded);
     };
-  }, [isLocked]);
-
-  // Handle Waitlist Email Unlock Submit
-  const handleUnlockSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!email || !email.includes("@")) return;
-
-    setWaitlistStatus({ type: "loading", message: "Verifying credentials..." });
-
-    try {
-      const response = await fetch("/api/waitlist", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          email,
-          name: formData.name,
-          battlefield: formData.battlefield,
-          struggle: formData.struggle,
-          champion: formData.champion,
-        }),
-      });
-
-      if (response.ok) {
-        setWaitlistStatus({
-          type: "success",
-          message: "Waitlist verified! Full track unlocked successfully.",
-        });
-        
-        // Short dramatic transition before unlock
-        setTimeout(() => {
-          setIsLocked(false);
-          setShowLockOverlay(false);
-          
-          // Swap source and play from 30s
-          if (audioRef.current) {
-            const wasPlaying = isPlaying;
-            audioRef.current.pause();
-            
-            // Trigger browser reload of new src
-            audioRef.current.src = `/api/audio?id=${sessionId}`;
-            audioRef.current.load();
-            
-            audioRef.current.oncanplay = () => {
-              if (audioRef.current) {
-                audioRef.current.currentTime = 30; // Resume where they left off
-                setCurrentTime(30);
-                audioRef.current.play();
-                setIsPlaying(true);
-                audioRef.current.oncanplay = null; // Clean up
-              }
-            };
-          }
-        }, 1000);
-      } else {
-        const resData = await response.json();
-        setWaitlistStatus({
-          type: "error",
-          message: resData.error || "Lock server error. Try again.",
-        });
-      }
-    } catch (err) {
-      console.error("Unlock error:", err);
-      setWaitlistStatus({
-        type: "error",
-        message: "Failed to connect to waitlist database.",
-      });
-    }
-  };
+  }, []);
 
   // Download flow: needs a logged-in user. Fetch the file with the access token (so /api/audio's
   // download gate passes), then save the blob locally. Not logged in -> open the registration gate.
@@ -227,7 +128,7 @@ export default function AudioVisualizer({ formData, sessionId }: AudioVisualizer
       const objUrl = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = objUrl;
-      a.download = `roar-bliss-${formData.name || "track"}.mp3`.replace(/\s+/g, "_");
+      a.download = `roar-bliss-${name || "track"}.mp3`.replace(/\s+/g, "_");
       document.body.appendChild(a);
       a.click();
       a.remove();
@@ -246,7 +147,7 @@ export default function AudioVisualizer({ formData, sessionId }: AudioVisualizer
     setAuthMsg("Sending…");
     // Use the Resend-backed endpoint — Supabase's built-in SMTP is unconfigured and 500s on
     // signInWithOtp ("Error sending magic link email"). /api/auth/magic-link generates the link
-    // via the admin API and delivers it through Resend (same path AccountPanel uses).
+    // via the admin API and delivers it through Resend.
     try {
       const res = await fetch("/api/auth/magic-link", {
         method: "POST",
@@ -329,8 +230,8 @@ export default function AudioVisualizer({ formData, sessionId }: AudioVisualizer
 
       // Extract frequency data or fall back to simulation
       let volume = 0;
-      const dataArray = analyserRef.current 
-        ? new Uint8Array(analyserRef.current.frequencyBinCount) 
+      const dataArray = analyserRef.current
+        ? new Uint8Array(analyserRef.current.frequencyBinCount)
         : null;
 
       if (analyserRef.current && isPlaying && dataArray) {
@@ -351,20 +252,20 @@ export default function AudioVisualizer({ formData, sessionId }: AudioVisualizer
       // Draw Glowing Background Aura
       const centerX = width / 2;
       const centerY = height / 2;
-      
+
       const radialGlow = ctx.createRadialGradient(
         centerX, centerY, 5,
         centerX, centerY, 50 + volume * 0.8
       );
-      
-      const activeColorHex = isPlaying 
-        ? themeColor 
+
+      const activeColorHex = isPlaying
+        ? themeColor
         : "#3b82f6"; // pause space blue
 
       radialGlow.addColorStop(0, `${activeColorHex}25`);
       radialGlow.addColorStop(0.5, `${activeColorHex}08`);
       radialGlow.addColorStop(1, "transparent");
-      
+
       ctx.fillStyle = radialGlow;
       ctx.fillRect(0, 0, width, height);
 
@@ -401,10 +302,10 @@ export default function AudioVisualizer({ formData, sessionId }: AudioVisualizer
       const barCount = 30;
       const barWidth = width / barCount;
       for (let i = 0; i < barCount; i++) {
-        const simHeight = isPlaying 
+        const simHeight = isPlaying
           ? 5 + Math.sin(i * 0.4 + simulatedPhase) * 15 + Math.cos(i * 0.1) * 8
           : 2 + Math.sin(i * 0.2 + simulatedPhase) * 4;
-        
+
         ctx.fillStyle = activeColorHex;
         ctx.globalAlpha = 0.25;
         ctx.fillRect(i * barWidth, height - simHeight, barWidth - 2, simHeight);
@@ -422,120 +323,26 @@ export default function AudioVisualizer({ formData, sessionId }: AudioVisualizer
     };
   }, [isPlaying, themeColor, accentColor]);
 
-  // Audio Progress Slider click
+  // Audio progress slider — free seek across the whole track.
   const handleProgressChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const audio = audioRef.current;
     if (!audio) return;
     const newTime = parseFloat(e.target.value);
-    
-    // Capping seeks if locked
-    if (isLocked && newTime >= 30) {
-      audio.currentTime = 30;
-      setCurrentTime(30);
-      setShowLockOverlay(true);
-      return;
-    }
-    
     audio.currentTime = newTime;
     setCurrentTime(newTime);
   };
 
   return (
-    <div 
-      className="glass-card flex-column" 
-      style={{ 
-        border: `1px solid ${isPlaying ? themeColor : 'var(--color-obsidian-border)'}`, 
+    <div
+      className="glass-card flex-column"
+      style={{
+        border: `1px solid ${isPlaying ? themeColor : 'var(--color-obsidian-border)'}`,
         boxShadow: isPlaying ? `0 15px 40px rgba(0, 0, 0, 0.7), 0 0 25px ${themeColor}12` : '',
         position: "relative",
         overflow: "hidden"
       }}
     >
-      {/* Dynamic Waitlist Glass Lock Overlay */}
-      {showLockOverlay && (
-        <div 
-          style={{
-            position: "absolute",
-            top: 0,
-            left: 0,
-            right: 0,
-            bottom: 0,
-            background: "rgba(9, 9, 12, 0.88)",
-            backdropFilter: "blur(14px)",
-            WebkitBackdropFilter: "blur(14px)",
-            display: "flex",
-            flexDirection: "column",
-            alignItems: "center",
-            justifyContent: "center",
-            padding: "2rem",
-            borderRadius: "20px",
-            zIndex: 100,
-            textAlign: "center",
-            animation: "fadeIn 0.3s ease forwards"
-          }}
-        >
-          <span style={{ fontSize: "2.5rem", filter: "drop-shadow(0 0 8px var(--color-gold))" }}>🔒</span>
-          <h3 className="headline-md" style={{ marginBlockEnd: "0.5rem", fontSize: "1.3rem", color: "#ffffff" }}>
-            Full Speech Locked
-          </h3>
-          <p style={{ color: "var(--color-text-secondary)", fontSize: "0.85rem", maxWidth: "340px", lineHeight: "1.5", marginBlockEnd: "1.5rem" }}>
-            You&apos;re hearing a short personalized preview. Register to unlock and download your full speech.
-          </p>
-          
-          <form onSubmit={handleUnlockSubmit} style={{ display: "flex", flexDirection: "column", gap: "0.75rem", width: "100%", maxWidth: "300px" }}>
-            <div className="form-group" style={{ textAlign: "left" }}>
-              <label className="form-label" htmlFor="popup-email" style={{ fontSize: "0.75rem" }}>Email Address</label>
-              <input
-                id="popup-email"
-                type="email"
-                className="form-input"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="Enter your email to unlock"
-                required
-                disabled={waitlistStatus.type === "loading"}
-                style={{ background: "rgba(255,255,255,0.03)" }}
-              />
-            </div>
-            <button 
-              type="submit" 
-              className="btn-premium btn-gold" 
-              style={{ width: "100%", minBlockSize: "42px", fontSize: "0.82rem" }}
-              disabled={waitlistStatus.type === "loading"}
-            >
-              {waitlistStatus.type === "loading" ? "Unlocking Track..." : "Unlock Full Track &rarr;"}
-            </button>
-          </form>
-
-          {waitlistStatus.message && (
-            <div
-              style={{
-                marginBlockStart: "1rem",
-                fontSize: "0.8rem",
-                color: waitlistStatus.type === "success" ? "#4ade80" : "var(--color-crimson)"
-              }}
-            >
-              {waitlistStatus.message}
-            </div>
-          )}
-
-          <button
-            onClick={() => setShowLockOverlay(false)}
-            style={{
-              background: "none",
-              border: "none",
-              color: "var(--color-text-muted)",
-              fontSize: "0.75rem",
-              marginBlockStart: "1.25rem",
-              cursor: "pointer",
-              textDecoration: "underline"
-            }}
-          >
-            Go Back & Review Profile
-          </button>
-        </div>
-      )}
-
-      {/* Registration gate — appears when a logged-out user hits Download */}
+      {/* Registration gate — appears when a logged-out visitor taps Download */}
       {showAuthGate && (
         <div
           style={{
@@ -582,16 +389,16 @@ export default function AudioVisualizer({ formData, sessionId }: AudioVisualizer
         </div>
       )}
 
-      {/* Visualizer Meta */}
+      {/* Visualizer Meta — truthful only: the user's name + a vibe label from their own tone choice. */}
       <div className="visualizer-card-meta">
-        <span className={`visualizer-subtitle ${isGladiator ? "active-crimson" : ""}`}>
-          {isGladiator ? "🔥 High-Energy Session" : "🪨 Deep & Reflective Session"}
+        <span className={`visualizer-subtitle ${highEnergy ? "active-crimson" : ""}`}>
+          {highEnergy ? "🔥 High-Energy Session" : "🪨 Deep & Reflective Session"}
         </span>
         <h3 className="visualizer-title">
-          {formData.name}&apos;s Personal Battle Speech
+          {name}&apos;s Personal Battle Speech
         </h3>
         <p style={{ color: "var(--color-text-secondary)", fontSize: "0.85rem", marginBlockStart: "0.25rem" }}>
-          Surgically Grafted Voice: Cloned {formData.champion} Model
+          Personalized to your story — in the track&apos;s own voice.
         </p>
       </div>
 
@@ -618,7 +425,7 @@ export default function AudioVisualizer({ formData, sessionId }: AudioVisualizer
           <input
             type="range"
             min="0"
-            max={duration || 30}
+            max={duration || 0}
             value={currentTime}
             onChange={handleProgressChange}
             style={{
@@ -645,7 +452,7 @@ export default function AudioVisualizer({ formData, sessionId }: AudioVisualizer
               color: isPlaying ? "#ffffff" : "#000000",
               boxShadow: isPlaying ? `0 4px 20px ${themeColor}60` : "0 4px 15px rgba(255,255,255,0.25)"
             }}
-            aria-label={isPlaying ? "Pause customized speech preview" : "Play customized speech preview"}
+            aria-label={isPlaying ? "Pause your speech" : "Play your speech"}
           >
             {isPlaying ? (
               <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
@@ -657,7 +464,7 @@ export default function AudioVisualizer({ formData, sessionId }: AudioVisualizer
               </svg>
             )}
           </button>
-          
+
           {/* Download — gated behind login. Free users can play; keeping the file needs an account. */}
           <button
             type="button"
@@ -685,37 +492,6 @@ export default function AudioVisualizer({ formData, sessionId }: AudioVisualizer
             </svg>
             <span>{downloadState === "working" ? "…" : downloadState === "error" ? "Retry" : "Download"}</span>
           </button>
-        </div>
-      </div>
-
-      {/* Custom details display HUD */}
-      <div
-        style={{
-          marginBlockStart: "1.5rem",
-          padding: "1rem",
-          background: "rgba(0,0,0,0.3)",
-          borderRadius: "12px",
-          border: "1px solid rgba(255, 255, 255, 0.03)",
-          fontSize: "0.8rem",
-          display: "grid",
-          gridTemplateColumns: "1fr 1fr",
-          gap: "0.75rem",
-          color: "var(--color-text-secondary)",
-        }}
-      >
-        <div>
-          <span style={{ color: "var(--color-text-muted)", display: "block", fontSize: "0.7rem", textTransform: "uppercase" }}>Current Battlefield</span>
-          <strong style={{ color: "#ffffff" }}>{formData.battlefield}</strong>
-        </div>
-        <div>
-          <span style={{ color: "var(--color-text-muted)", display: "block", fontSize: "0.7rem", textTransform: "uppercase" }}>Target Arena</span>
-          <strong style={{ color: "#ffffff" }}>{formData.location}</strong>
-        </div>
-        <div style={{ gridColumn: "span 2" }}>
-          <span style={{ color: "var(--color-text-muted)", display: "block", fontSize: "0.7rem", textTransform: "uppercase" }}>Grafted Struggle Narrative</span>
-          <p style={{ color: "#ffffff", fontSize: "0.78rem", lineBreak: "anywhere", marginBlockStart: "0.15rem" }}>
-            &ldquo;...Swapping in {formData.name} fighting hard in {formData.location} for legacy of {formData.family} to conquer doubts of {formData.struggle}...&rdquo;
-          </p>
         </div>
       </div>
     </div>

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { getPrediction } from "@/lib/replicate";
-import { getJobById } from "@/lib/scale-guard";
+import { getJobById, getJobByPredictionId } from "@/lib/scale-guard";
+import { isQualityFailed } from "@/lib/scorecard";
 
 /**
  * GET /api/process/status?id=<predictionId>           — poll a running prediction
@@ -45,6 +46,25 @@ export async function GET(request: Request) {
       .slice(-40);
 
     if (p.status === "succeeded") {
+      // DELIVERY GATE: Replicate `succeeded` only means the cog exited — NOT that the take is good
+      // enough to ship. The cog's quality gate (dead-air / music-continuity battery) is the real
+      // verdict. Consult the persisted job + the cog's [[SCORECARD]] line in the live logs (the latter
+      // closes the webhook-vs-poll race). A gate-failed run is reported "failed" — never "done" — so the
+      // result screen can never play a track the system itself rejected and refunded.
+      const job = await getJobByPredictionId(predictionId);
+      const qualityFailed = isQualityFailed(job?.scorecard, p.logs);
+      if (qualityFailed || job?.status === "failed") {
+        return NextResponse.json({
+          id: predictionId,
+          status: "failed",
+          quality: qualityFailed,
+          logs,
+          error: qualityFailed ? "quality_gate" : "pipeline",
+          message: qualityFailed
+            ? "This take didn't pass our quality check, so we held it back — you weren't charged. Tap to generate it again."
+            : "Pipeline failed — try again with different audio.",
+        });
+      }
       return NextResponse.json({
         id: predictionId,
         status: "done",

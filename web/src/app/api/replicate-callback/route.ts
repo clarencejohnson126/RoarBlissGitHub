@@ -7,6 +7,7 @@ import { baseUrl } from "@/lib/base-url";
 import { markJobTerminal, setJobOutputUrl, setJobScorecard } from "@/lib/scale-guard";
 import { chargeReservation, releaseReservation, clearFreeUsageForPrediction } from "@/lib/supabase-admin";
 import { drainQueue, reconcileStuckRunning } from "@/lib/drain";
+import { parseScorecard } from "@/lib/scorecard";
 
 /**
  * POST /api/replicate-callback?email=<addr>
@@ -45,32 +46,11 @@ function verifyReplicateWebhook(req: Request, rawBody: string): boolean {
   }
 }
 
-/**
- * DELIVERY GATE — read the cog's [[SCORECARD]] log line. The cog scores the FINISHED file against its own
- * source (source-relative, ear-calibrated battery) and prints one JSON line. A run whose `passed === false`
- * is treated as a non-delivery downstream: refunded + a "retry" email, NEVER shipped to the user. The whole
- * scorecard is the JSON object on one line, so a greedy match to end-of-line is correct even with nesting.
- * Fail-OPEN: a missing/garbled scorecard (older cog, truncated logs) never blocks a good run — we only
- * block on an explicit `false`.
- */
-function parseScorecard(
-  logs: string,
-): { passed: boolean | null; failures: string[]; measured?: unknown } | null {
-  if (!logs) return null;
-  const matches = [...logs.matchAll(/\[\[SCORECARD\]\]\s*(\{.*\})\s*$/gm)];
-  const last = matches[matches.length - 1]; // a retried run logs more than once → last wins
-  if (!last) return null;
-  try {
-    const d = JSON.parse(last[1]);
-    return {
-      passed: typeof d.passed === "boolean" ? d.passed : null,
-      failures: Array.isArray(d.failures) ? d.failures : [],
-      measured: d.measured,
-    };
-  } catch {
-    return null;
-  }
-}
+// DELIVERY GATE — the cog scores the FINISHED file against its own source and prints one [[SCORECARD]]
+// JSON line. A run whose `passed === false` is a non-delivery: refunded + a "retry" email, NEVER shipped.
+// parseScorecard lives in @/lib/scorecard so this webhook AND the user-facing serve paths
+// (/api/process/status, /api/audio) share ONE verdict and can never drift. Fail-OPEN: a missing/garbled
+// scorecard never blocks a good run — we only block on an explicit `false`.
 
 export async function POST(request: Request) {
   try {

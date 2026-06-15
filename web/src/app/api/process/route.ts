@@ -28,7 +28,8 @@ import {
  *
  * The heavy pipeline (Demucs → Whisper → pyannote → Sonnet planner → TTS → ffmpeg) runs as one
  * Replicate model, scale-to-zero. We return the prediction id; the client polls /api/process/status.
- * Tier caps (free ≤45s & locked to 75% / paid ≤6min & any tier) are enforced inside the model itself.
+ * Length caps (free ≤45s / paid ≤6min) are enforced inside the model. The personalization tier
+ * (25/50/75/100) is the USER's choice on BOTH free and paid — free is bounded by length, not a forced tier.
  */
 export async function POST(request: Request) {
   try {
@@ -66,7 +67,7 @@ export async function POST(request: Request) {
       .slice(0, 45);
 
     // Core feature 1: the 4-tier selector. Accept 25/50/75/100; anything else falls back to 50.
-    // The free tier is locked to 75% (and ≤45s in the cog) so the listener identifies immediately —
+    // Free honors the user's chosen tier (25/50/75/100), bounded only by the ≤45s cap in the cog —
     // the tier selector only takes effect once paid. The cog enforces this too (defence in depth).
     const requestedTier = [25, 50, 75, 100].includes(Number(personalization))
       ? (Number(personalization) as 25 | 50 | 75 | 100)
@@ -111,9 +112,14 @@ export async function POST(request: Request) {
         { status: 429 },
       );
     }
-    if ((await runsForUserToday(null, fingerprint)) >= lim.maxRunsPerUserPerDay) {
+    // Resolve the user up-front so the per-account daily cap actually applies to signed-in users.
+    // Previously this passed null → everyone was throttled only by device fingerprint, so one account
+    // across two devices doubled the cap (and the per-user limit never engaged). Anonymous visitors
+    // still fall back to the device fingerprint. (Reused below for the paid/minutes path too.)
+    const user = await verifyUser(bearerToken(request));
+    if ((await runsForUserToday(user?.id ?? null, fingerprint)) >= lim.maxRunsPerUserPerDay) {
       return NextResponse.json(
-        { error: "You've reached today's limit on this device. Please come back tomorrow.", userLimitReached: true },
+        { error: "You've reached today's limit. Please come back tomorrow.", userLimitReached: true },
         { status: 429 },
       );
     }
@@ -128,8 +134,7 @@ export async function POST(request: Request) {
     // to false, which dropped PAYING users into the free-device gate (the deadliest bug). Rule: anyone signed
     // in with an ACTIVE plan runs the paid path (bill minutes, skip the free gate), regardless of the client
     // flag. A signed-in user with NO plan and anonymous visitors fall through to the free 45s gate. The client
-    // `paid` flag now only nudges un-entitled users who explicitly asked to pay.
-    const user = await verifyUser(bearerToken(request));
+    // `paid` flag now only nudges un-entitled users who explicitly asked to pay. (`user` resolved above.)
     if (user) {
       const { tier, allowance, periodEnd } = tierState(user);
       if (tier) {
@@ -210,7 +215,13 @@ export async function POST(request: Request) {
     // user when they've navigated away; on http (local dev) we skip it and rely on client polling.
     // Replicate requires an https webhook (prod). The callback charges/releases the reservation by
     // prediction_id, so no billing data needs to ride in the URL.
-    const emailQ = typeof email === "string" && email ? `?email=${encodeURIComponent(email)}` : "";
+    // Notify address for the delivery webhook (the "your track is ready" + "we held this one back /
+    // you weren't charged" quality emails). Prefer the VERIFIED user's email: the create flow sends
+    // email:"" for signed-in users, so these emails never fired (H3); and trusting a client-supplied
+    // string would let a caller address the mail to anyone. Anonymous visitors have no verified email
+    // → no mail is sent, exactly as before.
+    const notifyEmail = user?.email || (typeof email === "string" ? email : "");
+    const emailQ = notifyEmail ? `?email=${encodeURIComponent(notifyEmail)}` : "";
     const webhook = `${base}/api/replicate-callback${emailQ}`;
     const httpsWebhook = webhook.startsWith("https://") ? webhook : undefined;
     if (paidGranted && !httpsWebhook) {

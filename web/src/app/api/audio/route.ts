@@ -1,5 +1,7 @@
 import { getPrediction, outputUrl } from "@/lib/replicate";
 import { verifyUser } from "@/lib/supabase-admin";
+import { getJobByPredictionId } from "@/lib/scale-guard";
+import { isQualityFailed } from "@/lib/scorecard";
 
 /**
  * GET /api/audio?id=<predictionId>[&download=1]
@@ -31,6 +33,13 @@ export async function GET(request: Request): Promise<Response> {
   try {
     const p = await getPrediction(id);
     if (p.status !== "succeeded") return new Response("not ready", { status: 409 });
+    // DELIVERY GATE: never stream a take that failed the cog's quality gate (dead-air etc.), even though
+    // Replicate reports `succeeded`. Mirrors /api/process/status so the player, the download and the
+    // dashboard stream all refuse a rejected track. Fail-OPEN (only blocks on explicit passed===false).
+    const job = await getJobByPredictionId(id);
+    if (isQualityFailed(job?.scorecard, p.logs) || job?.status === "failed") {
+      return new Response("this take didn't pass the quality check", { status: 409 });
+    }
     url = outputUrl(p);
   } catch (e) {
     return new Response((e as Error).message, { status: 502 });

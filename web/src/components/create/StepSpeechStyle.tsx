@@ -9,8 +9,9 @@ const INTENSITIES: Intensity[] = ["low", "medium", "high"];
 const INTENSITY_LABELS = ["Gentle reminder", "Strong push", "No excuses"];
 
 export default function StepSpeechStyle() {
-  const { data, update, next } = useCreateFlow();
+  const { data, update, next, entitlement } = useCreateFlow();
   const valid = !!data.primaryTone;
+  const paid = !!entitlement?.tier;
 
   const onTone = (title: string) => {
     if (data.primaryTone === title) update({ primaryTone: data.secondaryTone, secondaryTone: "" });
@@ -89,7 +90,7 @@ export default function StepSpeechStyle() {
           </button>
         ))}
       </div>
-      <p className={styles.hint}>The deeper you go, the more the speech becomes yours. Free preview is the first 45s at 75%.</p>
+      <p className={styles.hint}>The deeper you go, the more the speech becomes yours.{paid ? "" : " The free preview is the first 45 seconds — at whatever depth you pick."}</p>
 
       <div className={styles.blockLabel}>Language</div>
       <div className={styles.langRow}>

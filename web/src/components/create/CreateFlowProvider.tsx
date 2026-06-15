@@ -2,11 +2,18 @@
 
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from "react";
 import { CreateFlowData, EMPTY_FLOW } from "./createData";
+import { supabaseBrowser } from "@/lib/supabase-browser";
 
 const KEY = "roarbliss_create_flow";
 
+/** Who the current visitor is — drives tier-aware copy across every step (paid users must never see
+ *  "45-second preview / create an account"). Loaded once from /api/me; null while loading. */
+export type Entitlement = { authenticated: boolean; tier: string; minutesRemaining: number };
+
 type Ctx = {
   data: CreateFlowData;
+  /** null while /api/me is loading; treat as free/anonymous until it resolves. */
+  entitlement: Entitlement | null;
   update: (patch: Partial<CreateFlowData>) => void;
   toggleArray: (field: keyof CreateFlowData, value: string, max?: number) => void;
   file: File | null;
@@ -41,7 +48,31 @@ export default function CreateFlowProvider({ children }: { children: ReactNode }
   const [saveVoice, setSaveVoice] = useState(false);
   const [sessionId, setSessionId] = useState("");
   const [step, setStep] = useState(0);
+  const [entitlement, setEntitlement] = useState<Entitlement | null>(null);
   const loaded = useRef(false);
+
+  // Load the visitor's entitlement once (tier → paid). Every step reads this for truthful copy.
+  useEffect(() => {
+    (async () => {
+      try {
+        const { data: sess } = await supabaseBrowser().auth.getSession();
+        const token = sess.session?.access_token;
+        if (!token) {
+          setEntitlement({ authenticated: false, tier: "", minutesRemaining: 0 });
+          return;
+        }
+        const r = await fetch("/api/me", { headers: { Authorization: `Bearer ${token}` } });
+        const j = await r.json().catch(() => ({}));
+        setEntitlement({
+          authenticated: !!j.authenticated,
+          tier: (j.tier as string) || "",
+          minutesRemaining: Number(j.minutesRemaining) || 0,
+        });
+      } catch {
+        setEntitlement({ authenticated: false, tier: "", minutesRemaining: 0 });
+      }
+    })();
+  }, []);
 
   // restore persisted answers (not the File — can't serialize)
   useEffect(() => {
@@ -92,7 +123,7 @@ export default function CreateFlowProvider({ children }: { children: ReactNode }
   }, []);
 
   return (
-    <FlowCtx.Provider value={{ data, update, toggleArray, file, setFile, presetAudioUrl, setPresetAudioUrl, saveVoice, setSaveVoice, sessionId, setSessionId, step, setStep, next, back, reset }}>
+    <FlowCtx.Provider value={{ data, entitlement, update, toggleArray, file, setFile, presetAudioUrl, setPresetAudioUrl, saveVoice, setSaveVoice, sessionId, setSessionId, step, setStep, next, back, reset }}>
       {children}
     </FlowCtx.Provider>
   );

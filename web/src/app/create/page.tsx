@@ -49,17 +49,14 @@ function CreateRouter() {
         const p = me?.profile as Record<string, unknown> | null | undefined;
         const nickname = (p?.nickname as string) || (p?.userName as string) || "";
         if (p && nickname) {
-          const people = p.people as string | undefined;
+          // PRECEDENCE FIX: only pre-fill the fields QuickCreate actually SHOWS (name, battles, tone,
+          // intensity, depth, language). The narrative fields (reasonForFighting / neededEmotions /
+          // lifePressure) are invisible & uneditable on QuickCreate, so pre-filling them would silently
+          // inject stale context (e.g. "Fighting for: my mom, my kids") into a fresh prompt-driven run.
+          // The per-speech prompt is the brief now; saved narrative stays in the profile, not the prompt.
           update({
             userName: nickname,
             selectedBattles: Array.isArray(p.battles) ? (p.battles as string[]) : [],
-            reasonForFighting: Array.isArray(p.reasonForFighting)
-              ? (p.reasonForFighting as string[])
-              : people
-                ? people.split(",").map((s) => s.trim()).filter(Boolean)
-                : [],
-            neededEmotions: Array.isArray(p.neededEmotions) ? (p.neededEmotions as string[]) : [],
-            lifePressure: Array.isArray(p.lifePressure) ? (p.lifePressure as string[]) : [],
             primaryTone: (p.primaryTone as string) || (p.tone as string) || "",
             secondaryTone: (p.secondaryTone as string) || "",
             intensity: (p.intensity as Intensity) || "medium",

@@ -23,7 +23,11 @@ export async function POST(req: Request) {
     // Merge so we never clobber other user_metadata keys.
     const { data } = await admin.auth.admin.getUserById(user.id);
     const current = (data?.user?.user_metadata ?? {}) as Record<string, unknown>;
-    await admin.auth.admin.updateUserById(user.id, { user_metadata: { ...current, profile } });
+    // DEEP-merge the profile sub-object too: QuickCreate only sends the fields it shows, so a shallow
+    // replace would WIPE the user's saved narrative fields (reasonForFighting etc.) on every quick run.
+    const currentProfile = (current.profile ?? {}) as Record<string, unknown>;
+    const mergedProfile = { ...currentProfile, ...profile };
+    await admin.auth.admin.updateUserById(user.id, { user_metadata: { ...current, profile: mergedProfile } });
     return NextResponse.json({ ok: true });
   } catch (e) {
     return NextResponse.json({ error: (e as Error).message || "Could not save profile." }, { status: 500 });

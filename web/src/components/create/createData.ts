@@ -91,14 +91,33 @@ export const DEPTHS: { value: Depth; label: string; hint: string }[] = [
 
 // internal opaque tone keys the cog/player depend on — never shown to users
 const FIRE_TONES = new Set(["Dark & Intense", "Aggressive Discipline", "Warrior Mode", "Comeback Energy"]);
+// Tones the user explicitly picked as quiet/grounded. An explicit calm tone OWNS the energy read —
+// a lingering intensity:"high" (e.g. pre-filled from an old saved profile on Quick Create) must not
+// flip a "Calm & Stoic" take into the aggressive crimson theme. The chosen TONE is the truth signal.
+const CALM_TONES = new Set(["Calm & Stoic", "Warm & Hopeful", "Spiritual / Reflective", "Fatherly / Protective"]);
+/** Truthful visual-energy flag derived from the user's REAL tone/intensity (drives the player's
+ *  crimson-vs-gold theme). NOT a voice/celebrity attribution — the player must never claim a named voice.
+ *  Tone wins over intensity: a named fire tone is always high, a named calm tone is always calm, and
+ *  intensity only decides when no explicit tone was chosen. */
+export function isHighEnergy(primaryTone: string, intensity: Intensity): boolean {
+  if (FIRE_TONES.has(primaryTone)) return true;
+  if (CALM_TONES.has(primaryTone)) return false;
+  return intensity === "high";
+}
 export function deriveChampion(primaryTone: string, intensity: Intensity): "Eric Thomas" | "Les Brown" {
-  if (intensity === "high") return "Eric Thomas";
-  return FIRE_TONES.has(primaryTone) ? "Eric Thomas" : "Les Brown";
+  return isHighEnergy(primaryTone, intensity) ? "Eric Thomas" : "Les Brown";
 }
 
 /** Compose the rich wizard data into the existing /api/process payload (no backend change). */
 export function composePayload(d: CreateFlowData) {
   const parts: string[] = [];
+  // PRECEDENCE (founder rule): the per-speech free-text is THE brief and must dominate. The cog
+  // (predict.py: `ctx = prompt.strip() if prompt else _context_prompt(...)`) ignores the structured
+  // family/battlefield fields entirely whenever `prompt` is non-empty and parses THIS string instead —
+  // so a fresh request must LEAD, never sit behind saved/background lines. (This is the root of the
+  // "I typed demons/entrepreneur but got a speech about my mom & kids" bug: the saved reasonForFighting
+  // was injected ahead of the fresh prompt and the planner weighted it.)
+  if (d.customPrompt.trim()) parts.push(`What this speech is about (most important): ${d.customPrompt.trim()}`);
   if (d.selectedBattles.length) parts.push(`Battles: ${d.selectedBattles.join(", ")}.`);
   if (d.neededEmotions.length) parts.push(`Needs most right now: ${d.neededEmotions.join(", ")}.`);
   if (d.lifePressure.length) parts.push(`Main pressure: ${d.lifePressure.join(", ")}.`);
@@ -108,7 +127,6 @@ export function composePayload(d: CreateFlowData) {
   if (d.deadline.trim()) parts.push(`Time pressure: ${d.deadline.trim()}.`);
   if (d.wordsToInclude.trim()) parts.push(`Include these words/names: ${d.wordsToInclude.trim()}.`);
   if (d.wordsToAvoid.trim()) parts.push(`Avoid these words: ${d.wordsToAvoid.trim()}.`);
-  if (d.customPrompt.trim()) parts.push(d.customPrompt.trim());
   parts.push(`Delivery intensity: ${d.intensity}.`);
 
   return {

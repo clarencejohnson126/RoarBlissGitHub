@@ -382,6 +382,28 @@ export async function getJobById(
   }
 }
 
+/**
+ * Look up a job by its prediction id — the DELIVERY GATE for the user-facing serve paths
+ * (/api/process/status, /api/audio). Returns the persisted status + the quality scorecard so a
+ * succeeded-but-gate-failed prediction is never shown/streamed to the user. Returns null on
+ * miss/error → callers fail OPEN (don't block a good run just because the row isn't found yet).
+ */
+export async function getJobByPredictionId(
+  predictionId: string,
+): Promise<{ status: string; scorecard: unknown; output_url: string | null } | null> {
+  try {
+    const { data, error } = await supabaseAdmin()
+      .from("jobs")
+      .select("status,scorecard,output_url")
+      .eq("prediction_id", predictionId)
+      .limit(1);
+    if (error || !data?.length) return null;
+    return data[0] as { status: string; scorecard: unknown; output_url: string | null };
+  } catch {
+    return null;
+  }
+}
+
 /** Email the founder when the budget guard trips. Best-effort. */
 export async function sendBudgetAlert(reason: string): Promise<void> {
   try {

@@ -7,7 +7,8 @@ import StepShell from "./StepShell";
 import styles from "./create.module.css";
 
 export default function StepAudioUpload() {
-  const { file, setFile, next } = useCreateFlow();
+  const { file, setFile, next, entitlement } = useCreateFlow();
+  const paid = !!entitlement?.tier;
   const [error, setError] = useState("");
   const [drag, setDrag] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -39,7 +40,7 @@ export default function StepAudioUpload() {
       sub="Now bring the voice. RoarBliss reshapes it around your story while preserving the emotional tone and music."
       onNext={() => file && next()}
       nextDisabled={!file}
-      nextLabel="Generate Preview"
+      nextLabel={paid ? "Generate my track" : "Generate Preview"}
     >
       <div
         className={`${styles.uploadBox} ${drag ? styles.uploadBoxDrag : ""} ${file ? styles.uploadBoxOn : ""}`}
@@ -86,7 +87,7 @@ export default function StepAudioUpload() {
 
       <p className={styles.disclaimer}>
         Maximum file size <strong>100 MB</strong>. Audio longer than <strong>6 minutes</strong> will be trimmed to the
-        first 6 minutes. Your free preview is the first <strong>45 seconds</strong>. We process your file and keep only
+        first 6 minutes.{paid ? " You get the full track, up to 6 minutes." : <> Your free preview is the first <strong>45 seconds</strong>.</>} We process your file and keep only
         the finished result — <strong>your upload is deleted right after</strong>.
       </p>
       <p className={styles.safeNote}>

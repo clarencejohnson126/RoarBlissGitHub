@@ -17,7 +17,10 @@ const PHASES = [
 ];
 
 export default function StepGenerating() {
-  const { data, file, presetAudioUrl, saveVoice, setSessionId, setStep } = useCreateFlow();
+  const { data, file, presetAudioUrl, saveVoice, setSessionId, setStep, entitlement } = useCreateFlow();
+  const paid = !!entitlement?.tier;
+  // Same length as PHASES (the poll logic keys off PHASES.length) — only the last label is tier-aware.
+  const phaseLabels = paid ? [...PHASES.slice(0, -1), "Preparing your track"] : PHASES;
   const [progress, setProgress] = useState(4);
   const [phase, setPhase] = useState(0);
   const [error, setError] = useState("");
@@ -47,25 +50,34 @@ export default function StepGenerating() {
           audioUrl = blob.url;
         }
 
-        // Measure the upload's runtime so paid runs bill by minutes (capped at 6 min server-side).
+        // Measure the runtime so paid runs bill by minutes (capped at 6 min server-side). Works for BOTH
+        // a fresh upload (object URL) AND a saved voice (remote blob URL) — without the saved-voice case
+        // durationSec stayed 0 and the server defaulted to the full 6-min cap, over-billing a short clip.
+        // (Reading .duration via loadedmetadata needs no CORS; a failed read falls back to 0 → 6-min cap.)
         let durationSec = 0;
-        if (file) {
+        const objectUrl = file ? URL.createObjectURL(file) : "";
+        const measureSrc = objectUrl || audioUrl;
+        if (measureSrc) {
           durationSec = await new Promise<number>((resolve) => {
+            let settled = false;
+            const done = (d: number) => {
+              if (settled) return;
+              settled = true;
+              if (objectUrl) URL.revokeObjectURL(objectUrl);
+              resolve(Number.isFinite(d) && d > 0 ? d : 0);
+            };
+            // A remote (saved-voice) blob URL can stall; never let metadata reading block the run from
+            // starting — on timeout we fall back to 0 (server applies the 6-min cap), same as a failed read.
+            const timer = setTimeout(() => done(0), 8000);
             try {
-              const url = URL.createObjectURL(file);
               const a = document.createElement("audio");
               a.preload = "metadata";
-              a.onloadedmetadata = () => {
-                URL.revokeObjectURL(url);
-                resolve(Number.isFinite(a.duration) ? a.duration : 0);
-              };
-              a.onerror = () => {
-                URL.revokeObjectURL(url);
-                resolve(0);
-              };
-              a.src = url;
+              a.onloadedmetadata = () => { clearTimeout(timer); done(a.duration); };
+              a.onerror = () => { clearTimeout(timer); done(0); };
+              a.src = measureSrc;
             } catch {
-              resolve(0);
+              clearTimeout(timer);
+              done(0);
             }
           });
         }
@@ -113,24 +125,28 @@ export default function StepGenerating() {
 
         // remember this setup so a returning, signed-in user lands straight in Quick Create next time
         if (token) {
+          const profile: Record<string, unknown> = {
+            nickname: data.userName,
+            battles: data.selectedBattles,
+            tone: data.primaryTone,
+            language: data.language,
+            secondaryTone: data.secondaryTone,
+            intensity: data.intensity,
+            depth: data.personalizationDepth,
+          };
+          // Only persist narrative fields when present THIS session. QuickCreate no longer pre-fills them
+          // (precedence fix), so sending empty arrays here would wipe a returning user's saved profile —
+          // the /api/profile deep-merge keeps omitted keys. The full wizard sets them, so they save there.
+          if (data.reasonForFighting.length) {
+            profile.reasonForFighting = data.reasonForFighting;
+            profile.people = data.reasonForFighting.join(", ");
+          }
+          if (data.neededEmotions.length) profile.neededEmotions = data.neededEmotions;
+          if (data.lifePressure.length) profile.lifePressure = data.lifePressure;
           fetch("/api/profile", {
             method: "POST",
             headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-            body: JSON.stringify({
-              profile: {
-                nickname: data.userName,
-                people: data.reasonForFighting.join(", "),
-                battles: data.selectedBattles,
-                tone: data.primaryTone,
-                language: data.language,
-                secondaryTone: data.secondaryTone,
-                intensity: data.intensity,
-                depth: data.personalizationDepth,
-                reasonForFighting: data.reasonForFighting,
-                neededEmotions: data.neededEmotions,
-                lifePressure: data.lifePressure,
-              },
-            }),
+            body: JSON.stringify({ profile }),
           }).catch(() => {});
         }
 
@@ -208,7 +224,7 @@ export default function StepGenerating() {
               </p>
 
               <div className={styles.phases}>
-                {PHASES.map((p, i) => {
+                {phaseLabels.map((p, i) => {
                   const done = i < phase;
                   const on = i === phase;
                   return (

@@ -20,6 +20,22 @@ export async function POST(req: Request) {
 
   try {
     if (tier) {
+      // GUARD: never start a SECOND concurrent subscription (the audit found this silently double-charges
+      // a user who clicks a plan again on /pricing). If a live subscription already exists, send them to
+      // the billing portal to switch/cancel instead of creating another one.
+      if (user.email) {
+        const blocking = new Set(["active", "trialing", "past_due", "unpaid"]);
+        const existing = await stripe().customers.list({ email: user.email, limit: 100 });
+        for (const c of existing.data) {
+          const subs = await stripe().subscriptions.list({ customer: c.id, status: "all", limit: 10 });
+          if (subs.data.some((s) => blocking.has(s.status))) {
+            return NextResponse.json(
+              { error: "You already have an active plan. Open the billing portal to switch or cancel it.", hasActiveSub: true },
+              { status: 409 },
+            );
+          }
+        }
+      }
       const meta = { userId: user.id, credits: String(tier.monthlyCredits), tier: tier.id };
       // Attach the subscription to the canonical Stripe Product in prod (so the Customer Portal + dashboard
       // show "Roar Bliss Warrior" etc.); fall back to an inline product in preview/local (test keys, no products).

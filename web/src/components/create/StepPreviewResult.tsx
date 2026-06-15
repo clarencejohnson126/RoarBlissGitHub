@@ -5,13 +5,14 @@ import Link from "next/link";
 import { motion } from "framer-motion";
 import AudioVisualizer from "@/components/AudioVisualizer";
 import { useCreateFlow } from "./CreateFlowProvider";
-import { composePayload } from "./createData";
+import { isHighEnergy } from "./createData";
 import styles from "./create.module.css";
 
 export default function StepPreviewResult() {
-  const { data, sessionId, setStep, reset } = useCreateFlow();
-  const p = composePayload(data);
+  const { data, sessionId, setStep, reset, entitlement } = useCreateFlow();
   const firstName = (data.userName || "").trim().split(" ")[0] || "warrior";
+  const paid = !!entitlement?.tier;
+  const authed = !!entitlement?.authenticated;
   const [copied, setCopied] = useState(false);
 
   // sessionId is the finished prediction id — its public share page is /t/<id>.
@@ -31,15 +32,6 @@ export default function StepPreviewResult() {
     setTimeout(() => setCopied(false), 2000);
   };
 
-  const formData = {
-    battlefield: p.battlefield,
-    name: p.name,
-    family: p.family,
-    location: "",
-    struggle: p.struggle,
-    champion: p.champion,
-  };
-
   return (
     <div className={styles.wrap}>
       <div className={styles.bg} aria-hidden>
@@ -55,14 +47,24 @@ export default function StepPreviewResult() {
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.6, ease: [0.16, 1, 0.3, 1] }}
         >
-          <span className={styles.eyebrow}>Your first roar</span>
+          <span className={styles.eyebrow}>Your roar</span>
           <h1 className={styles.headline}>
-            Your first roar is <span className={styles.gold}>ready.</span>
+            Your roar is <span className={styles.gold}>ready.</span>
           </h1>
-          <p className={styles.sub}>Listen to your 45-second preview, {firstName}. Create an account to download the full track.</p>
+          <p className={styles.sub}>
+            {paid
+              ? `Your full track is ready, ${firstName}. Download it or share it.`
+              : authed
+                ? `Your 45-second preview is ready, ${firstName}. Download it — or pick a plan for full-length tracks.`
+                : `Listen to your 45-second preview, ${firstName}. Create a free account to download it.`}
+          </p>
 
           <div style={{ marginBlockStart: "2rem" }}>
-            <AudioVisualizer formData={formData} sessionId={sessionId} />
+            <AudioVisualizer
+              name={data.userName?.trim() || "Warrior"}
+              sessionId={sessionId}
+              highEnergy={isHighEnergy(data.primaryTone, data.intensity)}
+            />
           </div>
 
           <div className={styles.nav} style={{ justifyContent: "center", flexWrap: "wrap" }}>
