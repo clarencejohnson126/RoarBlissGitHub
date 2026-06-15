@@ -105,6 +105,30 @@ export default function DashboardPage() {
     }
   };
 
+  // Permanently delete the account (GDPR erasure). Guarded by a type-to-confirm field.
+  const [deleteConfirm, setDeleteConfirm] = useState("");
+  const [deleteBusy, setDeleteBusy] = useState(false);
+  const [deleteMsg, setDeleteMsg] = useState("");
+  const deleteAccount = async () => {
+    if (!token || deleteBusy || deleteConfirm.trim().toUpperCase() !== "DELETE") return;
+    setDeleteBusy(true);
+    setDeleteMsg("");
+    try {
+      const r = await fetch("/api/account/delete", { method: "POST", headers: { Authorization: `Bearer ${token}` } });
+      const j = (await r.json()) as { ok?: boolean; error?: string };
+      if (r.ok && j.ok) {
+        await supabaseBrowser().auth.signOut();
+        window.location.href = "/?deleted=1";
+        return;
+      }
+      setDeleteMsg(j.error || "Could not delete the account. Please try again.");
+    } catch {
+      setDeleteMsg("Could not delete the account. Please try again.");
+    } finally {
+      setDeleteBusy(false);
+    }
+  };
+
   useEffect(() => {
     const sb = supabaseBrowser();
     sb.auth.getSession().then(({ data }) => {
@@ -468,8 +492,36 @@ export default function DashboardPage() {
               <button className={styles.btnDanger} onClick={signOut}>Sign out</button>
             </div>
             <p className={styles.sub} style={{ marginTop: "1.5rem", fontSize: "0.82rem" }}>
-              Need to cancel or update billing? Use <strong>Manage / cancel</strong> above to open the secure Stripe portal — cancel anytime (you keep access until the period ends), update your card, or download invoices. To delete your account, contact support.
+              Need to cancel or update billing? Use <strong>Manage / cancel</strong> above to open the secure Stripe portal — cancel anytime (you keep access until the period ends), update your card, or download invoices.
             </p>
+
+            {/* Danger zone — permanent account deletion (GDPR right to erasure). */}
+            <div style={{ marginTop: "2.5rem", paddingTop: "1.5rem", borderTop: "1px solid rgba(230,57,70,0.25)" }}>
+              <div className={styles.rowLabel} style={{ color: "#f87171", fontWeight: 600 }}>Delete account</div>
+              <p className={styles.sub} style={{ fontSize: "0.82rem", marginTop: "0.4rem", marginBottom: "0.9rem" }}>
+                Permanently deletes your account, your tracks, saved voices, and cancels any active subscription.
+                This <strong>cannot be undone</strong>. Type <strong>DELETE</strong> to confirm.
+              </p>
+              <div style={{ display: "flex", gap: "0.75rem", flexWrap: "wrap", alignItems: "center" }}>
+                <input
+                  type="text"
+                  value={deleteConfirm}
+                  onChange={(e) => setDeleteConfirm(e.target.value)}
+                  placeholder="DELETE"
+                  aria-label="Type DELETE to confirm account deletion"
+                  style={{ ...authInputStyle, maxInlineSize: "160px" }}
+                />
+                <button
+                  className={styles.btnDanger}
+                  onClick={deleteAccount}
+                  disabled={deleteBusy || deleteConfirm.trim().toUpperCase() !== "DELETE"}
+                  style={{ opacity: deleteBusy || deleteConfirm.trim().toUpperCase() !== "DELETE" ? 0.5 : 1 }}
+                >
+                  {deleteBusy ? "Deleting…" : "Delete my account"}
+                </button>
+              </div>
+              {deleteMsg && <p className={styles.sub} style={{ color: "#f87171", fontSize: "0.82rem", marginTop: "0.6rem" }}>{deleteMsg}</p>}
+            </div>
           </div>
         )}
       </div>

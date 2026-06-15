@@ -75,7 +75,12 @@ export const TONES: { title: string; desc: string }[] = [
   { title: "Comeback Energy", desc: "Down, not done. Rising." },
 ];
 
-export const LANGUAGES = ["English", "German", "Spanish", "French", "Italian", "Portuguese", "Dutch", "Polish", "Chinese"];
+// LAUNCH (2026-06-15): English-only. Cross-lingual translation produces garbled output on the cloud
+// (CUDA) — OmniVoice cross-lingual is clean on local MPS but garbles on every cloud config tested
+// (torch 2.5.1/2.6, fp16/bf16/fp32, num_step 80/48). Restore the full list once translation works in
+// prod (v2 path: native-voice translation). Single-element list = no language picker reaches users.
+export const LANGUAGES = ["English"];
+// export const LANGUAGES = ["English", "German", "Spanish", "French", "Italian", "Portuguese", "Dutch", "Polish", "Chinese"];
 
 export const DEPTHS: { value: Depth; label: string; hint: string }[] = [
   { value: 25, label: "25%", hint: "Light personalization" },
