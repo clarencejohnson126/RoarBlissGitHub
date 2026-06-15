@@ -22,7 +22,6 @@ function secrets() {
     hf_token: process.env.HF_TOKEN || "",
     replicate_api_token: process.env.REPLICATE_API_TOKEN || "",
     blob_token: process.env.BLOB_READ_WRITE_TOKEN || "",
-    elevenlabs_api_key: process.env.ELEVENLABS_API_KEY || "",
   };
 }
 

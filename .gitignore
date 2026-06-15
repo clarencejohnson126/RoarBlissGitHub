@@ -79,3 +79,24 @@ wordpress-mcp.log
 # eval harness test artifacts
 eval/_out_*.mp3
 eval/last_results.json
+
+# Local audio renders + listening/reference sets (heavy binaries, regenerable — kept locally, never committed).
+# A handful of approved references stay on disk (e.g. RoarBliss_GoT_v6_2min.mp3, the c482a0a4 takes) but are
+# ignored here so they don't clutter `git status`.
+/*.mp3
+/RoarBliss_*/
+/reference_demos/
+/OMNIVOICE_REFERENCE/
+
+# Local handoff docs, runbooks, website source images, throwaway screenshots (kept on disk, not in git)
+/HANDOFF_*.md
+/GO_LIVE_RUNBOOK.pdf
+/Background images for website app/
+/*.png
+
+# Local cloud-test logs + secondary build dir
+/web/cloudtest_*.txt
+/web/.next-build/
+
+# Browser-automation cache
+/.playwright-mcp/

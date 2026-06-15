@@ -72,8 +72,7 @@ export default function PrivacyPage() {
         <ul>
           <li><span style={C.strong}>Supabase</span> – Authentifizierung &amp; Datenbank (Konto/Profil), EU-Hosting.</li>
           <li><span style={C.strong}>Vercel</span> – Hosting der Anwendung &amp; temporäre/finale Audiospeicherung (Blob).</li>
-          <li><span style={C.strong}>Replicate</span> – Ausführung der Audio-Verarbeitungs-Pipeline (USA).</li>
-          <li><span style={C.strong}>ElevenLabs</span> – Sprach-Synthese für die personalisierten Passagen (USA).</li>
+          <li><span style={C.strong}>Replicate</span> – Ausführung der gesamten Audio-Verarbeitungs- und Sprachsynthese-Pipeline (USA).</li>
           <li><span style={C.strong}>Anthropic</span> – Textgenerierung für die Personalisierung (USA).</li>
           <li><span style={C.strong}>Stripe</span> – Zahlungsabwicklung der Abonnements.</li>
           <li><span style={C.strong}>Resend</span> – Versand von System-/Login-E-Mails (Server in EU/USA).</li>

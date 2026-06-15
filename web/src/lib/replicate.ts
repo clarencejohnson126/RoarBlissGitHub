@@ -86,8 +86,8 @@ export interface PredictionInput {
   location: string;
   champion: string;
   paid: boolean;
-  // Voice engine. MUST be set explicitly: the cog's "auto" default resolves to ElevenLabs whenever
-  // its key is present, which silently bypasses the chosen in-cog OmniVoice engine.
+  // Voice engine. The web ALWAYS sends 'omnivoice' — the shipped in-cog engine. The cog's other
+  // choices remain valid enum values but are not used in production (ElevenLabs is fully out).
   tts_provider?: "auto" | "elevenlabs" | "chatterbox" | "omnivoice" | "replicate";
   // Per-prediction secrets (Replicate has no model-level env vars). Server-side only; the model
   // declares these as Cog Secret inputs, so Replicate masks them in logs.
@@ -95,7 +95,6 @@ export interface PredictionInput {
   hf_token?: string;
   replicate_api_token?: string;
   blob_token?: string;
-  elevenlabs_api_key?: string; // premium voice cloning — when set, the cog uses ElevenLabs over F5
   // Core feature 1 — how much of the audio becomes the user's. 25/50/75 keep the original speaker and
   // replace that share of the spoken timeline; 100 = a fully new script in the cloned voice (full_voice).
   personalization?: 25 | 50 | 75 | 100;
@@ -107,7 +106,7 @@ export interface PredictionInput {
   tone?: string; // one-click mood/template tag, e.g. "fighter", "reflective", "grief", "confident"
   // Advanced voice/mix knobs (optional; the cog defaults are correct for the standard upload+clone flow).
   clone_source_voices?: boolean; // false = only use extra_voice_ids over the upload-as-bed (instrumental + chosen voice)
-  extra_voice_ids?: string; // comma-separated permanent ElevenLabs voice IDs
+  extra_voice_ids?: string; // comma-separated permanent voice IDs (instrumental-template path; not sent by the web yet)
   music_gain_db?: number; // bed loudness relative to the voice (0 = at voice level)
   duck_db?: number; // sidechain duck depth under the voice
   voice_speed?: number; // <1 = slower/more deliberate

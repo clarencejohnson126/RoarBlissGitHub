@@ -65,7 +65,7 @@ export async function findByIdempotencyKey(
  * Spend-cap inputs: total runs + summed estimated cost since the start of the UTC day.
  * Returns null on error → the caller FAILS CLOSED. This is the one guard that protects real money, so
  * if we can't verify today's spend (DB brownout) we must NOT keep starting runs (the rest of the
- * guards fail open; the budget guard must not, or an outage = unbounded Replicate/ElevenLabs spend).
+ * guards fail open; the budget guard must not, or an outage = unbounded Replicate spend).
  */
 export async function runsAndSpendToday(): Promise<{ runs: number; cents: number } | null> {
   try {
@@ -120,7 +120,7 @@ type JobMeta = {
 /** Strip per-prediction secrets before persisting input (never store secrets in the DB). */
 export function stripSecrets(input: PredictionInput): Partial<PredictionInput> {
   const clone: Record<string, unknown> = { ...input };
-  for (const k of ["anthropic_api_key", "hf_token", "replicate_api_token", "blob_token", "elevenlabs_api_key"]) {
+  for (const k of ["anthropic_api_key", "hf_token", "replicate_api_token", "blob_token"]) {
     delete clone[k];
   }
   return clone as Partial<PredictionInput>;

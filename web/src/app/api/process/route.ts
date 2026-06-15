@@ -18,6 +18,11 @@ import {
   stripSecrets,
   sendBudgetAlert,
 } from "@/lib/scale-guard";
+import { probeAudioDurationSec } from "@/lib/audio-duration";
+
+// The server-side duration probe (music-metadata) + the Replicate/Supabase-admin libs are Node-only,
+// so pin this route to the Node runtime explicitly.
+export const runtime = "nodejs";
 
 /**
  * POST /api/process  — starts a cloud personalization run.
@@ -49,7 +54,6 @@ export async function POST(request: Request) {
       prompt,
       tone,
       deviceId,
-      durationSec,
     } = (data ?? {}) as Record<string, unknown>;
 
     // Device + IP identity for the free-tier abuse gate (1 free track per device/IP). Sanitize both
@@ -138,9 +142,14 @@ export async function POST(request: Request) {
     if (user) {
       const { tier, allowance, periodEnd } = tierState(user);
       if (tier) {
-        // Active plan → paid run. Minutes cost = upload runtime capped at the 6-min output (unknown → cap).
-        const dur = Number(durationSec);
-        runMinutes = Math.round((Math.min(dur > 0 ? dur : 360, 360) / 60) * 100) / 100;
+        // Active plan → paid run. SERVER-AUTHORITATIVE billing: measure the REAL upload duration instead
+        // of trusting the client. A crafted request could otherwise send durationSec:1 and run a full
+        // 6-min track for ~0.02 charged minutes (#12 bypass). On ANY probe failure we bill the 6-min cap,
+        // never a client value — so minutes are always deducted and can never be under-reported. The
+        // client `durationSec` is now ignored here (UI hint only); the cog trims output to 6 min anyway.
+        const probedSec = await probeAudioDurationSec(audio);
+        const billSec = probedSec != null ? Math.min(probedSec, 360) : 360;
+        runMinutes = Math.round((billSec / 60) * 100) / 100;
         // ATOMIC reserve (per-user lock + allowance check in the DB). Minutes count now, charged on delivery.
         reservationId = await reserveMinutes(user.id, runMinutes, periodEnd, allowance);
         if (!reservationId) {
@@ -191,8 +200,7 @@ export async function POST(request: Request) {
       location: (location as string) || "",
       champion: (champion as string) || "",
       paid: paidGranted,
-      // THE engine. Must be explicit: the cog's "auto" default resolves to ElevenLabs whenever its
-      // key is present, silently bypassing the in-cog OmniVoice engine we actually ship.
+      // THE engine — always explicit. OmniVoice runs in-cog on GPU; it is the only engine we ship.
       tts_provider: "omnivoice",
       // Honor the chosen tier on BOTH free + paid so the preview reflects exactly what was picked
       // (25/50/75 = that share of the timeline; 100 = full rewrite). Free stays bounded by the 45s cap
@@ -207,8 +215,6 @@ export async function POST(request: Request) {
       hf_token: process.env.HF_TOKEN || "",
       replicate_api_token: process.env.REPLICATE_API_TOKEN || "",
       blob_token: process.env.BLOB_READ_WRITE_TOKEN || "",
-      // When ELEVENLABS_API_KEY is configured, the cog auto-switches to ElevenLabs (better timbre).
-      elevenlabs_api_key: process.env.ELEVENLABS_API_KEY || "",
     };
 
     // Replicate requires an https webhook. On https deployments we attach one so we can email the
