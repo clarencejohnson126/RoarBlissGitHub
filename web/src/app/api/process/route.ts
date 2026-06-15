@@ -124,33 +124,37 @@ export async function POST(request: Request) {
     let jobUserId: string | null = null;
     let runMinutes = 0;
     let reservationId: string | null = null;
-    if (paid === true) {
-      const user = await verifyUser(bearerToken(request));
-      if (!user) {
-        return NextResponse.json(
-          { error: "Sign in and pick a plan to unlock paid (6-min) tracks.", needsAuth: true },
-          { status: 401 },
-        );
-      }
+    // SERVER-AUTHORITATIVE paid detection. Do NOT trust the client `paid` flag — composePayload hardcoded it
+    // to false, which dropped PAYING users into the free-device gate (the deadliest bug). Rule: anyone signed
+    // in with an ACTIVE plan runs the paid path (bill minutes, skip the free gate), regardless of the client
+    // flag. A signed-in user with NO plan and anonymous visitors fall through to the free 45s gate. The client
+    // `paid` flag now only nudges un-entitled users who explicitly asked to pay.
+    const user = await verifyUser(bearerToken(request));
+    if (user) {
       const { tier, allowance, periodEnd } = tierState(user);
-      if (!tier) {
+      if (tier) {
+        // Active plan → paid run. Minutes cost = upload runtime capped at the 6-min output (unknown → cap).
+        const dur = Number(durationSec);
+        runMinutes = Math.round((Math.min(dur > 0 ? dur : 360, 360) / 60) * 100) / 100;
+        // ATOMIC reserve (per-user lock + allowance check in the DB). Minutes count now, charged on delivery.
+        reservationId = await reserveMinutes(user.id, runMinutes, periodEnd, allowance);
+        if (!reservationId) {
+          return NextResponse.json(
+            { error: `You've used all ${allowance} minutes for this month — they reset on your renewal date.`, needsPurchase: true, outOfMinutes: true },
+            { status: 402 },
+          );
+        }
+        paidGranted = true;
+        jobUserId = user.id;
+      } else if (paid === true) {
         return NextResponse.json({ error: "Pick a plan to unlock 6-minute tracks.", needsPurchase: true }, { status: 402 });
       }
-      // The minutes this run will cost = the upload's runtime, capped at the 6-min output. Unknown
-      // duration (client couldn't measure) → charge the cap, never under-bill.
-      const dur = Number(durationSec);
-      runMinutes = Math.round((Math.min(dur > 0 ? dur : 360, 360) / 60) * 100) / 100;
-      // ATOMIC reserve (per-user lock + allowance check inside the DB) — prevents the concurrent
-      // over-delivery race. The minutes count immediately; they're charged on delivery, released on failure.
-      reservationId = await reserveMinutes(user.id, runMinutes, periodEnd, allowance);
-      if (!reservationId) {
-        return NextResponse.json(
-          { error: `You've used all ${allowance} minutes for this month — they reset on your renewal date.`, needsPurchase: true, outOfMinutes: true },
-          { status: 402 },
-        );
-      }
-      paidGranted = true;
-      jobUserId = user.id;
+      // signed-in but no active plan (and not an explicit paid request) → free 45s gate below.
+    } else if (paid === true) {
+      return NextResponse.json(
+        { error: "Sign in and pick a plan to unlock paid (6-min) tracks.", needsAuth: true },
+        { status: 401 },
+      );
     }
 
     // No anonymous-identity free runs: without a device fingerprint OR an IP we can't enforce the
