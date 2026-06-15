@@ -405,6 +405,20 @@ def auto_synthesize(audio_path: str, user_context: str,
     except Exception as _e:
         print("[plan-check] skipped:", _e)
 
+    # CATASTROPHIC-PLAN ABORT (string-only, safe): one override text dominating the whole plan is the
+    # degenerate "My name is I ×13" failure (a broken draft → gap-filler flood). A legit war-cry repeats
+    # at most ~2×, so a line that is ≥5 occurrences AND ≥40% of all lines can only be degeneracy. Abort
+    # BEFORE any TTS/mix GPU — predict.py turns a non-"ok" status into a failed run (refund + re-roll),
+    # so the user never hears it and is never charged. (The draft-JSON retry above makes this rare.)
+    _texts = [(o.get("text") or o.get("override_text") or "").strip().lower() for o in overrides]
+    _texts = [t for t in _texts if t]
+    if _texts:
+        from collections import Counter
+        _top, _n = Counter(_texts).most_common(1)[0]
+        if _n >= 5 and _n / len(_texts) >= 0.40:
+            log(f"CATASTROPHIC plan: '{_top[:40]}' repeats {_n}/{len(_texts)}× — aborting before TTS", "err")
+            return {"status": "degenerate_plan", "elapsed_s": time.time() - t0}
+
     # ── Stage B: ORIGINAL-CANVAS rebuild (founder's model) ───────────────────
     # The canvas is the BIT-IDENTICAL ORIGINAL FULL MIX — NOT the demucs vocal stem. Kept regions then
     # carry the real music+voice with ZERO separation loss; ONLY the replaced slots get reconstructed

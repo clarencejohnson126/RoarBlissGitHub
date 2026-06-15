@@ -62,6 +62,18 @@ function CreateRouter() {
             intensity: (p.intensity as Intensity) || "medium",
             personalizationDepth: (p.depth as Depth) || 75,
             language: (p.language as string) || "English",
+            // CLEAR every field QuickCreate does NOT show. These persist in localStorage from any prior
+            // wizard session, and composePayload would otherwise fold them into the prompt silently
+            // ("Fighting for: my mom, my kids", an old goal/deadline) on a fresh prompt-driven run. The
+            // per-speech prompt is the brief; saved narrative lives in the profile, never in the prompt.
+            reasonForFighting: [],
+            neededEmotions: [],
+            lifePressure: [],
+            reminderText: "",
+            mainGoal: "",
+            deadline: "",
+            wordsToInclude: "",
+            wordsToAvoid: "",
           });
           setMode("quick");
         } else {

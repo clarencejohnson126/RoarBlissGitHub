@@ -297,7 +297,7 @@ LAW 1 - ORIGINAL ONLY (safety-critical). Every line is NEW writing about the USE
 
 LAW 2 - FIRST PERSON, THIS USER. The user is the "I" and the hero of this world. Every line is the user speaking as themselves. No third-person narration about other characters (the one exception: a PEAK chant where the world roars the user's name).
 
-LAW 3 - NAME & IDENTITY EARLY, AS A RECURRING MOTIF. Within the first ~10 seconds of the timeline, one early slot must state the user's FULL real name and FORGE an identity from the source world that fits them. The name is real; the costume around it is the world's. Make it land as a coronation, not an introduction. Pick a slot with enough target_words to land the full name cleanly; never split the name across slots.
+LAW 3 - NAME & IDENTITY EARLY, AS A RECURRING MOTIF. Within the first ~6 seconds of the timeline (a listener who hears nothing of themselves in the first few seconds assumes it failed and stops), one early slot must state the user's FULL real name and FORGE an identity from the source world that fits them. The name is real; the costume around it is the world's. Make it land as a coronation, not an introduction. Pick a slot with enough target_words to land the full name cleanly; never split the name across slots.
   Worked forgings (derive your own from the actual source - do not copy):
     - Epic: "I am Clarence Johnson, first king of House Johnson."
     - Sermon: "They call me Clarence Johnson - the one who would not turn back."
@@ -367,6 +367,35 @@ FINAL CHECK BEFORE YOU EMIT (run silently, then output ONLY the JSON)
 6. Output is ONLY the JSON object - valid, parseable, ASCII only, ids all real and unique, array ordered by start time.
 
 Emit the JSON now."""
+
+def _parse_selected(raw: str) -> list:
+    """Robustly pull the `selected` overrides out of a draft LLM response. A clean parse first; then
+    salvage every COMPLETE {…} object so one malformed entry mid-array can't discard all the good lines
+    before it (the bug that produced 'My name is I' ×13: a stray delimiter → 0 picks → gap-filler flood).
+    Returns [] only when truly nothing parseable came back."""
+    if not raw:
+        return []
+    m = re.search(r'\{[\s\S]*\}', raw)
+    if not m:
+        return []
+    blob = m.group(0)
+    try:
+        sel = json.loads(blob).get("selected", [])
+        if isinstance(sel, list) and sel:
+            return sel
+    except Exception:
+        pass
+    # Salvage: each override is a FLAT object {"cand_id":..,"override_text":"..","theme":".."}.
+    objs = []
+    for om in re.finditer(r'\{[^{}]*\}', blob):
+        try:
+            o = json.loads(om.group(0))
+        except Exception:
+            continue
+        if isinstance(o, dict) and "override_text" in o and "cand_id" in o:
+            objs.append(o)
+    return objs
+
 
 def llm_pick_slots(candidates: list, brief: dict, type_profile: dict,
                    target_slot_count: int, window_ms: int, protagonist: str = "",
@@ -438,28 +467,23 @@ Emit the JSON now."""
         user_msg += (f"\n\nLANGUAGE: Write EVERY override_text line ENTIRELY in {language.strip()} — "
                      f"natural, native {language.strip()}, never a translation.")
 
-    raw = _llm_chat(system=PLANNER_SYSTEM_PROMPT, user=user_msg, max_tokens=6000, temperature=0.6,
-                     model=WRITER_MODEL)
-
-    # Extract JSON
-    m = re.search(r'\{[\s\S]*\}', raw)
-    if not m:
-        print("  LLM returned no JSON; raw:", raw[:300])
-        return []
-    try:
-        parsed = json.loads(m.group(0))
-        return parsed.get("selected", [])
-    except json.JSONDecodeError as e:
-        # Try to recover by trimming to last complete object
-        text = m.group(0)
-        last_bracket = text.rfind("]")
-        if last_bracket > 0:
-            try:
-                return json.loads(text[:last_bracket+1] + "}").get("selected", [])
-            except Exception:
-                pass
-        print(f"  LLM JSON parse failed: {e}; raw[:500]: {raw[:500]}")
-        return []
+    # The draft is the heart of the run. Its JSON occasionally returns malformed (a stray missing
+    # delimiter mid-array) — which historically threw ALL the good lines away (draft=0 picks) and the
+    # gap-filler then flooded the track with one repeated line ("My name is I" ×13). Defend in depth:
+    #   1) _parse_selected salvages every COMPLETE override even when the array breaks midway;
+    #   2) re-sample the draft up to 3× when a parse STILL yields nothing (temperature>0 → a fresh
+    #      sample almost always returns clean JSON). Only a true 3× failure falls through to gap-fill.
+    for attempt in range(3):
+        raw = _llm_chat(system=PLANNER_SYSTEM_PROMPT, user=user_msg, max_tokens=6000,
+                         temperature=0.6, model=WRITER_MODEL)
+        picks = _parse_selected(raw)
+        if picks:
+            if attempt:
+                print(f"  draft recovered on attempt {attempt + 1}: {len(picks)} picks")
+            return picks
+        print(f"  draft attempt {attempt + 1}/3 yielded 0 usable picks"
+              + ("; re-sampling…" if attempt < 2 else "; giving up (gap-filler covers)"))
+    return []
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Stage 5: validate + repair
@@ -847,9 +871,14 @@ def _inject_peak_chant(overrides, candidates, brief, user_name, verbose=False):
 
 def _fill_gaps(overrides, candidates, brief, user_name, win_ms, verbose=False):
     """Never leave > MAX_GAP_MS of original with no personalized line — keep the user present."""
-    full = user_name if user_name and user_name.lower() != "you" else "I"
-    pool = [f"My name is {full}.", "I rise again.", "I will not break.",
-            "This is mine now.", "I move forward.", "I endure."]
+    # Only say a name when we actually HAVE one — a missing name must never degrade to "My name is I".
+    has_name = bool(user_name and user_name.strip().lower() not in ("", "you", "i"))
+    full = user_name.strip() if has_name else ""
+    pool = ([f"My name is {full}."] if has_name else []) + [
+        "I rise again.", "I will not break.", "This is mine now.",
+        "I move forward.", "I endure.", "I keep going.", "I am still here.",
+    ]
+    used_texts = {(o.get("text") or "").strip().lower() for o in overrides}
     used = {o["start_ms"] for o in overrides}
     avail_c = sorted([c for c in candidates if c["start_ms"] not in used], key=lambda c: c["start_ms"])
     guard = 0
@@ -865,8 +894,11 @@ def _fill_gaps(overrides, candidates, brief, user_name, win_ms, verbose=False):
                            key=lambda c: abs(c["start_ms"] - mid), default=None)
                 if cand:
                     target = cand["target_syllables"]
-                    text = next((p for p in pool if _count_syllables(p) <= max(2, int(target * 1.3))),
-                                f"My name is {full}.")
+                    fitting = [p for p in pool if _count_syllables(p) <= max(2, int(target * 1.3))]
+                    # Prefer a line not used yet so a run of short gaps never floods one filler.
+                    fresh = [p for p in fitting if p.strip().lower() not in used_texts]
+                    text = (fresh or fitting or ["I endure."])[0]
+                    used_texts.add(text.strip().lower())
                     em = (cand.get("available_emotions") or ["neutral-narrator"])[0]
                     overrides.append({
                         "id": 0, "speaker": cand["speaker"], "emotion": em,

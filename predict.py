@@ -101,8 +101,27 @@ class Predictor(BasePredictor):
     def _constant_bed_path(self, bed_audio):
         """ONLY an explicitly chosen template bed (the instrumental side-project: a picked voice over a
         picked instrumental). RoarBliss NEVER imposes a default bed on a real source — the original
-        audio is the bed. Returns None when no template was chosen."""
-        return str(bed_audio) if bed_audio else None
+        audio is the bed. Returns None when no template was chosen. Accepts a local path OR a public
+        http(s) URL (downloaded to a temp file) — bed_audio is now a `str` input, so a URL is the way to
+        pass a template bed."""
+        if not bed_audio:
+            return None
+        s = str(bed_audio).strip()
+        if not s:
+            return None
+        if s.startswith("http://") or s.startswith("https://"):
+            try:
+                import tempfile, requests
+                r = requests.get(s, timeout=60)
+                r.raise_for_status()
+                tf = tempfile.NamedTemporaryFile(delete=False, suffix=".mp3")
+                tf.write(r.content)
+                tf.close()
+                return tf.name
+            except Exception as e:
+                print(f"bed_audio URL download failed ({e}); ignoring bed")
+                return None
+        return s
 
     def _bed_is_dry(self, accomp, speech_windows, window_ms):
         """A DRY/HOLEY bed: the separated music nearly vanishes in the original pauses, OR drops far
@@ -735,7 +754,7 @@ class Predictor(BasePredictor):
         omnivoice_dtype: str = Input(default="float16", choices=["float16", "bfloat16", "float32"], description="EXPERIMENT (cross-lingual quality): OmniVoice compute dtype on GPU. float16 (default) garbles cross-lingual German on CUDA at high diffusion steps (num_step=80); bfloat16 has fp32 exponent range (prime fix), float32 is the safe/slow fallback. Same-language English is fine on float16."),
         xlingual_num_step: int = Input(default=80, description="EXPERIMENT (cross-lingual quality): OmniVoice diffusion steps for non-English. Default 80 = founder-approved LOCAL; on cloud CUDA 80 steps garble — try 48 (the clean English-on-cloud value)."),
         xlingual_guidance: float = Input(default=3.0, description="EXPERIMENT (cross-lingual quality): OmniVoice guidance_scale for non-English. Default 3.0; try 2.0 (the clean English-on-cloud value)."),
-        bed_audio: Path = Input(default=None, description="full_voice only: an optional CLEAN, pre-mastered instrumental bed (e.g. a Suno template). When set, the generated voice rides over THIS constant bed instead of the source's separated music — used for the template-creation flow and for dry-speech sources. Leave unset: a cinematic source keeps its own bed, a dry-speech source auto-falls back to the bundled constant bed."),
+        bed_audio: str = Input(default="", description="full_voice only: optional PUBLIC URL to a CLEAN, pre-mastered instrumental bed (e.g. a Suno template). When set, the generated voice rides over THIS constant bed instead of the source's separated music — the template-creation flow / dry-speech sources. Empty = a cinematic source keeps its own bed; a dry-speech source auto-falls back to the bundled constant bed. (Declared `str`, NOT `Path`, so cog>=0.19 never serializes it as a REQUIRED input → no 422 outage on a version bump.)"),
     ) -> Path:
         from auto_synthesizer import auto_synthesize
 
@@ -827,6 +846,13 @@ class Predictor(BasePredictor):
         # An optional `tone`/template tag is appended as the desired mood. EITHER/OR — both end up here.
         ctx = (prompt.strip() if isinstance(prompt, str) and prompt.strip()
                else _context_prompt(name, location, battlefield, struggle, family, champion))
+        # When a free-form `prompt` drives the run, the structured `name` field is otherwise dropped (the
+        # planner parses ONLY the prompt) — which is why the speech said "you"/"I" instead of the real
+        # name. Fold the name into the context so the planner forges the identity from it (LAW 3).
+        if isinstance(name, str) and name.strip() and isinstance(prompt, str) and prompt.strip():
+            _nm = name.strip()
+            if _nm.lower() not in ctx.lower():
+                ctx = f"The speaker's name is {_nm}. {ctx}"
         if isinstance(tone, str) and tone.strip():
             ctx = f"{ctx}\nDesired tone / mood: {tone.strip()}."
 
