@@ -14,6 +14,28 @@ function subPeriodEndISO(sub: Stripe.Subscription): string {
 }
 
 /**
+ * The subscription id on an invoice. Stripe's 2026 API (2026-05-27.dahlia) moved it OFF the top-level
+ * `invoice.subscription` into `invoice.parent.subscription_details.subscription` (and the line item).
+ * The old code gated the renewal branch on `inv.subscription`, which is now always undefined → renewals
+ * never reset minutes → paying subscribers get locked out in month 2. Check every known location.
+ */
+function resolveInvoiceSubId(inv: Stripe.Invoice): string | undefined {
+  const i = inv as unknown as {
+    subscription?: string;
+    parent?: { subscription_details?: { subscription?: string } };
+    lines?: { data?: Array<{ subscription?: string; parent?: { subscription_item_details?: { subscription?: string } } }> };
+  };
+  const line = i.lines?.data?.[0];
+  return (
+    i.subscription ||
+    i.parent?.subscription_details?.subscription ||
+    line?.subscription ||
+    line?.parent?.subscription_item_details?.subscription ||
+    undefined
+  );
+}
+
+/**
  * POST /api/stripe-webhook — Stripe calls this after a TEST checkout completes. We verify the
  * signature, then grant the purchased credits to the user (stored in Supabase app_metadata).
  */
@@ -51,9 +73,10 @@ export async function POST(req: Request) {
       }
     } else if (event.type === "invoice.payment_succeeded") {
       // Subscription RENEWAL → reset minutes to the tier allowance (NO rollover) + re-anchor the period.
-      const inv = event.data.object as Stripe.Invoice & { subscription?: string; billing_reason?: string };
-      if (inv.billing_reason === "subscription_cycle" && inv.subscription) {
-        const sub = await stripe().subscriptions.retrieve(inv.subscription);
+      const inv = event.data.object as Stripe.Invoice & { billing_reason?: string };
+      const subId = resolveInvoiceSubId(inv);
+      if (inv.billing_reason === "subscription_cycle" && subId) {
+        const sub = await stripe().subscriptions.retrieve(subId);
         const userId = sub.metadata?.userId;
         const tier = sub.metadata?.tier;
         if (userId && tier) {
