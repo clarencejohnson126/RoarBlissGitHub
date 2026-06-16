@@ -101,6 +101,39 @@ No prose outside the JSON object."""
         return {"name": "you", "themes": ["growth"], "emotional_state": "searching",
                 "specifics": [], "tone_preference": "confident"}
 
+
+# Map the 8 user-facing tones → the source-speaker reference EMOTIONS to clone from (preference order).
+# THIS is what makes the tone selector real: "Calm & Stoic" clones the speaker's CALM references even when
+# the source is shouting, instead of matching the source's loud energy at each moment. Ceiling: if the
+# source speaker only ever shouts (no calm reference exists), there's nothing calm to clone from.
+TONE_EMOTION_PREFS = {
+    "calm & stoic": ["contemplative", "calm", "narrator"],
+    "spiritual": ["contemplative", "calm", "wise", "narrator"],
+    "reflective": ["contemplative", "calm", "wise", "narrator"],
+    "warm & hopeful": ["calm", "contemplative", "warm", "wise"],
+    "fatherly": ["wise", "teaching", "calm", "contemplative"],
+    "protective": ["wise", "teaching", "calm", "contemplative"],
+    "dark & intense": ["defiant", "strong"],
+    "aggressive": ["defiant", "strong"],
+    "warrior": ["defiant", "strong"],
+    "comeback": ["defiant", "strong"],
+}
+
+
+def _tone_emotion_prefs(tone_raw: str) -> list:
+    """Ordered reference-emotion keywords for the user's chosen tone (empty if no known tone)."""
+    t = (tone_raw or "").lower()
+    for key, prefs in TONE_EMOTION_PREFS.items():
+        if key in t:
+            return prefs
+    return []
+
+
+def _parse_tone(user_context: str) -> str:
+    """Pull the user's tone out of the context line predict.py appends ('Desired tone / mood: X')."""
+    m = re.search(r"desired tone\s*/?\s*mood:\s*([^\n.]+)", (user_context or "").lower())
+    return m.group(1).strip() if m else ""
+
 # ──────────────────────────────────────────────────────────────────────────────
 # Stage 3: mine candidate slot windows
 # ──────────────────────────────────────────────────────────────────────────────
@@ -655,21 +688,28 @@ def validate_and_repair(selected: list, candidates: list, ref_library: dict,
         if not text or len(text.split()) < 2:
             continue
 
-        # Emotion match (same heuristic as before)
+        # Emotion match. The USER's chosen tone LEADS — "Calm & Stoic" must sound calm even on a loud
+        # source — and only when the tone yields no usable reference do we fall back to the line's own
+        # keyword heuristic. This is what makes every tone in the picker actually change the voice.
         available = cand["available_emotions"]
         if not available:
             continue
-        text_lower = text.lower()
-        if any(w in text_lower for w in ["whisper", "broken", "lost", "alone"]):
-            chosen_emo = next((e for e in available if "broken" in e or "whispered" in e), available[0])
-        elif any(w in text_lower for w in ["rise", "fight", "build", "i am", "i will"]):
-            chosen_emo = next((e for e in available if "defiant" in e or "strong" in e), available[0])
-        elif any(w in text_lower for w in ["wonder", "always", "remember", "long ago", "thinking"]):
-            chosen_emo = next((e for e in available if "contemplative" in e or "calm" in e), available[0])
-        elif any(w in text_lower for w in ["choose", "decide", "moment", "now is"]):
-            chosen_emo = next((e for e in available if "wise" in e or "teaching" in e), available[0])
-        else:
-            chosen_emo = available[0]
+        chosen_emo = None
+        _prefs = _tone_emotion_prefs(brief.get("tone_raw", ""))
+        if _prefs:
+            chosen_emo = next((e for e in available if any(p in e for p in _prefs)), None)
+        if chosen_emo is None:
+            text_lower = text.lower()
+            if any(w in text_lower for w in ["whisper", "broken", "lost", "alone"]):
+                chosen_emo = next((e for e in available if "broken" in e or "whispered" in e), available[0])
+            elif any(w in text_lower for w in ["rise", "fight", "build", "i am", "i will"]):
+                chosen_emo = next((e for e in available if "defiant" in e or "strong" in e), available[0])
+            elif any(w in text_lower for w in ["wonder", "always", "remember", "long ago", "thinking"]):
+                chosen_emo = next((e for e in available if "contemplative" in e or "calm" in e), available[0])
+            elif any(w in text_lower for w in ["choose", "decide", "moment", "now is"]):
+                chosen_emo = next((e for e in available if "wise" in e or "teaching" in e), available[0])
+            else:
+                chosen_emo = available[0]
 
         valid_slots.append({
             "id": len(valid_slots) + 1,
@@ -968,8 +1008,10 @@ def generate_personalization(audio_path: str, user_context: str,
 
     if verbose: print("\nStage 2: parse user context...")
     brief = parse_user_context(user_context)
+    brief["tone_raw"] = _parse_tone(user_context)   # the user's chosen tone → drives the voice emotion
     if verbose:
         print(f"  name: {brief['name']}")
+        if brief.get("tone_raw"): print(f"  tone: {brief['tone_raw']} -> emotion prefs {_tone_emotion_prefs(brief['tone_raw'])}")
         print(f"  themes: {brief['themes']}")
         print(f"  emotional_state: {brief['emotional_state']}")
 

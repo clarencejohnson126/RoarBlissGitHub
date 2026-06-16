@@ -152,6 +152,30 @@ def _ramp_edge(seg, ms, fade_in=True):
             samples[base + c] = int(samples[base + c] * g)
     return seg._spawn(samples)
 
+def _local_music_gain(canvas, accomp, fws, fwe, fr, chans, fallback_db=0.0, win_ms=700, lo=0.0, hi=14.0):
+    """PER-SLOT bleed compensation. Instead of one GLOBAL constant lift (which under-matches some slots →
+    the 'music turned down at every snippet' rollercoaster the founder heard), measure the music level the
+    listener actually hears in the KEPT region right before AND after this slot (the <200Hz band of the
+    full mix, where music carries and speech ~doesn't) and lift the slot's accomp to match THAT local
+    level. Each slot then blends into its own neighbourhood → no per-slot up/down. Returns a dB gain
+    clamped [lo,hi]; falls back to the global comp on any measurement failure (fail-safe)."""
+    try:
+        win = int(fr * win_ms / 1000.0)
+        total = int(canvas.frame_count())
+        before = canvas.get_sample_slice(max(0, fws - win), fws).low_pass_filter(200).dBFS
+        after = canvas.get_sample_slice(fwe, min(total, fwe + win)).low_pass_filter(200).dBFS
+        neigh = [d for d in (before, after) if d != float("-inf")]
+        if not neigh:
+            return fallback_db
+        target = sum(neigh) / len(neigh)
+        slot_db = accomp.get_sample_slice(fws, fwe).low_pass_filter(200).dBFS
+        if slot_db == float("-inf"):
+            return fallback_db
+        return max(lo, min(hi, target - slot_db))
+    except Exception:
+        return fallback_db
+
+
 def _rebuild_slot(canvas, accomp, s_ms, slot_ms, fitted, comp_db, rate, chans, guard=200, F=8):
     """Replace ONE slot on the FULL-MIX canvas, pure + length-invariant. The slot(+guard) span currently
     holds the original VOICE *and* its music; carve it out and refill with MUSIC ONLY — the accomp stem for
@@ -182,8 +206,12 @@ def _rebuild_slot(canvas, accomp, s_ms, slot_ms, fitted, comp_db, rate, chans, g
     pre = canvas.get_sample_slice(0, fws)
     post = canvas.get_sample_slice(fwe, None)
     slot_music = accomp.get_sample_slice(fws, fwe)
-    if comp_db:
-        slot_music = slot_music + comp_db             # gain only — never changes frame count
+    # PER-SLOT bleed match: lift the slot's accomp to the LOCAL kept-region music level (<200Hz, right
+    # before/after this slot), NOT one global constant — this kills the 'music down at every snippet'
+    # rollercoaster. Falls back to the global comp on any measurement failure.
+    _g = _local_music_gain(canvas, accomp, fws, fwe, fr, chans, fallback_db=comp_db)
+    if _g:
+        slot_music = slot_music + _g                  # gain only — never changes frame count
     # force EXACTLY `need` frames (accomp can be a hair short at the very tail)
     have = int(slot_music.frame_count())
     if have < need:
