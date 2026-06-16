@@ -141,13 +141,16 @@ def _norm_phrase(t: str) -> str:
     return re.sub(r'[^a-z ]', '', t.lower()).strip()
 
 
-def _group_into_sentences(segments: list, max_group_s: float = 14.0) -> list:
+def _group_into_sentences(segments: list, max_group_s: float = 14.0, min_group_s: float = 0.0) -> list:
     """Merge consecutive Whisper segments into SENTENCE units so a replaced slot never begins or ends
     mid-sentence (the #1 cause of the choppy 'words swapped inside a sentence' artefact). A unit closes
-    when its accumulated text ends with . ! ? … (a real sentence boundary) — or when it would exceed
-    max_group_s (a safety cap for sources Whisper transcribes without punctuation). Each unit keeps the
-    first segment's start and the last segment's end, so the clone always replaces whole sentences and
-    the untouched original on either side is itself a complete sentence that can breathe."""
+    when its accumulated text ends with . ! ? … (a real sentence boundary) AND it is at least
+    min_group_s long — or when it would exceed max_group_s. The min_group_s floor is what merges a
+    source's SHORT punchy sentences ("Down. Still down.") into ONE unit instead of two 1-2s slots: a
+    1-2s slot forces a clipped, choked one-or-two-word clone (the 'Abwürgen' the founder heard), whereas
+    a ~min_group_s unit lets the clone speak a FULL natural sentence. Each unit keeps the first segment's
+    start and the last segment's end, so the clone always replaces whole sentences and the untouched
+    original on either side is itself a complete sentence that can breathe."""
     groups, cur = [], None
     for seg in segments:
         text = (seg.get("text") or "").strip()
@@ -157,8 +160,8 @@ def _group_into_sentences(segments: list, max_group_s: float = 14.0) -> list:
             cur["end"] = seg["end"]
             cur["text"] = (cur["text"] + " " + text).strip()
         ends_sentence = cur["text"].endswith((".", "!", "?", "…", '."', '!"', '?"'))
-        too_long = (cur["end"] - cur["start"]) >= max_group_s
-        if ends_sentence or too_long:
+        dur = cur["end"] - cur["start"]
+        if (ends_sentence and dur >= min_group_s) or dur >= max_group_s:
             groups.append(cur)
             cur = None
     if cur is not None:
@@ -184,7 +187,14 @@ def find_candidate_slots(audio_path: str, ref_library: dict, window_ms: int = No
     # Denser tiers (>=50%) need SHORTER units so each slot is filled by one clone — otherwise a long,
     # punctuation-starved run becomes a 14s slot the clone fills only halfway (big gap). Real sentence
     # punctuation still closes a unit first, so well-punctuated sources are unaffected.
-    units = _group_into_sentences(segments, max_group_s=(min(8.0, 14.0 * density) if density >= 0.5 else 14.0))
+    # min_group_s merges a source's short sentences so each slot is a FULL sentence (~4.5-8s on dense
+    # tiers), not a 1-2s fragment the clone gets clipped to (the 'Abwürgen'). Music carries any underfill,
+    # so a slightly-long slot is fine; a too-short one is what chokes the line.
+    units = _group_into_sentences(
+        segments,
+        max_group_s=(min(8.0, 14.0 * density) if density >= 0.5 else 14.0),
+        min_group_s=(4.5 if density >= 0.5 else 0.0),
+    )
     diar = diarize(audio_path, verbose=False)
 
     valid_speakers = set(ref_library["speakers"].keys())
