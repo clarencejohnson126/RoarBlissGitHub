@@ -264,11 +264,13 @@ def find_candidate_slots(audio_path: str, ref_library: dict, window_ms: int = No
             "duration_s": round(duration, 2),
             "speaker": speaker,
             "original_text": seg["text"].strip(),
-            # Match the ORIGINAL speaker's pace at THIS slot: budget to the original line's own
-            # syllable count (err ~10% short), bounded by a sane max rate. A slowly-spoken slot
-            # gets few syllables -> the clone speaks slowly too; a fast slot gets more.
-            "target_syllables": max(2, min(round(_count_syllables(seg["text"]) * 0.9),
-                                            int(duration * 3.6))),
+            # Budget to the SLOT DURATION (fill it at a natural ~4.2 syl/s), NOT the source line's own
+            # syllable count. A slow/pausing source otherwise yields a too-short line that UNDER-fills the
+            # slot — exactly the dead-air holes + 'pace-tightened' rush the founder heard. Filling the slot
+            # at a natural rate = full, flowing sentences AND no gaps. The clone renders ~4.8 syl/s, so a
+            # 4.2 budget lands at ~88% of the slot, leaving room for the breath (never an overrun → no
+            # tail-trim, the thing that chopped words). Floor keeps a 200ms guard slot from going empty.
+            "target_syllables": max(2, round(duration * 4.2)),
             "ctx_before": ctx_before,
             "ctx_after": ctx_after,
             "iconic": bool(is_anthem or is_exclaim),
