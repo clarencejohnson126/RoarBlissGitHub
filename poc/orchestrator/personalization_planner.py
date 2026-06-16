@@ -379,7 +379,7 @@ B) DISTRIBUTION - never abandon the listener, never erase the source (HARD CONST
 ------------------
 Define the TIMELINE SPAN as from the earliest candidate's start to the latest candidate's (start + duration).
 - Personalize the share of the span given by the COVERAGE TARGET in the task (sum of chosen slot durations ≈ that share). If no target is given, aim ~50%.
-- NO-GAP ALGORITHM: order all slots by start time and walk them. After each slot you select, the NEXT slot you select must begin within ~20 seconds of where the previous one ended. If the gap to your next pick would exceed ~20s, you MUST select an intervening candidate to bridge it - even a tiny one - so a stretch longer than ~20s of untouched original NEVER opens anywhere from your first pick to your last. The listener must never go 20s without hearing their own story.
+- NO-GAP ALGORITHM (the lead-in counts): Your VERY FIRST pick MUST begin within the first ~10 seconds of the timeline span. A listener who hears nothing of themselves in the first breaths assumes it failed and stops — so the intro is the SINGLE most important slot to personalize, no matter how LOW the coverage target is. From that first pick onward, order picks by start time; each next pick must begin within the task's max gap of where the previous one ended (bridge any larger gap with an intervening candidate, even a tiny one). A stretch longer than the max gap of untouched original must NEVER open ANYWHERE — INCLUDING before your first pick (a 90s untouched intro is the worst failure of all). A LOW coverage target means FEWER and SHORTER lines, NEVER later ones: spread the same small budget early-and-even from the first ~10s to the final peak. Never cluster picks in the back half and never leave the whole intro untouched — at 25% you take a short name/identity line in the first ~10s and a handful of short beats across the arc, NOT three long lines at minute two.
 - Cover the span end to end: begin near the start (for the name, Law 3) and keep personalized beats landing all the way to the final peak. Do not cluster all picks in one half.
 - LEAVE THE SOURCE'S SOUL INTACT: do NOT overwrite everything. Untouched original between your lines carries the music and gravitas and keeps the source alive. Hit the COVERAGE TARGET from the task — no more, no less. Overwriting ~100% (when the target is lower) is a failure as surely as leaving a 30s gap.
 - Always select EVERY [PEAK] (Law 4). Peaks count toward distribution and are covered no matter what.
@@ -407,7 +407,7 @@ FINAL CHECK BEFORE YOU EMIT (run silently, then output ONLY the JSON)
 1. Every override_text word count <= its slot's target_words, aimed 75-90%, no line ends on a banned function word, every line a complete phrase, specific (no cliche mush).
 2. User's FULL name stated once, early, with a forged in-world identity that recurs as a motif later.
 3. Every [PEAK] you selected is transformed into the user's name/house/title chant or vow, matched to the peak's beat.
-4. Slots sorted by start: first pick near the start, no gap over the task's max gap (bridge any that would open), total personalized AT OR UNDER the COVERAGE TARGET from the task (never over), source still breathes.
+4. Slots sorted by start: FIRST pick lands within the first ~10s of the timeline (the intro is never left untouched, even at a low tier), no gap over the task's max gap anywhere — including before the first pick (bridge any that would open), total personalized AT OR UNDER the COVERAGE TARGET from the task (never over), source still breathes.
 5. One rising arc, first person, every line in the source's costume and lexicon, zero quoting/echoing of scene_energy, no source character or place names.
 6. Output is ONLY the JSON object - valid, parseable, ASCII only, ids all real and unique, array ordered by start time.
 
@@ -480,9 +480,11 @@ def llm_pick_slots(candidates: list, brief: dict, type_profile: dict,
             " Judge intensity per beat: iconic beats stay TIGHT and rhythmic, quieter beats may run fuller."
             " Keep the strong lines; fix the rest.\nDRAFT:\n" + "\n".join(dl))
 
-    # Max allowed gap scales inversely with coverage: a dense tier keeps the user's story constantly
-    # present (~20s), a light tier necessarily leaves longer stretches of original between picks.
-    max_gap_s = int(round(min(60, max(15, 20 * 55.0 / max(coverage_pct, 1)))))
+    # Max allowed gap is kept TIGHT regardless of coverage — a LOW tier means fewer/shorter lines, NOT a
+    # longer wait between them (a 25% track with the listener's beats every ~20s feels personalized; one
+    # with the first line at 1:38 feels broken). Capped at ~22s so a light tier never balloons the gap; the
+    # lead-in (0 -> first pick) is held to ~10s by the NO-GAP rule in the prompt, not by this value.
+    max_gap_s = int(round(min(22, max(15, 20 * 55.0 / max(coverage_pct, 1)))))
 
     # All rules live in PLANNER_SYSTEM_PROMPT; the user message just delivers this run's data.
     user_msg = f"""USER BRIEF:
