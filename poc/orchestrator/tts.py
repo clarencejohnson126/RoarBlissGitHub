@@ -472,10 +472,7 @@ def synthesize_omnivoice(text: str, ref_path: Path, ref_text: str, slot_ms: int,
         ns = int(os.environ.get("OMNI_XLINGUAL_NUM_STEP") or 80)
         gs = float(os.environ.get("OMNI_XLINGUAL_GUIDANCE") or 3.0)
     else:
-        # English (same-language) keeps the fast, proven path. guidance eased 2.0 -> 1.8 (AudioTurbo:
-        # diffusion-TTS quality peaks ~1.5, gets metallic above) and made env-tunable for a no-rebuild A/B.
-        ns = 48
-        gs = float(os.environ.get("OMNI_GUIDANCE") or 1.8)
+        ns, gs = 48, 2.0
     # EXPERIMENT (founder translation test, 2026-06-14): for cross-lingual ONLY, optionally DROP the
     # source-language ref_text from the clone prompt. The English transcript anchors OmniVoice on English
     # phonetics — a prime suspect for the garbled/accented German. Audio-only conditioning (short clean
@@ -498,8 +495,6 @@ def synthesize_omnivoice(text: str, ref_path: Path, ref_text: str, slot_ms: int,
         tmp = cache_dir / f"_omni_tmp_{key}.wav"
         torchaudio.save(str(tmp), audios[0].float().cpu(), model.sampling_rate)
         clone = trim_silence(AudioSegment.from_wav(str(tmp)))
-        if len(clone) > 40:
-            clone = clone.fade_out(25)   # kill the diffusion decoder ring-out tail (the metallic 'squeak')
         os.unlink(tmp)
         if len(clone) <= max_ms:
             clone.export(str(cache_file), format="wav")

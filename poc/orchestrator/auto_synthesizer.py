@@ -145,13 +145,8 @@ def _ramp_edge(seg, ms, fade_in=True):
     frames = min(int(seg.frame_rate * ms / 1000.0), total // ch)
     if frames <= 1:
         return seg
-    import math
     for f in range(frames):
-        x = f / frames
-        # EQUAL-POWER (sin/cos), NOT linear. A linear fade-to-zero on two incoherent music signals dips to
-        # -6 dB at the midpoint = the audible 'reverse-swoosh' notch at every replaced-slot seam (measured
-        # -5.3 dB). sin/cos holds the crossing point at -3 dB (constant power) so the seam stays far flatter.
-        g = math.sin(x * math.pi / 2) if fade_in else math.cos(x * math.pi / 2)
+        g = (f / frames) if fade_in else ((frames - f) / frames)
         base = (f * ch) if fade_in else (total - (frames - f) * ch)
         for c in range(ch):
             samples[base + c] = int(samples[base + c] * g)
@@ -181,7 +176,7 @@ def _local_music_gain(canvas, accomp, fws, fwe, fr, chans, fallback_db=0.0, win_
         return fallback_db
 
 
-def _rebuild_slot(canvas, accomp, vocals, s_ms, slot_ms, fitted, comp_db, rate, chans, guard=200, F=8):
+def _rebuild_slot(canvas, accomp, s_ms, slot_ms, fitted, comp_db, rate, chans, guard=200, F=8):
     """Replace ONE slot on the FULL-MIX canvas, pure + length-invariant. The slot(+guard) span currently
     holds the original VOICE *and* its music; carve it out and refill with MUSIC ONLY — the accomp stem for
     the exact span, lifted by the CONSTANT bleed comp so its level matches the kept regions — then lay the
@@ -210,18 +205,13 @@ def _rebuild_slot(canvas, accomp, vocals, s_ms, slot_ms, fitted, comp_db, rate, 
     need = fwe - fws                                  # exact frames the reconstructed span must fill
     pre = canvas.get_sample_slice(0, fws)
     post = canvas.get_sample_slice(fwe, None)
-    # TRUE in-mix bed = full mix MINUS the vocal stem (sample-accurate phase-subtract), NOT the standalone
-    # accompaniment stem. Both come from the same mixture, so (mix - vocals) carries the music at its REAL
-    # in-mix level by energy conservation -> it matches the kept regions BY CONSTRUCTION, collapsing the
-    # 'volume rollercoaster' with no per-slot gain guessing. Falls back to the accompaniment stem + the
-    # per-slot local-level match if the phase-subtract can't run.
-    try:
-        slot_music = canvas.get_sample_slice(fws, fwe).overlay(vocals.get_sample_slice(fws, fwe).invert_phase())
-    except Exception:
-        slot_music = accomp.get_sample_slice(fws, fwe)
-        _g = _local_music_gain(canvas, accomp, fws, fwe, fr, chans, fallback_db=comp_db)
-        if _g:
-            slot_music = slot_music + _g              # gain only — never changes frame count
+    slot_music = accomp.get_sample_slice(fws, fwe)
+    # PER-SLOT bleed match: lift the slot's accomp to the LOCAL kept-region music level (<200Hz, right
+    # before/after this slot), NOT one global constant — this kills the 'music down at every snippet'
+    # rollercoaster. Falls back to the global comp on any measurement failure.
+    _g = _local_music_gain(canvas, accomp, fws, fwe, fr, chans, fallback_db=comp_db)
+    if _g:
+        slot_music = slot_music + _g                  # gain only — never changes frame count
     # force EXACTLY `need` frames (accomp can be a hair short at the very tail)
     have = int(slot_music.frame_count())
     if have < need:
@@ -586,20 +576,19 @@ def auto_synthesize(audio_path: str, user_context: str,
         # peaks near 0 dBFS, so the +gain match can slam it past full scale into hard-clipping
         # distortion. Apply the match, then pull the PEAK back just under full scale.
         slot_db = measure_slot_dbfs(vocals, s_ms, e_ms)
-        if fitted.dBFS != float('-inf'):
-            # OmniVoice clones are PEAKY (high peak, low RMS). The old peak-clamp therefore left 29/34 slots
-            # BELOW the target level (measured) -> every slot a touch quieter than the kept original = the
-            # 'pump' the founder heard. Fix: gently COMPRESS the clone first (tame the peaks) so the loudness
-            # match actually REACHES the target without clipping the mix. FLOOR the target so a near-silent
-            # original slot never mutes the clone (that produced the -90 dBFS dead line).
-            from pydub.effects import compress_dynamic_range
-            fitted = compress_dynamic_range(fitted, threshold=-16.0, ratio=3.0, attack=5.0, release=60.0)
-            target = max(slot_db if slot_db is not None else -16.0, -26.0)
-            gain = target - fitted.dBFS
-            if fitted.max_dBFS + gain > -1.0:   # final peak safety (rarely binds after compression)
-                gain = -1.0 - fitted.max_dBFS
-            fitted = fitted + gain
-            log(f"  loudness: target {target:.2f}dBFS (gain {gain:+.2f}dB, compressed)")
+        if fitted.dBFS != float('-inf') and slot_db is not None:
+            gain = slot_db - fitted.dBFS   # match the ORIGINAL slot loudness (seamless)
+            # Clamp the gain BEFORE applying it. pydub's `+` hard-clips internally, so a clone already near
+            # 0 dBFS that needs a big +gain would be DESTROYED at the apply step (the old post-check measured
+            # an already-clipped signal and couldn't undo it → distortion that the mix bus then sums into the
+            # music). Clamp so the peak lands exactly at -1 dBFS, then the clone never clips the mix.
+            if fitted.max_dBFS + gain > -1.0:
+                safe = -1.0 - fitted.max_dBFS
+                fitted = fitted + safe
+                log(f"  loudness: clamped near {slot_db:.2f}dBFS (safe gain {safe:+.2f}dB, anti-clip)")
+            else:
+                fitted = fitted + gain
+                log(f"  loudness: matched original {slot_db:.2f}dBFS (gain {gain:+.2f}dB)")
 
         # Breath sized to the ORIGINAL's own rhythm, and it sits INSIDE the slot so the clone never extends
         # past e_ms (that extension was the "drag": content shifts right + the next original resumes late).
@@ -642,7 +631,7 @@ def auto_synthesize(audio_path: str, user_context: str,
     if music_bed:
         # MUSIC: replace each slot in place on the full-mix canvas (timeline-locked → music stays in sync).
         for (s_ms, slot_ms, fitted) in placements:
-            canvas = _rebuild_slot(canvas, accomp, vocals, s_ms, slot_ms, fitted, comp_db, rate, chans)
+            canvas = _rebuild_slot(canvas, accomp, s_ms, slot_ms, fitted, comp_db, rate, chans)
     else:
         # NO MUSIC: concatenate, closing the dead air a fixed-length canvas would leave (the dry-speech fix).
         canvas = _assemble_no_music(canvas, placements, rate, chans, gap_ms=min(int(breath_ms), 320))
