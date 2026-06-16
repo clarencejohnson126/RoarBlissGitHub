@@ -125,21 +125,27 @@ export default function QuickCreate({ onFullSetup }: { onFullSetup?: () => void 
             </div>
           </div>
 
-          {/* Depth */}
+          {/* Depth — an instrumental has no original voice to keep, so it is ALWAYS a full new voice (100%).
+              Hide the 25/50/75/Full tiers and say so instead of offering a meaningless choice (composePayload
+              forces full_voice for instrumental regardless of this value). */}
           <div className={styles.qcField}>
             <label className={styles.qcLabel}>How much becomes yours?</label>
-            <div className={styles.qcSeg}>
-              {DEPTHS.map((d) => (
-                <button
-                  key={d.value}
-                  type="button"
-                  className={`${styles.qcSegBtn} ${data.personalizationDepth === d.value ? styles.qcSegBtnOn : ""}`}
-                  onClick={() => update({ personalizationDepth: d.value as Depth })}
-                >
-                  {d.label}
-                </button>
-              ))}
-            </div>
+            {isInstrumental ? (
+              <p className={styles.qcHint}>Instrumental → a complete new voice over your track (always 100%).</p>
+            ) : (
+              <div className={styles.qcSeg}>
+                {DEPTHS.map((d) => (
+                  <button
+                    key={d.value}
+                    type="button"
+                    className={`${styles.qcSegBtn} ${data.personalizationDepth === d.value ? styles.qcSegBtnOn : ""}`}
+                    onClick={() => update({ personalizationDepth: d.value as Depth })}
+                  >
+                    {d.label}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
 
           {/* Language / translate — BETA (offered with an accent disclaimer per the founder's go-live decision). */}
