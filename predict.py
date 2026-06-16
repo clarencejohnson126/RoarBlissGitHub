@@ -19,7 +19,8 @@ sys.path.insert(0, str(_P(__file__).parent / "poc" / "orchestrator"))
 
 FREE_MAX_MS = 45_000     # free tier: up to 45s
 PAID_MAX_MS = 360_000    # paid tier: up to 6 min
-FREE_TIER_PERSONALIZATION = 75   # free runs are ALWAYS 75% generated so the listener identifies at once
+# Free runs honor the user's CHOSEN tier (25/50/75/100) — bounded only by the 45s length cap + the
+# 1-free-per-device gate, NOT by a forced tier (founder decision 2026-06-15). No constant needed.
 VOICE_TARGET_DBFS = -16.0        # every rendered line is loudness-matched to this so no voice is louder/quieter
 LANG_CODE = {"english": "en", "german": "de", "spanish": "es", "french": "fr", "italian": "it",
              "portuguese": "pt", "dutch": "nl", "polish": "pl"}  # target-name -> whisper code
@@ -85,10 +86,24 @@ class Predictor(BasePredictor):
             return None
 
     def _separate(self, audio: _P, workdir: _P):
-        """Demucs two-stem split on the GPU (falls back to CPU if no CUDA)."""
+        """Source separation -> (vocals_stem, accomp_stem). DEFAULT = Mel-Band RoFormer (instrumental,
+        SDR 16.1): far less vocal-removal residue in the accomp BED than htdemucs. That residue is the
+        bed 'Gequietsche' (musical noise) the founder's ear caught at REPLACED slots — kept regions use
+        the bit-identical original mix and were always clean, so the artifact tracks the demucs bed.
+        Set SEPARATOR=demucs to force htdemucs. ANY RoFormer failure degrades GRACEFULLY to htdemucs
+        (never an outage; worst case = the old bed)."""
+        out = workdir / "sep"
+        if os.environ.get("SEPARATOR", "roformer").strip().lower() != "demucs":
+            try:
+                return self._separate_roformer(audio, out)
+            except Exception as e:
+                print(f"[separate] RoFormer unavailable ({type(e).__name__}: {e}) -> htdemucs fallback")
+        return self._separate_demucs(audio, out)
+
+    def _separate_demucs(self, audio: _P, out: _P):
+        """htdemucs two-stem split on the GPU (falls back to CPU if no CUDA)."""
         import torch
         device = "cuda" if torch.cuda.is_available() else "cpu"
-        out = workdir / "sep"
         subprocess.run(
             [sys.executable, "-m", "demucs", "--two-stems=vocals", "-d", device,
              "--out", str(out), str(audio)],
@@ -97,11 +112,48 @@ class Predictor(BasePredictor):
         vocals = next(out.rglob("vocals.wav"))
         return vocals, vocals.parent / "no_vocals.wav"
 
+    def _separate_roformer(self, audio: _P, out: _P):
+        """Mel-Band RoFormer (melband_roformer_inst_v2, instrumental SDR 16.1) via audio-separator.
+        A cleaner accomp bed removes the separation 'Gequietsche' at replaced slots. Same return
+        contract as htdemucs: (vocals_wav, accomp_wav) — vocals MUST be WAV (callers use from_wav).
+        The model is baked into the image at build time (AUDIO_SEPARATOR_MODEL_DIR); runs on CUDA in
+        the cog with no runtime network."""
+        from audio_separator.separator import Separator
+        out.mkdir(parents=True, exist_ok=True)
+        model_dir = os.environ.get("AUDIO_SEPARATOR_MODEL_DIR", "/src/audio-separator-models")
+        os.makedirs(model_dir, exist_ok=True)  # Separator REQUIRES this dir to exist (never auto-creates it)
+        sep = Separator(output_dir=str(out), output_format="wav", model_file_dir=model_dir)
+        sep.load_model(model_filename="melband_roformer_inst_v2.ckpt")
+        names = sep.separate(str(audio))             # basenames written into `out`: one (Vocals), one (Instrumental)
+        paths = [out / n for n in names]
+        vocals = next(p for p in paths if "(Vocals)" in p.name)
+        accomp = next(p for p in paths if "(Instrumental)" in p.name)
+        return vocals, accomp
+
     def _constant_bed_path(self, bed_audio):
         """ONLY an explicitly chosen template bed (the instrumental side-project: a picked voice over a
         picked instrumental). RoarBliss NEVER imposes a default bed on a real source — the original
-        audio is the bed. Returns None when no template was chosen."""
-        return str(bed_audio) if bed_audio else None
+        audio is the bed. Returns None when no template was chosen. Accepts a local path OR a public
+        http(s) URL (downloaded to a temp file) — bed_audio is now a `str` input, so a URL is the way to
+        pass a template bed."""
+        if not bed_audio:
+            return None
+        s = str(bed_audio).strip()
+        if not s:
+            return None
+        if s.startswith("http://") or s.startswith("https://"):
+            try:
+                import tempfile, requests
+                r = requests.get(s, timeout=60)
+                r.raise_for_status()
+                tf = tempfile.NamedTemporaryFile(delete=False, suffix=".mp3")
+                tf.write(r.content)
+                tf.close()
+                return tf.name
+            except Exception as e:
+                print(f"bed_audio URL download failed ({e}); ignoring bed")
+                return None
+        return s
 
     def _bed_is_dry(self, accomp, speech_windows, window_ms):
         """A DRY/HOLEY bed: the separated music nearly vanishes in the original pauses, OR drops far
@@ -134,12 +186,16 @@ class Predictor(BasePredictor):
 
     def _full_voice(self, vocals, accomp, audio_path, user_context, window_ms, work,
                     min_voices=0, extra_voice_ids="", language="English", clone_source_voices=True,
-                    music_gain_db=0.0, duck_db=8.0, voice_speed=1.0, bed_audio=None):
+                    music_gain_db=0.0, duck_db=8.0, voice_speed=1.0, bed_audio=None, library_ref=None):
         """100%-generated mode — adaptive. Build a pool of voices (permanent voice_ids supplied by the
         caller PLUS voices freshly cloned from the source's distinct speakers), write a COMPLETE new
         script (the listener's saga, original lines, never the source's words) and speak it 100% across
         those voices over the source's own clean music+SFX bed. Solo source -> one-voice monologue (Tate);
-        multi-speaker cinematic source -> a multi-voice epic (GoT). NO original dialogue is mixed in."""
+        multi-speaker cinematic source -> a multi-voice epic (GoT). NO original dialogue is mixed in.
+
+        library_ref: a LOCAL path to a chosen LIBRARY voice's clone reference (the instrumental / Feature
+        #29 path). When given, that voice is added to the clone pool (OmniVoice clones it and lays it over
+        the bed) — it is the voice for a source that has no clonable speaker of its own."""
         import tts
         from pydub import AudioSegment
 
@@ -200,6 +256,29 @@ class Predictor(BasePredictor):
                 track_refs.append((spk, rp))
         else:
             print("full_voice: cloning disabled -> only the chosen voice(s), no invented voices")
+
+        # LIBRARY VOICE (instrumental / Feature #29). A chosen library voice is added to the clone pool:
+        # OmniVoice clones it from its reference clip and speaks the whole script over the bed (RULE #1 —
+        # the bed is never touched). The reference is already a clean 6-10s mono 24kHz clip; transcribe it
+        # once for zero-shot conditioning (same single-clip+transcript recipe the 75% path uses).
+        if library_ref:
+            lp = _P(library_ref)
+            if lp.exists():
+                rp = _P(work) / "fv_ref_library.wav"
+                try:
+                    AudioSegment.from_file(str(lp))[:12_000].export(str(rp), format="wav")
+                except Exception:
+                    rp = lp
+                try:
+                    import whisper as _w
+                    _wm = _w.load_model(os.environ.get("WHISPER_MODEL", "base"))
+                    ref_texts[str(rp)] = (_wm.transcribe(str(rp)).get("text") or "").strip()
+                except Exception as e:
+                    print("full_voice: library ref transcribe unavailable:", e)
+                track_refs.append(("LIBRARY", rp))
+                print(f"full_voice: library voice added to the clone pool ({lp.name})")
+            else:
+                print(f"full_voice: library_ref not found, ignoring: {library_ref}")
 
         # 2) voice pool = permanent voices first (used directly, never cloned/deleted — e.g. the user's
         #    GoT-Jon / dany clones; they guarantee solid extra voices and cost no slot), then track clones.
@@ -729,8 +808,13 @@ class Predictor(BasePredictor):
         voice_speed: float = Input(default=1.0, description="Speaking pace of the generated voice. 1.0 = natural; <1 = slower/more deliberate (e.g. 0.93), >1 = faster. Applied to the voice only — the music is untouched."),
         breath_ms: int = Input(default=1000, description="Partial tiers (25/50/75): deliberate pause (ms) before + after each personalized snippet so it never glues straight onto the surrounding original sentence (which sounds rushed/choppy/fake). ~1000 = a full ~1s breath; 0 = off. Tune per run — no rebuild needed."),
         language: str = Input(default="English", description="Target language for the generated lines (e.g. 'German', 'Spanish', 'French'). ElevenLabs multilingual_v2 keeps the cloned timbre and the writer composes natively; the source audio can be any language."),
-        tts_provider: str = Input(default="auto", choices=["auto", "elevenlabs", "chatterbox", "omnivoice", "replicate"], description="Voice engine. 'auto' = ElevenLabs if its key is set, else Replicate F5. 'omnivoice' = OmniVoice/Higgs Audio v2 IN-COG on GPU (local zero-shot clone, NO per-op limit, multi-speaker + 646 langs incl. cross-lingual — the chosen engine). 'chatterbox' = Resemble Chatterbox-Turbo on Replicate. 'replicate' = F5-TTS."),
-        bed_audio: Path = Input(default=None, description="full_voice only: an optional CLEAN, pre-mastered instrumental bed (e.g. a Suno template). When set, the generated voice rides over THIS constant bed instead of the source's separated music — used for the template-creation flow and for dry-speech sources. Leave unset: a cinematic source keeps its own bed, a dry-speech source auto-falls back to the bundled constant bed."),
+        tts_provider: str = Input(default="omnivoice", choices=["auto", "elevenlabs", "chatterbox", "chatterbox_ml", "omnivoice", "replicate"], description="Voice engine. Default 'omnivoice' = the shipped engine (the web app forces this explicitly; making it the default too means a direct/bare cog call can never silently fall back to a non-shipped engine). 'auto' = ElevenLabs if its key is set, else Replicate F5. 'omnivoice' = OmniVoice/Higgs Audio v2 IN-COG on GPU (local zero-shot clone, NO per-op limit, multi-speaker + 646 langs incl. cross-lingual — the chosen engine). 'chatterbox' = Resemble Chatterbox (English base) on Replicate. 'chatterbox_ml' = Resemble Chatterbox MULTILINGUAL on Replicate (23 langs, cross-lingual clone — translation-engine candidate). 'replicate' = F5-TTS."),
+        xlingual_drop_reftext: bool = Input(default=False, description="EXPERIMENT (translation quality): for CROSS-LINGUAL runs only, drop the source-language ref_text from the OmniVoice clone prompt (audio-only conditioning). The source transcript may anchor OmniVoice on source phonetics → garbled/accented target language; dropping it may resolve more natively. No effect on same-language runs."),
+        omnivoice_dtype: str = Input(default="float16", choices=["float16", "bfloat16", "float32"], description="EXPERIMENT (cross-lingual quality): OmniVoice compute dtype on GPU. float16 (default) garbles cross-lingual German on CUDA at high diffusion steps (num_step=80); bfloat16 has fp32 exponent range (prime fix), float32 is the safe/slow fallback. Same-language English is fine on float16."),
+        xlingual_num_step: int = Input(default=80, description="EXPERIMENT (cross-lingual quality): OmniVoice diffusion steps for non-English. Default 80 = founder-approved LOCAL; on cloud CUDA 80 steps garble — try 48 (the clean English-on-cloud value)."),
+        xlingual_guidance: float = Input(default=3.0, description="EXPERIMENT (cross-lingual quality): OmniVoice guidance_scale for non-English. Default 3.0; try 2.0 (the clean English-on-cloud value)."),
+        bed_audio: str = Input(default="", description="full_voice only: optional PUBLIC URL to a CLEAN, pre-mastered instrumental bed (e.g. a Suno template). When set, the generated voice rides over THIS constant bed instead of the source's separated music — the template-creation flow / dry-speech sources. Empty = a cinematic source keeps its own bed; a dry-speech source auto-falls back to the bundled constant bed. (Declared `str`, NOT `Path`, so cog>=0.19 never serializes it as a REQUIRED input → no 422 outage on a version bump.)"),
+        voice_reference_url: str = Input(default="", description="INSTRUMENTAL / LIBRARY-VOICE path (Feature #29). A PUBLIC URL to a chosen library voice's clone-reference clip (6-10s mono). When set AND clone_source_voices=False, the UPLOAD is used directly as the music bed and THIS voice (OmniVoice clone) is laid over it at original bed volume (RULE #1) — for instrumentals with no voice to clone. It is ALSO the backend fallback: if a normal upload has NO clonable speaker (silent/instrumental), the pipeline routes here instead of failing with no_slots. Declared `str` (not `Path`) so a version bump never makes it a required 422 input."),
     ) -> Path:
         from auto_synthesizer import auto_synthesize
 
@@ -762,10 +846,32 @@ class Predictor(BasePredictor):
         # generate() call; it was hardcoded to "English", which broke multilingual output (German
         # text got English phonemization → garbled). The writer already composes in this language.
         os.environ["TTS_LANGUAGE"] = (language or "English").strip() or "English"
+        # EXPERIMENT toggle (translation quality): drop source-language ref_text for cross-lingual clones.
+        os.environ["OMNI_XLINGUAL_DROP_REFTEXT"] = "1" if xlingual_drop_reftext else "0"
+        # EXPERIMENT toggle (cross-lingual quality): OmniVoice compute dtype (float16/bfloat16/float32).
+        os.environ["OMNIVOICE_DTYPE"] = (omnivoice_dtype or "float16").strip()
 
         work = _P(tempfile.mkdtemp())
         cap = PAID_MAX_MS if paid else FREE_MAX_MS
         window_ms = max(10_000, min(_duration_ms(audio), cap))
+
+        # INSTRUMENTAL / LIBRARY-VOICE (Feature #29): download the chosen voice's clone reference once.
+        # `library_ref` (a local path) is the voice laid over the bed when the source has no clonable
+        # speaker — both the explicit instrumental path AND the no-speaker fallback below use it.
+        library_ref = None
+        if isinstance(voice_reference_url, str) and voice_reference_url.strip().startswith(("http://", "https://")):
+            try:
+                import requests as _rq
+                _r = _rq.get(voice_reference_url.strip(), timeout=60)
+                _r.raise_for_status()
+                _suf = ".wav" if voice_reference_url.lower().split("?")[0].endswith(".wav") else ".mp3"
+                library_ref = str(work / f"library_ref{_suf}")
+                with open(library_ref, "wb") as _f:
+                    _f.write(_r.content)
+                print(f"library voice reference downloaded ({len(_r.content)} bytes) -> {library_ref}")
+            except Exception as e:
+                print(f"library voice reference download failed ({e}); ignoring")
+                library_ref = None
 
         # Resolve the 4-tier selector into a concrete path. `personalization` is canonical; `mode`
         # is a legacy override. 100% (or an explicit full_voice) -> a fully generated new script;
@@ -780,6 +886,12 @@ class Predictor(BasePredictor):
         # from a separated bed (the step that punched holes on thin-music sources). Only an explicit
         # mode='full_voice' override, or a cross-language translation (forced below), takes the rebuild path.
         use_full_voice = (mode == "full_voice")
+        # INSTRUMENTAL / LIBRARY-VOICE (Feature #29): a chosen library voice + clone_source_voices=False is
+        # the explicit instrumental path — speak the WHOLE bed in that voice (full_voice), upload-as-bed.
+        library_voice_path = bool(library_ref) and (clone_source_voices is False)
+        if library_voice_path:
+            use_full_voice = True
+            print("instrumental/library-voice path: full_voice with the chosen library voice over the upload bed")
         # 100% must leave ZERO of the original words — replace EVERY spoken slot (density 1.0). The old
         # 0.95 cap was for partial tiers; here we want a genuine 100% new script over the kept music.
         density = max(0.1, min(tier / 100.0, 1.0))
@@ -806,10 +918,12 @@ class Predictor(BasePredictor):
         # Personalize tiers (25/50/75) and full_voice-with-cloning still separate exactly as before.
         bed_only = use_full_voice and not clone_source_voices
         if bed_only:
-            if not (extra_voice_ids or "").strip():
-                raise RuntimeError("clone_source_voices=False requires at least one voice in extra_voice_ids")
+            # The voice over the bed comes from EITHER a chosen library voice (library_ref) OR permanent
+            # voice ids (extra_voice_ids). At least one must be present.
+            if not library_ref and not (extra_voice_ids or "").strip():
+                raise RuntimeError("clone_source_voices=False requires a voice_reference_url or extra_voice_ids")
             vocals, accomp = None, _P(str(audio))
-            print("voice sourcing: chosen voices only (no clone) -> upload used directly as the bed")
+            print("voice sourcing: chosen voice(s) only (no clone) -> upload used directly as the bed")
         else:
             vocals, accomp = self._separate(_P(str(audio)), work)
 
@@ -818,6 +932,13 @@ class Predictor(BasePredictor):
         # An optional `tone`/template tag is appended as the desired mood. EITHER/OR — both end up here.
         ctx = (prompt.strip() if isinstance(prompt, str) and prompt.strip()
                else _context_prompt(name, location, battlefield, struggle, family, champion))
+        # When a free-form `prompt` drives the run, the structured `name` field is otherwise dropped (the
+        # planner parses ONLY the prompt) — which is why the speech said "you"/"I" instead of the real
+        # name. Fold the name into the context so the planner forges the identity from it (LAW 3).
+        if isinstance(name, str) and name.strip() and isinstance(prompt, str) and prompt.strip():
+            _nm = name.strip()
+            if _nm.lower() not in ctx.lower():
+                ctx = f"The speaker's name is {_nm}. {ctx}"
         if isinstance(tone, str) and tone.strip():
             ctx = f"{ctx}\nDesired tone / mood: {tone.strip()}."
 
@@ -831,7 +952,7 @@ class Predictor(BasePredictor):
                 out_window, work, min_voices=min_voices, extra_voice_ids=extra_voice_ids,
                 language=language, clone_source_voices=clone_source_voices,
                 music_gain_db=music_gain_db, duck_db=duck_db, voice_speed=voice_speed,
-                bed_audio=bed_audio,
+                bed_audio=bed_audio, library_ref=library_ref,
             )
             return self._deliver_gate(final, str(audio), tier, has_music_bed=True, language=language, name=name)
 
@@ -852,6 +973,20 @@ class Predictor(BasePredictor):
             breath_ms=breath_ms if tier < 100 else min(breath_ms, 250),
         )
         if result.get("status") != "ok":
+            # BACKEND AUTHORITY (Feature #29): the normal path found nothing to clone/replace (an
+            # instrumental or silent-vocal source → 'no_slots'/'degenerate_plan'). Instead of failing,
+            # if a library voice was provided, lay THAT voice over the original upload as the bed (RULE #1).
+            # This is the safety net even when the UI didn't explicitly flag the file as instrumental.
+            if library_ref:
+                print(f"pipeline status '{result.get('status')}' with no clonable speaker -> "
+                      f"library-voice-over-bed fallback")
+                final = self._full_voice(
+                    None, _P(str(audio)), str(audio), ctx, window_ms, work,
+                    min_voices=0, extra_voice_ids="", language=language, clone_source_voices=False,
+                    music_gain_db=music_gain_db, duck_db=duck_db, voice_speed=voice_speed,
+                    bed_audio=bed_audio, library_ref=library_ref,
+                )
+                return self._deliver_gate(final, str(audio), tier, has_music_bed=True, language=language, name=name)
             raise RuntimeError(f"pipeline status: {result.get('status')}")
         return self._deliver_gate(Path(result["final_path"]), str(audio), tier,
                                   has_music_bed=result.get("music_bed", True), language=language, name=name)

@@ -55,6 +55,15 @@ build:
     # Bake the ~3GB weights + the Higgs audio tokenizer into the image so scale-to-zero cold-starts never
     # re-download them.
     - "n=0; until python -c \"from huggingface_hub import snapshot_download; snapshot_download('k2-fsa/OmniVoice'); snapshot_download('eustlb/higgs-audio-v2-tokenizer')\"; do n=$((n+1)); [ $n -ge 10 ] && echo 'HF download failed after retries' && exit 1; echo \"hf 429/transient — retry $n in 120s\"; sleep 120; done && echo weights-ready-retry-v2"
+    # Mel-Band RoFormer separator (audio-separator) — REPLACES htdemucs for a cleaner accomp BED: htdemucs's
+    # vocal-removal residue (musical noise) was the bed 'Gequietsche' the founder's ear caught at replaced
+    # slots. --no-deps + the EXACT minimal runtime set (proven locally to import + load + separate) so it
+    # NEVER upgrades the pinned torch 2.5.1 (audio-separator needs only torch>=2.3) and skips the py3.13-only
+    # onnx2torch pin (RoFormer is a torch model — no onnx graph needed; onnxruntime is only a hard import).
+    - "pip install --no-cache-dir --no-deps audio-separator==0.44.2 && pip install --no-cache-dir onnxruntime beartype einops ml_collections rotary-embedding-torch pyyaml && python -c 'from audio_separator.separator import Separator; print(\"audio-separator import OK\")'"
+    # Bake the RoFormer model (ckpt + config + model list) into the image so scale-to-zero cold-starts never
+    # re-download it. predict.py reads AUDIO_SEPARATOR_MODEL_DIR (defaults to this same path) at runtime.
+    - "mkdir -p /src/audio-separator-models && n=0; until AUDIO_SEPARATOR_MODEL_DIR=/src/audio-separator-models python -c \"from audio_separator.separator import Separator; Separator(model_file_dir='/src/audio-separator-models').load_model(model_filename='melband_roformer_inst_v2.ckpt'); print('roformer model baked')\"; do n=$((n+1)); [ $n -ge 8 ] && echo 'roformer model download failed after retries' && exit 1; echo \"roformer download retry $n in 60s\"; sleep 60; done && echo roformer-ready-v1"
     # FINAL step (must be LAST): force torch 2.5.1+cu121. The earlier pip installs (pyannote / transformers /
     # omnivoice) re-pull torch's nvidia-*-cu12 deps back to the cu124 (12.4.127) PyPI default on the 12.1 box
     # → torch.cuda.is_available()=False → CPU fallback (the 32min/run bug). Reinstalling cu121 LAST pins the

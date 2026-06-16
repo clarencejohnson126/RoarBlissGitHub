@@ -127,6 +127,23 @@ def validate_plan(overrides: list, *, tier: int, target_language: str = "English
         v.checks["density_matches_tier"] = ok
         v.detail["density_matches_tier"] = f"achieved {frac:.0f}% vs requested {tier}% (seconds)"
 
+    # 2b) EARLY PERSONALIZATION + NO LONG UNTOUCHED RUN (§2.5) — the listener must hear themselves in the
+    #     first ~10s and never wait too long for their own story, at EVERY tier. The founder's ear caught
+    #     25%/50% starting at 1:38/2:38 while the gate stayed green (this makes the §2.5 TODO(gap)
+    #     executable). The distribution itself is the LLM's job (the planner prompt front-loads + spreads);
+    #     this is the deterministic WATCHDOG that surfaces a regression. LOG-ONLY pre-gen (never false-aborts
+    #     a flow); the offline corpus GATE (run.py) treats early_personalization as HARD. Computed only when
+    #     slots exist (a source whose speech genuinely starts late cannot satisfy it).
+    spans = sorted((int(o.get("start_ms", 0)), int(o.get("end_ms", 0))) for o in overrides if o.get("start_ms") is not None)
+    if spans:
+        first_ms = spans[0][0]
+        v.checks["early_personalization"] = first_ms <= 12000
+        v.detail["early_personalization"] = f"first personalized slot @ {first_ms/1000:.1f}s (rule <=12s)"
+        gaps = [spans[0][0]] + [spans[k + 1][0] - spans[k][1] for k in range(len(spans) - 1)]
+        max_gap = max(gaps)
+        v.checks["max_untouched_gap"] = max_gap <= 25000
+        v.detail["max_untouched_gap"] = f"largest untouched run {max_gap/1000:.1f}s (rule <=25s)"
+
     # 3) NO REPETITION / FILLER — the same line (or a dominant short phrase) repeated across slots is the
     #    "my name is Clarence" degeneracy. Flag if any normalized line repeats, or one phrase owns >30%.
     norms = [_norm(t) for t in nonempty]
