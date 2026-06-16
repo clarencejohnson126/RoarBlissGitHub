@@ -120,8 +120,9 @@ class Predictor(BasePredictor):
         the cog with no runtime network."""
         from audio_separator.separator import Separator
         out.mkdir(parents=True, exist_ok=True)
-        sep = Separator(output_dir=str(out), output_format="wav",
-                        model_file_dir=os.environ.get("AUDIO_SEPARATOR_MODEL_DIR", "/src/audio-separator-models"))
+        model_dir = os.environ.get("AUDIO_SEPARATOR_MODEL_DIR", "/src/audio-separator-models")
+        os.makedirs(model_dir, exist_ok=True)  # Separator REQUIRES this dir to exist (never auto-creates it)
+        sep = Separator(output_dir=str(out), output_format="wav", model_file_dir=model_dir)
         sep.load_model(model_filename="melband_roformer_inst_v2.ckpt")
         names = sep.separate(str(audio))             # basenames written into `out`: one (Vocals), one (Instrumental)
         paths = [out / n for n in names]
