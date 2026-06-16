@@ -54,6 +54,8 @@ export async function POST(request: Request) {
       prompt,
       tone,
       deviceId,
+      voiceReferenceUrl,
+      cloneSourceVoices,
     } = (data ?? {}) as Record<string, unknown>;
 
     // Device + IP identity for the free-tier abuse gate (1 free track per device/IP). Sanitize both
@@ -76,6 +78,17 @@ export async function POST(request: Request) {
     const requestedTier = [25, 50, 75, 100].includes(Number(personalization))
       ? (Number(personalization) as 25 | 50 | 75 | 100)
       : 50;
+
+    // Instrumental / library-voice path. The client sends the chosen voice's clone-reference URL +
+    // cloneSourceVoices=false. Only honor a reference that is one of OUR hosted library clips (a Vercel
+    // Blob URL) — never an arbitrary client URL (SSRF / using an unvetted clone source). When valid, the
+    // cog clones that voice and lays it over the uploaded bed (RULE #1). libraryVoiceId is passed through
+    // for traceability only. The cog is the final authority: it falls back to this voice when the source
+    // has no clonable speaker, even on the normal path.
+    const isBlobUrl = (u: unknown): u is string =>
+      typeof u === "string" && /^https:\/\/[a-z0-9]+\.public\.blob\.vercel-storage\.com\//i.test(u);
+    const libraryVoiceReference = isBlobUrl(voiceReferenceUrl) ? voiceReferenceUrl : "";
+    const useLibraryVoice = cloneSourceVoices === false && !!libraryVoiceReference;
 
     const base = baseUrl(request);
     const audio =
@@ -210,6 +223,11 @@ export async function POST(request: Request) {
       // Core feature 3 — EITHER a free-form prompt OR a one-click tone/template (both optional).
       prompt: typeof prompt === "string" ? prompt.slice(0, 2000) : "",
       tone: typeof tone === "string" ? tone.slice(0, 60) : "",
+      // Feature #29 — instrumental / library voice. Lay the chosen voice over the uploaded bed (RULE #1).
+      // Setting clone_source_voices=false makes it the explicit instrumental path; passing the reference
+      // also arms the cog's backend-authority fallback (used if the source has no clonable speaker).
+      voice_reference_url: libraryVoiceReference,
+      ...(useLibraryVoice ? { clone_source_voices: false } : {}),
       // Secrets travel as Cog Secret inputs (Replicate has no model-level env). Server-side env only.
       anthropic_api_key: process.env.ANTHROPIC_API_KEY || "",
       hf_token: process.env.HF_TOKEN || "",

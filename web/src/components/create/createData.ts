@@ -1,8 +1,14 @@
 // Data + types for the cinematic /create onboarding wizard.
 // Inclusive copy (men + women). All collected fields fold into the existing /api/process payload.
 
+import { getVoiceById } from "@/lib/voices";
+
 export type Intensity = "low" | "medium" | "high";
 export type Depth = 25 | 50 | 75 | 100;
+/** Does the uploaded file already carry a voice (personalize it) or is it an instrumental (pick a
+ *  library voice)? This is the GUARANTEE behind the instrumental/library-voice path — the user's
+ *  explicit choice, never auto-detection alone. */
+export type SourceMode = "voice" | "instrumental";
 
 export interface CreateFlowData {
   userName: string;
@@ -21,6 +27,11 @@ export interface CreateFlowData {
   wordsToInclude: string;
   wordsToAvoid: string;
   customPrompt: string;
+  /** "voice" = the upload has a voice to personalize (default). "instrumental" = no voice → the user
+   *  picks a library voice to lay over the bed. */
+  sourceMode: SourceMode;
+  /** The chosen library-voice id (see web/src/lib/voices.ts). Required when sourceMode === "instrumental". */
+  libraryVoiceId: string;
 }
 
 export const EMPTY_FLOW: CreateFlowData = {
@@ -40,6 +51,8 @@ export const EMPTY_FLOW: CreateFlowData = {
   wordsToInclude: "",
   wordsToAvoid: "",
   customPrompt: "",
+  sourceMode: "voice",
+  libraryVoiceId: "",
 };
 
 // Step 2 — battle templates (each maps to an emotional context the planner uses)
@@ -129,6 +142,12 @@ export function composePayload(d: CreateFlowData) {
   if (d.wordsToAvoid.trim()) parts.push(`Avoid these words: ${d.wordsToAvoid.trim()}.`);
   parts.push(`Delivery intensity: ${d.intensity}.`);
 
+  // Instrumental / library-voice path: the upload has NO voice to clone, so the user picked a library
+  // voice. We send its clone-reference URL + clone_source_voices=false so the cog lays THAT voice over
+  // the original bed (RULE #1: bed untouched) instead of trying to diarize a non-existent speaker. A
+  // chosen library voice forces the full (100%) script — there is no original speech to keep.
+  const lib = d.sourceMode === "instrumental" ? getVoiceById(d.libraryVoiceId) : undefined;
+
   return {
     name: d.userName.trim() || "Warrior",
     battlefield: d.selectedBattles.join(", "),
@@ -137,9 +156,15 @@ export function composePayload(d: CreateFlowData) {
     location: "",
     champion: deriveChampion(d.primaryTone, d.intensity),
     tone: [d.primaryTone, d.secondaryTone].filter(Boolean).join(" + "),
-    personalization: d.personalizationDepth,
+    // An instrumental + chosen voice has nothing to keep → speak the whole bed (full_voice). Otherwise
+    // honor the user's tier exactly.
+    personalization: lib ? (100 as Depth) : d.personalizationDepth,
     language: d.language || "English",
     prompt: parts.join(" "),
     paid: false,
+    // Library-voice-over-bed wiring (only set when an instrumental voice was actually chosen).
+    ...(lib
+      ? { voiceReferenceUrl: lib.referenceUrl, libraryVoiceId: lib.id, cloneSourceVoices: false }
+      : {}),
   };
 }

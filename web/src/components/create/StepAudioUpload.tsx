@@ -1,17 +1,31 @@
 "use client";
 
 import { useRef, useState } from "react";
-import { UploadCloud, FileAudio } from "lucide-react";
+import { UploadCloud, FileAudio, Mic, Music } from "lucide-react";
 import { useCreateFlow } from "./CreateFlowProvider";
 import StepShell from "./StepShell";
+import VoicePicker from "./VoicePicker";
 import styles from "./create.module.css";
 
 export default function StepAudioUpload() {
-  const { file, setFile, next, entitlement } = useCreateFlow();
+  const { file, setFile, next, entitlement, data, update } = useCreateFlow();
   const paid = !!entitlement?.tier;
   const [error, setError] = useState("");
   const [drag, setDrag] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+
+  // Detection — three layers (see report): (1) this explicit user TOGGLE is the GUARANTEE; (2) the cog
+  // is the backend AUTHORITY (demucs+Whisper+pyannote → if no clonable speaker, it routes to the chosen
+  // library voice over the bed); (3) an optional fast auto-probe to PRE-SELECT the mode is a future TODO.
+  // TODO(auto-probe): decode the picked File via the Web Audio API and run a cheap vocals-energy / VAD
+  // heuristic to default sourceMode for the user. Deferred deliberately — a clean client-side probe is
+  // non-trivial and the toggle + backend authority already make the path correct + safe without it. Do
+  // NOT pull in a heavyweight model for this.
+  //
+  // Instrumental path: when the user says their file has NO voice, they must pick a library voice.
+  const isInstrumental = data.sourceMode === "instrumental";
+  const needsVoice = isInstrumental && !data.libraryVoiceId;
+  const canContinue = !!file && !needsVoice;
 
   const pick = (f: File | undefined) => {
     if (!f) return;
@@ -37,11 +51,37 @@ export default function StepAudioUpload() {
           Upload the audio you want to <span className={styles.gold}>transform.</span>
         </>
       }
-      sub="Now bring the voice. RoarBliss reshapes it around your story while preserving the emotional tone and music."
-      onNext={() => file && next()}
-      nextDisabled={!file}
+      sub="Now bring the audio. RoarBliss reshapes it around your story while preserving the emotional tone and music."
+      onNext={() => canContinue && next()}
+      nextDisabled={!canContinue}
       nextLabel={paid ? "Generate my track" : "Generate Preview"}
     >
+      {/* Source mode — the GUARANTEE: the user tells us whether the file has a voice or is instrumental. */}
+      <div className={styles.sourceModeRow} role="radiogroup" aria-label="Does your file already have a voice?">
+        <button
+          type="button"
+          role="radio"
+          aria-checked={!isInstrumental}
+          className={`${styles.sourceModeBtn} ${!isInstrumental ? styles.sourceModeBtnOn : ""}`}
+          onClick={() => update({ sourceMode: "voice", libraryVoiceId: "" })}
+        >
+          <Mic size={16} style={{ color: "var(--color-gold)", marginBottom: 4 }} />
+          <span className={styles.sourceModeTitle}>It has a voice</span>
+          <span className={styles.sourceModeHint}>A speech or talk — we personalize that voice.</span>
+        </button>
+        <button
+          type="button"
+          role="radio"
+          aria-checked={isInstrumental}
+          className={`${styles.sourceModeBtn} ${isInstrumental ? styles.sourceModeBtnOn : ""}`}
+          onClick={() => update({ sourceMode: "instrumental" })}
+        >
+          <Music size={16} style={{ color: "var(--color-gold)", marginBottom: 4 }} />
+          <span className={styles.sourceModeTitle}>It&apos;s instrumental</span>
+          <span className={styles.sourceModeHint}>Music only — pick a voice to lay over it.</span>
+        </button>
+      </div>
+
       <div
         className={`${styles.uploadBox} ${drag ? styles.uploadBoxDrag : ""} ${file ? styles.uploadBoxOn : ""}`}
         role="button"
@@ -84,6 +124,19 @@ export default function StepAudioUpload() {
       </div>
 
       {error && <p className={styles.errorMsg}>{error}</p>}
+
+      {isInstrumental && (
+        <>
+          <p className={styles.blockLabel}>Choose your voice</p>
+          <p className={styles.sub} style={{ marginBlockStart: 0 }}>
+            This voice speaks your story over your instrumental. Tap a card to hear a preview.
+          </p>
+          <VoicePicker
+            selectedId={data.libraryVoiceId}
+            onSelect={(id) => update({ libraryVoiceId: id })}
+          />
+        </>
+      )}
 
       <p className={styles.disclaimer}>
         Maximum file size <strong>100 MB</strong>. Audio longer than <strong>6 minutes</strong> will be trimmed to the

@@ -74,6 +74,10 @@ function CreateRouter() {
             deadline: "",
             wordsToInclude: "",
             wordsToAvoid: "",
+            // The source-mode + library-voice choice is per-upload, never carried over from a prior
+            // session's localStorage — start each Quick Create in the default "has a voice" mode.
+            sourceMode: "voice",
+            libraryVoiceId: "",
           });
           setMode("quick");
         } else {

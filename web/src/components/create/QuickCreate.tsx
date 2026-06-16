@@ -1,9 +1,10 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { UploadCloud, FileAudio, Sparkles, Mic } from "lucide-react";
+import { UploadCloud, FileAudio, Sparkles, Mic, Music } from "lucide-react";
 import { useCreateFlow } from "./CreateFlowProvider";
 import { BATTLES, TONES, LANGUAGES, DEPTHS, type Depth, type Intensity } from "./createData";
+import VoicePicker from "./VoicePicker";
 import styles from "./create.module.css";
 
 const INTENSITIES: { value: Intensity; label: string }[] = [
@@ -23,6 +24,10 @@ export default function QuickCreate({ onFullSetup }: { onFullSetup?: () => void 
   const [drag, setDrag] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const firstName = (data.userName || "").trim().split(" ")[0] || "warrior";
+
+  // Instrumental / library-voice path (only for a fresh upload — a saved-voice preset is already a voice).
+  const isInstrumental = data.sourceMode === "instrumental" && !presetAudioUrl;
+  const needsVoice = isInstrumental && !data.libraryVoiceId;
 
   // Arriving via dashboard "Use this voice" → ?voice=<saved blob URL> replaces the upload.
   useEffect(() => {
@@ -173,6 +178,33 @@ export default function QuickCreate({ onFullSetup }: { onFullSetup?: () => void 
           {/* Audio upload (or a saved voice from the dashboard) */}
           <div className={styles.qcField}>
             <label className={styles.qcLabel}>Your audio</label>
+            {/* Source mode — only relevant for a fresh upload (a saved voice already has a voice). */}
+            {!presetAudioUrl && (
+              <div className={styles.sourceModeRow} role="radiogroup" aria-label="Does your file already have a voice?">
+                <button
+                  type="button"
+                  role="radio"
+                  aria-checked={!isInstrumental}
+                  className={`${styles.sourceModeBtn} ${!isInstrumental ? styles.sourceModeBtnOn : ""}`}
+                  onClick={() => update({ sourceMode: "voice", libraryVoiceId: "" })}
+                >
+                  <Mic size={15} style={{ color: "var(--color-gold)", marginBottom: 3 }} />
+                  <span className={styles.sourceModeTitle}>It has a voice</span>
+                  <span className={styles.sourceModeHint}>A speech or talk — personalize that voice.</span>
+                </button>
+                <button
+                  type="button"
+                  role="radio"
+                  aria-checked={isInstrumental}
+                  className={`${styles.sourceModeBtn} ${isInstrumental ? styles.sourceModeBtnOn : ""}`}
+                  onClick={() => update({ sourceMode: "instrumental" })}
+                >
+                  <Music size={15} style={{ color: "var(--color-gold)", marginBottom: 3 }} />
+                  <span className={styles.sourceModeTitle}>It&apos;s instrumental</span>
+                  <span className={styles.sourceModeHint}>Music only — pick a voice for it.</span>
+                </button>
+              </div>
+            )}
             {presetAudioUrl ? (
               <div className={`${styles.uploadBox} ${styles.uploadBoxOn}`}>
                 <Mic size={26} className={styles.uploadIcon} />
@@ -212,6 +244,12 @@ export default function QuickCreate({ onFullSetup }: { onFullSetup?: () => void 
               <input ref={inputRef} type="file" accept="audio/*,.mp3,.wav,.m4a,.aac,.ogg" hidden onChange={(e) => pick(e.target.files?.[0])} />
             </div>
             )}
+            {isInstrumental && (
+              <>
+                <p className={styles.qcLabel} style={{ marginTop: "1rem" }}>Choose your voice</p>
+                <VoicePicker selectedId={data.libraryVoiceId} onSelect={(id) => update({ libraryVoiceId: id })} />
+              </>
+            )}
             {!presetAudioUrl && (
               <p style={{ fontSize: "0.8rem", color: "var(--color-smoke)", marginTop: "0.6rem", lineHeight: 1.5 }}>
                 Max 100 MB. Audio over <strong style={{ color: "var(--color-ivory)" }}>6 minutes</strong> is trimmed to the first 6 min. We process it and <strong style={{ color: "var(--color-ivory)" }}>keep only the finished result</strong> — your upload is deleted right after.
@@ -231,8 +269,8 @@ export default function QuickCreate({ onFullSetup }: { onFullSetup?: () => void 
             type="button"
             className={styles.btnGold}
             style={{ width: "100%", justifyContent: "center", marginTop: "0.5rem" }}
-            disabled={(!file && !presetAudioUrl) || !data.primaryTone}
-            onClick={() => (file || presetAudioUrl) && data.primaryTone && setStep(6)}
+            disabled={(!file && !presetAudioUrl) || !data.primaryTone || needsVoice}
+            onClick={() => (file || presetAudioUrl) && data.primaryTone && !needsVoice && setStep(6)}
           >
             <Sparkles size={17} style={{ marginRight: 8 }} />
             Generate my speech
