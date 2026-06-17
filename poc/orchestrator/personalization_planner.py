@@ -101,6 +101,39 @@ No prose outside the JSON object."""
         return {"name": "you", "themes": ["growth"], "emotional_state": "searching",
                 "specifics": [], "tone_preference": "confident"}
 
+
+# Map the 8 user-facing tones → the source-speaker reference EMOTIONS to clone from (preference order).
+# THIS is what makes the tone selector real: "Calm & Stoic" clones the speaker's CALM references even when
+# the source is shouting, instead of matching the source's loud energy at each moment. Ceiling: if the
+# source speaker only ever shouts (no calm reference exists), there's nothing calm to clone from.
+TONE_EMOTION_PREFS = {
+    "calm & stoic": ["contemplative", "calm", "narrator"],
+    "spiritual": ["contemplative", "calm", "wise", "narrator"],
+    "reflective": ["contemplative", "calm", "wise", "narrator"],
+    "warm & hopeful": ["calm", "contemplative", "warm", "wise"],
+    "fatherly": ["wise", "teaching", "calm", "contemplative"],
+    "protective": ["wise", "teaching", "calm", "contemplative"],
+    "dark & intense": ["defiant", "strong"],
+    "aggressive": ["defiant", "strong"],
+    "warrior": ["defiant", "strong"],
+    "comeback": ["defiant", "strong"],
+}
+
+
+def _tone_emotion_prefs(tone_raw: str) -> list:
+    """Ordered reference-emotion keywords for the user's chosen tone (empty if no known tone)."""
+    t = (tone_raw or "").lower()
+    for key, prefs in TONE_EMOTION_PREFS.items():
+        if key in t:
+            return prefs
+    return []
+
+
+def _parse_tone(user_context: str) -> str:
+    """Pull the user's tone out of the context line predict.py appends ('Desired tone / mood: X')."""
+    m = re.search(r"desired tone\s*/?\s*mood:\s*([^\n.]+)", (user_context or "").lower())
+    return m.group(1).strip() if m else ""
+
 # ──────────────────────────────────────────────────────────────────────────────
 # Stage 3: mine candidate slot windows
 # ──────────────────────────────────────────────────────────────────────────────
@@ -108,13 +141,16 @@ def _norm_phrase(t: str) -> str:
     return re.sub(r'[^a-z ]', '', t.lower()).strip()
 
 
-def _group_into_sentences(segments: list, max_group_s: float = 14.0) -> list:
+def _group_into_sentences(segments: list, max_group_s: float = 14.0, min_group_s: float = 0.0) -> list:
     """Merge consecutive Whisper segments into SENTENCE units so a replaced slot never begins or ends
     mid-sentence (the #1 cause of the choppy 'words swapped inside a sentence' artefact). A unit closes
-    when its accumulated text ends with . ! ? … (a real sentence boundary) — or when it would exceed
-    max_group_s (a safety cap for sources Whisper transcribes without punctuation). Each unit keeps the
-    first segment's start and the last segment's end, so the clone always replaces whole sentences and
-    the untouched original on either side is itself a complete sentence that can breathe."""
+    when its accumulated text ends with . ! ? … (a real sentence boundary) AND it is at least
+    min_group_s long — or when it would exceed max_group_s. The min_group_s floor is what merges a
+    source's SHORT punchy sentences ("Down. Still down.") into ONE unit instead of two 1-2s slots: a
+    1-2s slot forces a clipped, choked one-or-two-word clone (the 'Abwürgen' the founder heard), whereas
+    a ~min_group_s unit lets the clone speak a FULL natural sentence. Each unit keeps the first segment's
+    start and the last segment's end, so the clone always replaces whole sentences and the untouched
+    original on either side is itself a complete sentence that can breathe."""
     groups, cur = [], None
     for seg in segments:
         text = (seg.get("text") or "").strip()
@@ -124,8 +160,8 @@ def _group_into_sentences(segments: list, max_group_s: float = 14.0) -> list:
             cur["end"] = seg["end"]
             cur["text"] = (cur["text"] + " " + text).strip()
         ends_sentence = cur["text"].endswith((".", "!", "?", "…", '."', '!"', '?"'))
-        too_long = (cur["end"] - cur["start"]) >= max_group_s
-        if ends_sentence or too_long:
+        dur = cur["end"] - cur["start"]
+        if (ends_sentence and dur >= min_group_s) or dur >= max_group_s:
             groups.append(cur)
             cur = None
     if cur is not None:
@@ -151,7 +187,14 @@ def find_candidate_slots(audio_path: str, ref_library: dict, window_ms: int = No
     # Denser tiers (>=50%) need SHORTER units so each slot is filled by one clone — otherwise a long,
     # punctuation-starved run becomes a 14s slot the clone fills only halfway (big gap). Real sentence
     # punctuation still closes a unit first, so well-punctuated sources are unaffected.
-    units = _group_into_sentences(segments, max_group_s=(min(8.0, 14.0 * density) if density >= 0.5 else 14.0))
+    # min_group_s merges a source's short sentences so each slot is a FULL sentence (~4.5-8s on dense
+    # tiers), not a 1-2s fragment the clone gets clipped to (the 'Abwürgen'). Music carries any underfill,
+    # so a slightly-long slot is fine; a too-short one is what chokes the line.
+    units = _group_into_sentences(
+        segments,
+        max_group_s=(min(8.0, 14.0 * density) if density >= 0.5 else 14.0),
+        min_group_s=(4.5 if density >= 0.5 else 0.0),
+    )
     diar = diarize(audio_path, verbose=False)
 
     valid_speakers = set(ref_library["speakers"].keys())
@@ -221,11 +264,13 @@ def find_candidate_slots(audio_path: str, ref_library: dict, window_ms: int = No
             "duration_s": round(duration, 2),
             "speaker": speaker,
             "original_text": seg["text"].strip(),
-            # Match the ORIGINAL speaker's pace at THIS slot: budget to the original line's own
-            # syllable count (err ~10% short), bounded by a sane max rate. A slowly-spoken slot
-            # gets few syllables -> the clone speaks slowly too; a fast slot gets more.
-            "target_syllables": max(2, min(round(_count_syllables(seg["text"]) * 0.9),
-                                            int(duration * 3.6))),
+            # Budget to the SLOT DURATION (fill it at a natural ~4.2 syl/s), NOT the source line's own
+            # syllable count. A slow/pausing source otherwise yields a too-short line that UNDER-fills the
+            # slot — exactly the dead-air holes + 'pace-tightened' rush the founder heard. Filling the slot
+            # at a natural rate = full, flowing sentences AND no gaps. The clone renders ~4.8 syl/s, so a
+            # 4.2 budget lands at ~88% of the slot, leaving room for the breath (never an overrun → no
+            # tail-trim, the thing that chopped words). Floor keeps a 200ms guard slot from going empty.
+            "target_syllables": max(2, round(duration * 4.2)),
             "ctx_before": ctx_before,
             "ctx_after": ctx_after,
             "iconic": bool(is_anthem or is_exclaim),
@@ -297,7 +342,7 @@ LAW 1 - ORIGINAL ONLY (safety-critical). Every line is NEW writing about the USE
 
 LAW 2 - FIRST PERSON, THIS USER. The user is the "I" and the hero of this world. Every line is the user speaking as themselves. No third-person narration about other characters (the one exception: a PEAK chant where the world roars the user's name).
 
-LAW 3 - NAME & IDENTITY EARLY, AS A RECURRING MOTIF. Within the first ~10 seconds of the timeline, one early slot must state the user's FULL real name and FORGE an identity from the source world that fits them. The name is real; the costume around it is the world's. Make it land as a coronation, not an introduction. Pick a slot with enough target_words to land the full name cleanly; never split the name across slots.
+LAW 3 - NAME & IDENTITY EARLY, AS A RECURRING MOTIF. Within the first ~6 seconds of the timeline (a listener who hears nothing of themselves in the first few seconds assumes it failed and stops), one early slot must state the user's FULL real name and FORGE an identity from the source world that fits them. The name is real; the costume around it is the world's. Make it land as a coronation, not an introduction. Pick a slot with enough target_words to land the full name cleanly; never split the name across slots.
   Worked forgings (derive your own from the actual source - do not copy):
     - Epic: "I am Clarence Johnson, first king of House Johnson."
     - Sermon: "They call me Clarence Johnson - the one who would not turn back."
@@ -334,7 +379,7 @@ B) DISTRIBUTION - never abandon the listener, never erase the source (HARD CONST
 ------------------
 Define the TIMELINE SPAN as from the earliest candidate's start to the latest candidate's (start + duration).
 - Personalize the share of the span given by the COVERAGE TARGET in the task (sum of chosen slot durations ≈ that share). If no target is given, aim ~50%.
-- NO-GAP ALGORITHM: order all slots by start time and walk them. After each slot you select, the NEXT slot you select must begin within ~20 seconds of where the previous one ended. If the gap to your next pick would exceed ~20s, you MUST select an intervening candidate to bridge it - even a tiny one - so a stretch longer than ~20s of untouched original NEVER opens anywhere from your first pick to your last. The listener must never go 20s without hearing their own story.
+- NO-GAP ALGORITHM (the lead-in counts): Your VERY FIRST pick MUST begin within the first ~10 seconds of the timeline span. A listener who hears nothing of themselves in the first breaths assumes it failed and stops — so the intro is the SINGLE most important slot to personalize, no matter how LOW the coverage target is. From that first pick onward, order picks by start time; each next pick must begin within the task's max gap of where the previous one ended (bridge any larger gap with an intervening candidate, even a tiny one). A stretch longer than the max gap of untouched original must NEVER open ANYWHERE — INCLUDING before your first pick (a 90s untouched intro is the worst failure of all). A LOW coverage target means FEWER and SHORTER lines, NEVER later ones: spread the same small budget early-and-even from the first ~10s to the final peak. Never cluster picks in the back half and never leave the whole intro untouched — at 25% you take a short name/identity line in the first ~10s and a handful of short beats across the arc, NOT three long lines at minute two.
 - Cover the span end to end: begin near the start (for the name, Law 3) and keep personalized beats landing all the way to the final peak. Do not cluster all picks in one half.
 - LEAVE THE SOURCE'S SOUL INTACT: do NOT overwrite everything. Untouched original between your lines carries the music and gravitas and keeps the source alive. Hit the COVERAGE TARGET from the task — no more, no less. Overwriting ~100% (when the target is lower) is a failure as surely as leaving a 30s gap.
 - Always select EVERY [PEAK] (Law 4). Peaks count toward distribution and are covered no matter what.
@@ -362,11 +407,40 @@ FINAL CHECK BEFORE YOU EMIT (run silently, then output ONLY the JSON)
 1. Every override_text word count <= its slot's target_words, aimed 75-90%, no line ends on a banned function word, every line a complete phrase, specific (no cliche mush).
 2. User's FULL name stated once, early, with a forged in-world identity that recurs as a motif later.
 3. Every [PEAK] you selected is transformed into the user's name/house/title chant or vow, matched to the peak's beat.
-4. Slots sorted by start: first pick near the start, no gap over the task's max gap (bridge any that would open), total personalized AT OR UNDER the COVERAGE TARGET from the task (never over), source still breathes.
+4. Slots sorted by start: FIRST pick lands within the first ~10s of the timeline (the intro is never left untouched, even at a low tier), no gap over the task's max gap anywhere — including before the first pick (bridge any that would open), total personalized AT OR UNDER the COVERAGE TARGET from the task (never over), source still breathes.
 5. One rising arc, first person, every line in the source's costume and lexicon, zero quoting/echoing of scene_energy, no source character or place names.
 6. Output is ONLY the JSON object - valid, parseable, ASCII only, ids all real and unique, array ordered by start time.
 
 Emit the JSON now."""
+
+def _parse_selected(raw: str) -> list:
+    """Robustly pull the `selected` overrides out of a draft LLM response. A clean parse first; then
+    salvage every COMPLETE {…} object so one malformed entry mid-array can't discard all the good lines
+    before it (the bug that produced 'My name is I' ×13: a stray delimiter → 0 picks → gap-filler flood).
+    Returns [] only when truly nothing parseable came back."""
+    if not raw:
+        return []
+    m = re.search(r'\{[\s\S]*\}', raw)
+    if not m:
+        return []
+    blob = m.group(0)
+    try:
+        sel = json.loads(blob).get("selected", [])
+        if isinstance(sel, list) and sel:
+            return sel
+    except Exception:
+        pass
+    # Salvage: each override is a FLAT object {"cand_id":..,"override_text":"..","theme":".."}.
+    objs = []
+    for om in re.finditer(r'\{[^{}]*\}', blob):
+        try:
+            o = json.loads(om.group(0))
+        except Exception:
+            continue
+        if isinstance(o, dict) and "override_text" in o and "cand_id" in o:
+            objs.append(o)
+    return objs
+
 
 def llm_pick_slots(candidates: list, brief: dict, type_profile: dict,
                    target_slot_count: int, window_ms: int, protagonist: str = "",
@@ -406,9 +480,11 @@ def llm_pick_slots(candidates: list, brief: dict, type_profile: dict,
             " Judge intensity per beat: iconic beats stay TIGHT and rhythmic, quieter beats may run fuller."
             " Keep the strong lines; fix the rest.\nDRAFT:\n" + "\n".join(dl))
 
-    # Max allowed gap scales inversely with coverage: a dense tier keeps the user's story constantly
-    # present (~20s), a light tier necessarily leaves longer stretches of original between picks.
-    max_gap_s = int(round(min(60, max(15, 20 * 55.0 / max(coverage_pct, 1)))))
+    # Max allowed gap is kept TIGHT regardless of coverage — a LOW tier means fewer/shorter lines, NOT a
+    # longer wait between them (a 25% track with the listener's beats every ~20s feels personalized; one
+    # with the first line at 1:38 feels broken). Capped at ~22s so a light tier never balloons the gap; the
+    # lead-in (0 -> first pick) is held to ~10s by the NO-GAP rule in the prompt, not by this value.
+    max_gap_s = int(round(min(22, max(15, 20 * 55.0 / max(coverage_pct, 1)))))
 
     # All rules live in PLANNER_SYSTEM_PROMPT; the user message just delivers this run's data.
     user_msg = f"""USER BRIEF:
@@ -438,28 +514,23 @@ Emit the JSON now."""
         user_msg += (f"\n\nLANGUAGE: Write EVERY override_text line ENTIRELY in {language.strip()} — "
                      f"natural, native {language.strip()}, never a translation.")
 
-    raw = _llm_chat(system=PLANNER_SYSTEM_PROMPT, user=user_msg, max_tokens=6000, temperature=0.6,
-                     model=WRITER_MODEL)
-
-    # Extract JSON
-    m = re.search(r'\{[\s\S]*\}', raw)
-    if not m:
-        print("  LLM returned no JSON; raw:", raw[:300])
-        return []
-    try:
-        parsed = json.loads(m.group(0))
-        return parsed.get("selected", [])
-    except json.JSONDecodeError as e:
-        # Try to recover by trimming to last complete object
-        text = m.group(0)
-        last_bracket = text.rfind("]")
-        if last_bracket > 0:
-            try:
-                return json.loads(text[:last_bracket+1] + "}").get("selected", [])
-            except Exception:
-                pass
-        print(f"  LLM JSON parse failed: {e}; raw[:500]: {raw[:500]}")
-        return []
+    # The draft is the heart of the run. Its JSON occasionally returns malformed (a stray missing
+    # delimiter mid-array) — which historically threw ALL the good lines away (draft=0 picks) and the
+    # gap-filler then flooded the track with one repeated line ("My name is I" ×13). Defend in depth:
+    #   1) _parse_selected salvages every COMPLETE override even when the array breaks midway;
+    #   2) re-sample the draft up to 3× when a parse STILL yields nothing (temperature>0 → a fresh
+    #      sample almost always returns clean JSON). Only a true 3× failure falls through to gap-fill.
+    for attempt in range(3):
+        raw = _llm_chat(system=PLANNER_SYSTEM_PROMPT, user=user_msg, max_tokens=6000,
+                         temperature=0.6, model=WRITER_MODEL)
+        picks = _parse_selected(raw)
+        if picks:
+            if attempt:
+                print(f"  draft recovered on attempt {attempt + 1}: {len(picks)} picks")
+            return picks
+        print(f"  draft attempt {attempt + 1}/3 yielded 0 usable picks"
+              + ("; re-sampling…" if attempt < 2 else "; giving up (gap-filler covers)"))
+    return []
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Stage 5: validate + repair
@@ -631,21 +702,28 @@ def validate_and_repair(selected: list, candidates: list, ref_library: dict,
         if not text or len(text.split()) < 2:
             continue
 
-        # Emotion match (same heuristic as before)
+        # Emotion match. The USER's chosen tone LEADS — "Calm & Stoic" must sound calm even on a loud
+        # source — and only when the tone yields no usable reference do we fall back to the line's own
+        # keyword heuristic. This is what makes every tone in the picker actually change the voice.
         available = cand["available_emotions"]
         if not available:
             continue
-        text_lower = text.lower()
-        if any(w in text_lower for w in ["whisper", "broken", "lost", "alone"]):
-            chosen_emo = next((e for e in available if "broken" in e or "whispered" in e), available[0])
-        elif any(w in text_lower for w in ["rise", "fight", "build", "i am", "i will"]):
-            chosen_emo = next((e for e in available if "defiant" in e or "strong" in e), available[0])
-        elif any(w in text_lower for w in ["wonder", "always", "remember", "long ago", "thinking"]):
-            chosen_emo = next((e for e in available if "contemplative" in e or "calm" in e), available[0])
-        elif any(w in text_lower for w in ["choose", "decide", "moment", "now is"]):
-            chosen_emo = next((e for e in available if "wise" in e or "teaching" in e), available[0])
-        else:
-            chosen_emo = available[0]
+        chosen_emo = None
+        _prefs = _tone_emotion_prefs(brief.get("tone_raw", ""))
+        if _prefs:
+            chosen_emo = next((e for e in available if any(p in e for p in _prefs)), None)
+        if chosen_emo is None:
+            text_lower = text.lower()
+            if any(w in text_lower for w in ["whisper", "broken", "lost", "alone"]):
+                chosen_emo = next((e for e in available if "broken" in e or "whispered" in e), available[0])
+            elif any(w in text_lower for w in ["rise", "fight", "build", "i am", "i will"]):
+                chosen_emo = next((e for e in available if "defiant" in e or "strong" in e), available[0])
+            elif any(w in text_lower for w in ["wonder", "always", "remember", "long ago", "thinking"]):
+                chosen_emo = next((e for e in available if "contemplative" in e or "calm" in e), available[0])
+            elif any(w in text_lower for w in ["choose", "decide", "moment", "now is"]):
+                chosen_emo = next((e for e in available if "wise" in e or "teaching" in e), available[0])
+            else:
+                chosen_emo = available[0]
 
         valid_slots.append({
             "id": len(valid_slots) + 1,
@@ -847,9 +925,14 @@ def _inject_peak_chant(overrides, candidates, brief, user_name, verbose=False):
 
 def _fill_gaps(overrides, candidates, brief, user_name, win_ms, verbose=False):
     """Never leave > MAX_GAP_MS of original with no personalized line — keep the user present."""
-    full = user_name if user_name and user_name.lower() != "you" else "I"
-    pool = [f"My name is {full}.", "I rise again.", "I will not break.",
-            "This is mine now.", "I move forward.", "I endure."]
+    # Only say a name when we actually HAVE one — a missing name must never degrade to "My name is I".
+    has_name = bool(user_name and user_name.strip().lower() not in ("", "you", "i"))
+    full = user_name.strip() if has_name else ""
+    pool = ([f"My name is {full}."] if has_name else []) + [
+        "I rise again.", "I will not break.", "This is mine now.",
+        "I move forward.", "I endure.", "I keep going.", "I am still here.",
+    ]
+    used_texts = {(o.get("text") or "").strip().lower() for o in overrides}
     used = {o["start_ms"] for o in overrides}
     avail_c = sorted([c for c in candidates if c["start_ms"] not in used], key=lambda c: c["start_ms"])
     guard = 0
@@ -865,8 +948,11 @@ def _fill_gaps(overrides, candidates, brief, user_name, win_ms, verbose=False):
                            key=lambda c: abs(c["start_ms"] - mid), default=None)
                 if cand:
                     target = cand["target_syllables"]
-                    text = next((p for p in pool if _count_syllables(p) <= max(2, int(target * 1.3))),
-                                f"My name is {full}.")
+                    fitting = [p for p in pool if _count_syllables(p) <= max(2, int(target * 1.3))]
+                    # Prefer a line not used yet so a run of short gaps never floods one filler.
+                    fresh = [p for p in fitting if p.strip().lower() not in used_texts]
+                    text = (fresh or fitting or ["I endure."])[0]
+                    used_texts.add(text.strip().lower())
                     em = (cand.get("available_emotions") or ["neutral-narrator"])[0]
                     overrides.append({
                         "id": 0, "speaker": cand["speaker"], "emotion": em,
@@ -936,8 +1022,10 @@ def generate_personalization(audio_path: str, user_context: str,
 
     if verbose: print("\nStage 2: parse user context...")
     brief = parse_user_context(user_context)
+    brief["tone_raw"] = _parse_tone(user_context)   # the user's chosen tone → drives the voice emotion
     if verbose:
         print(f"  name: {brief['name']}")
+        if brief.get("tone_raw"): print(f"  tone: {brief['tone_raw']} -> emotion prefs {_tone_emotion_prefs(brief['tone_raw'])}")
         print(f"  themes: {brief['themes']}")
         print(f"  emotional_state: {brief['emotional_state']}")
 

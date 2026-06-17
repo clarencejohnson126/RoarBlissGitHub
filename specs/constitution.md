@@ -48,6 +48,20 @@ acceptance criteria back to named checks in that gate.
 6. **Output = full source length** unless the >6 min cap trims it. **Never cut a track short.**
 7. Free tier: 45 s preview → register to download → subscribe. 3 tiers €9.99 / 19.99 / 39.99. Billing is
    MINUTES/month per tier, **charge-on-delivery** (a failed run costs nothing).
+8. **MUSIC-AWARE SCRIPT & DELIVERY (set in stone, founder 2026-06-17).** The script AND the voice delivery
+   MUST be driven by an analysis of the MUSIC — its **genre, style, tempo/BPM, beat grid, and the dynamic
+   highs & lows (energy envelope over time)**. From that analysis: (a) the WRITER composes lines that *fit*
+   the music — punchy/short on a fast beat, reflective/longer in a quiet passage, the climax line landing on
+   the swell; (b) the DELIVERY sets the speaking **RATE** to the tempo, inserts **PAUSES** at musical phrase
+   boundaries (**NEVER a wall of speech "ohne Punkt und Komma"**), and matches the voice **TONE / Stimmenklang**
+   to each passage's energy (calm in the quiet, intense at the peak). This applies to BOTH the
+   **instrumental / library-voice** path AND **voice-personalization over a music bed**. A script written
+   blind to the music (the old behaviour) is a defect, not a style choice.
+9. **FULL-LENGTH VOICE COVERAGE (set in stone, founder 2026-06-17).** The voice/script must span the **whole
+   audio** — it may NOT run out partway and leave a long voiceless tail (the founder heard the voice stop at
+   ~70 % and then only bare music play = a no-go). For full_voice / instrumental, lines + deliberate pauses
+   are sized to fill the bed to the end (within the ≤6 min cap). Distinct from §2.6 (don't *trim* the track):
+   this forbids a *voiceless* tail even when the track length is correct.
 
 ---
 
@@ -61,19 +75,29 @@ acceptance criteria back to named checks in that gate.
   e.g. 100 simultaneous translations (= 100 simultaneous EL slots = impossible on any tier). The
   create→delete trick only bounds concurrency, it doesn't remove the cap. (We also hit a scoped-key `403`
   on `/voices/add`.) OmniVoice is local with no slot cap → it is the only path that scales.
-- **Cross-lingual / translation = OmniVoice cross-lingual.** It DOES produce the target language, but with a
-  residual SOURCE ACCENT (a strong American accent on German). `num_step=80, guidance=3.0` for non-English
-  reduced garbling but did NOT remove the accent (proven, run #9). **Founder decision: the accent is
-  ACCEPTED for launch — accent removal is a v2 polish, NOT a launch blocker, and NEVER a reason to swap to
-  a non-scaling engine.** v2 levers (TODO_GAPS): drop the source-language `ref_text` from the clone prompt;
-  or evaluate a SCALABLE (self-hostable / no-slot-cap) multilingual cloner. The gate's `output_language`
-  check is therefore SOFT (langdetect can't tell accented-German from a mishmash); the hard guard against an
-  actual source-language remnant is `full_replacement`.
-- **Library voices = the ONLY exception, and ONLY for INSTRUMENTALS** (no voice to clone → the user picks a
-  permanent, pre-existing voice). A library voice is permanent/shared, so it does NOT consume a per-user
-  clone slot — no scale problem. It MAY remain an external voice id for now (e.g. the `instrumental_jon`
-  flow uses an EL voice id), or migrate to a stored OmniVoice reference later; not urgent. This is the
-  "side project", not the rule. **The RULE is clone → OmniVoice.**
+- **Cross-lingual / translation = OmniVoice cross-lingual. Settings: `num_step=80, guidance=3.0`, `ref_text`
+  KEPT.** The founder approved the LOCAL German render (`OMNIVOICE_REFERENCE/02_DE_*`, MPS): *"hervorragend …
+  leichter Akzent, klingt einzigartig, können wir so übernehmen."* The light accent is acceptable.
+  - **⛔ BLOCKER (2026-06-14): the CLOUD cog does NOT reproduce that quality — it garbles German.** Two cloud
+    runs (cog `370162ac36d7…`, ref_text ON and OFF) both came out heavily garbled ("Sturmgeschremen",
+    "trägsteten", "hitterlässt"), while the LOCAL render of the same source is clean. The pipeline ran
+    correctly (3 speakers diarized, good German script, gate PASSED) → the fault is OmniVoice's cross-lingual
+    RENDERING on CUDA/fp16 vs MPS, not structure/script/refs. **Translation cannot ship on prod until the
+    cloud-vs-local German gap is closed** (same-language/English cloud is fine — this is cross-lingual only).
+    Prime suspect: OmniVoice numerics on CUDA (try bf16/fp32 or verify attn_implementation). See
+    [[project_translation_cloud_gap]].
+  - **The gate is GARBLE-BLIND for cross-lingual.** `output_language` runs langdetect on the SCRIPT TEXT, not
+    the rendered audio → it falsely PASSED garbled German. Numeric green ≠ good audio; the founder's ear is
+    the only real check here (Constitution meta-rule). TODO: an audio-intelligibility scorer.
+  - **DEAD LEVER — do NOT retry: dropping `ref_text` for cross-lingual.** Tested 2026-06-14, it made German
+    WORSE. The dormant Cog toggle `xlingual_drop_reftext` stays OFF. See [[project_translation_reftext_experiment]].
+- **Translation is intended as a Warrior-tier feature** (founder, 2026-06-14) — but gated behind the cloud-German
+  fix above; do not un-hide it in the UI until cloud quality matches the approved local render.
+- **ElevenLabs is FULLY OUT (founder, 2026-06-14): every feature runs 100%% on OmniVoice.** No EL for cloning,
+  translation, OR library voices. The one remaining EL use — the instrumental flow's library voice id (e.g.
+  `instrumental_jon`) — MUST migrate to a stored OmniVoice reference (now a FIRM task, no longer "not urgent").
+  Library voices stay a concept (a permanent/shared voice for instrumentals, where there's nothing to clone),
+  but they are OmniVoice references, not EL ids. **The RULE, everywhere, is clone → OmniVoice.**
 
 ---
 
