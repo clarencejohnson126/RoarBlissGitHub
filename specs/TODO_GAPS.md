@@ -4,19 +4,20 @@ Acceptance criteria from the use-case specs that have **no executable check yet*
 founder's ear today. Each becomes a candidate new check + a permanent `eval/corpus.json` entry (the
 calibration loop, Constitution §5). **None implemented here** (gate code is ear-calibrated + founder-gated).
 
-## ⛔ TRANSLATION — DEFERRED TO v2 (founder decision 2026-06-13, "wir lassen das so und gehen live")
-Translation is **NOT launch-quality** and is HIDDEN from the v1 UI (no user may hit it). Three known defects,
-all to fix in v2:
-1. **Script does not span the full audio length — BIG NO-GO (founder).** The target-language script is
-   shorter than the source, so the spoken part STOPS ~1 minute before the music ends → a long music-only
-   (dead-speech) tail. Root: full_voice generates a script sized to the voice, not paced to FILL the source
-   duration. v2 fix: generate/pace the translation script to span the whole track (or trim the music to end
-   with the speech). Measured proxy today: `no_dead_air` caught a 19s trailing hole — the real gap is ~1 min.
-2. **Strong American accent on the target language.** OmniVoice cross-lingual keeps the source phonetics
-   (`num_step=80` reduced garbling but not the accent). v2 levers: drop the source-language `ref_text` from
-   the clone prompt; or a SCALABLE self-hostable multilingual cloner. **EL is OUT — its per-clone slot cap
-   does not scale** (100 simultaneous translations = impossible).
-3. **Intelligibility unverified** — no automatic native-likeness/intelligibility scorer for cross-lingual.
+## ⛔ TRANSLATION — BLOCKED: cloud garbles German (founder wants it as a Warrior feature, but prod can't deliver yet)
+Founder approved the LOCAL German render (02_DE, MPS): "hervorragend, einzigartig". Target = a Warrior-tier
+feature. BUT the CLOUD cog does NOT reproduce it — must-fix before shipping:
+1. **⛔ CLOUD-vs-LOCAL German gap (NEW, 2026-06-14, top blocker).** Two cloud runs (cog `370162ac36d7…`) both
+   garble German ("Sturmgeschremen", "trägsteten"); the local render of the same source is clean. Pipeline ran
+   correctly (3 speakers, good German script, gate PASSED) → fault = OmniVoice cross-lingual RENDERING on
+   CUDA/fp16 vs MPS. Prime suspect: numerics (try bf16/fp32, verify attn_implementation). English/same-language
+   cloud is fine — cross-lingual only.
+2. **Gate is GARBLE-BLIND.** `output_language` runs langdetect on the SCRIPT TEXT, not the audio → falsely
+   PASSED garbled German. Add an audio-intelligibility scorer (Whisper round-trip on the OUTPUT, not the script;
+   note Whisper is accent-blind — words-correct ≠ native-sounding → founder's ear stays the calibrator).
+3. **Script must span the full audio length** — full_voice can size the script to the voice, not the source →
+   music-only dead-speech tail (~1 min observed). `no_dead_air` is the proxy guard.
+4. **DEAD LEVER: dropping `ref_text` made German WORSE (tested 2026-06-14) — do NOT retry.** EL stays fully out.
 
 ## Coverage gaps (no end-to-end corpus proof)
 - **solo-monologue has no corpus entry.** Find a REAL dry single-speaker source with clonable speech and add
@@ -43,7 +44,9 @@ all to fix in v2:
 - **Library-voice identity** — no check that the chosen library voice is the one heard (no source ref for
   `clone_fidelity`). *(instrumental-template.md)*
 
-## Engine-unification roadmap (not a bug)
-- **Migrate library voices off ElevenLabs.** The instrumental flow still uses an EL voice id — the one
-  tolerated exception (§3). Move to stored OmniVoice references so the engine is uniformly OmniVoice.
-  *(instrumental-template.md)*
+## Engine-unification roadmap — NOW FIRM (founder 2026-06-14: ElevenLabs fully out, 100% OmniVoice)
+- **Migrate library voices off ElevenLabs.** The instrumental flow still uses an EL voice id; move to stored
+  OmniVoice references so the engine is uniformly OmniVoice. No longer a "tolerated exception" — it's the
+  last EL dependency to remove. *(instrumental-template.md, Constitution §3)*
+- **Drop ELEVENLABS_API_KEY from the runtime path** once the instrumental flow is migrated (web app + cog
+  input + Vercel/Replicate env). EL is no longer part of any feature.

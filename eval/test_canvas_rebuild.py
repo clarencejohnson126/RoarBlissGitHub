@@ -30,7 +30,7 @@ sys.path.insert(0, HERE)  # for metrics
 def _load_helpers():
     """Extract the pure functions from the shipping file, skipping its heavy module imports (whisper, …)."""
     tree = ast.parse(open(ASYNTH).read())
-    wanted = {"trim_silence", "_bleed_comp_db", "_rebuild_slot", "_assemble_no_music", "_detect_music_bed", "_ramp_edge"}
+    wanted = {"trim_silence", "_bleed_comp_db", "_rebuild_slot", "_assemble_no_music", "_detect_music_bed", "_ramp_edge", "_local_music_gain"}
     nodes = [n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name in wanted]
     assert len(nodes) == len(wanted), f"missing helpers: {wanted - {n.name for n in nodes}}"
     import array as _array
@@ -109,17 +109,17 @@ def test_music():
     except Exception as ex:
         print(f"(metric sigma check skipped: {ex})")
 
-    # Control: WITHOUT comp the SAME slot drops ~3dB vs WITH comp — proves the test can detect a real wobble
-    # (and that the comp is what closes it). Compare the identical slot window, comp vs no-comp.
-    canvas_nocomp = full_mix
-    for s, e in slots:
-        slot_ms = e - s
-        clone = Sine(800, sample_rate=rate).to_audio_segment(duration=slot_ms).apply_gain(-10.0).set_channels(chans)
-        canvas_nocomp = rebuild_slot(canvas_nocomp, accomp, s, slot_ms, clone, 0.0, rate, chans)
-    lift = _band_db(canvas, 2200, 2800) - _band_db(canvas_nocomp, 2200, 2800)
-    print(f"control: comp lifts the slot music by {lift:.2f}dB (no-comp slot would drop that much)")
-    if lift < 1.5:
-        fails.append(f"control weak: comp only lifted {lift:.2f}dB — test wouldn't catch a real wobble")
+    # Control: the scenario must contain a REAL music deficit the per-slot gain has to close (else the test
+    # is vacuous). The rebuild now lifts each slot via `_local_music_gain` (per-slot, measured from the kept
+    # neighbourhood — supersedes the old single global comp_db, which it ignores), so varying comp_db proves
+    # nothing. Instead: the RAW accomp stem at the slot sits below the kept full-mix music (the demucs bleed),
+    # and section 3 already proved the REBUILT slot matches kept within 2dB — i.e. the per-slot lift closed a
+    # genuine gap. Assert that raw gap was real (>1.5dB) so a broken lift WOULD have wobbled.
+    accomp_slot_db = _band_db(accomp, 2200, 2800)
+    deficit = kept_db - accomp_slot_db
+    print(f"control: raw accomp slot sits {deficit:.2f}dB below kept music; per-slot gain closes it (rebuilt slot matches kept above)")
+    if deficit < 1.5:
+        fails.append(f"control weak: raw deficit only {deficit:.2f}dB — scenario wouldn't expose a wobble")
 
     print("[music ] " + ("FAIL ✗ " + "; ".join(fails) if fails else "PASS ✓  zero drift, kept bit-identical, no slot wobble"))
     return fails

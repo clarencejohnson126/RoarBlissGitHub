@@ -32,6 +32,11 @@ jobs:
         uses: replicate/setup-cog@v2
         with:
           token: ${{ secrets.REPLICATE_API_TOKEN }}
+          # PIN the proven cog version (built the working prod version 49d1790 on the cuda-12.1/torch-2.5.1
+          # stack). Explicit so a future change to the action's default can never silently swap in a cog
+          # that breaks the build or the input schema (e.g. the v0.20 context bug). Re-evaluate only with a
+          # tested stack bump.
+          cog-version: v0.9.8
 
       - name: Build + push the model to Replicate (cloud build, ~20–35 min)
         run: |
