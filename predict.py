@@ -423,21 +423,41 @@ class Predictor(BasePredictor):
                   f"timeline, {speech_ms/1000:.1f}s speech")
             intro_ms, bed_for_mix = 0, accomp
         else:
-            cap_ms = max(0, window_ms - 5500)   # reserve room for the 2.5s intro + 3s tail
-            track = AudioSegment.silent(duration=0)
-            prev = None
-            for idx, seg_len, vi in items:
-                seg = rendered[idx]
-                if cap_ms and len(track) > 1000 and len(track) + len(seg) > cap_ms:
-                    print(f"  output cap (~{window_ms/1000:.0f}s) reached at line {idx}/{len(lines)}")
-                    break
-                gap = 650 if (prev is not None and vi != prev) else 300   # longer breath on a voice change
-                track += AudioSegment.silent(duration=gap) + seg
-                prev = vi
+            # MUSIC-AWARE PLACEMENT (Constitution §2.8/§2.9): spread the lines across the WHOLE bed with
+            # section-weighted pauses (breathe in the quiet, drive in the loud) so the voice never rambles
+            # back-to-back and never runs out early leaving a voiceless tail (~70 % bug). Falls back to the
+            # old tight sequential fill if the analysis/placement is unavailable. The music is read-only.
             bed_for_mix = self._constant_bed_path(bed_audio) if use_constant_bed else accomp
-            tag = "constant bed (dry source/template)" if use_constant_bed else "no source timeline"
-            print(f"full_voice track: {n} voice(s), {len(track)/1000:.1f}s speech (sequential — {tag})")
-            intro_ms = 2500
+            placements = []
+            try:
+                from music_analyzer import analyze_music
+                placements = self._place_music_aware(items, analyze_music(audio_path), window_ms)
+            except Exception as e:
+                print("music-aware placement skipped:", e)
+            if placements:
+                end_ms = max((pos + len(rendered[idx]) for idx, pos in placements), default=0)
+                track = AudioSegment.silent(duration=max(window_ms, end_ms + 200))
+                for idx, pos in placements:
+                    track = track.overlay(rendered[idx], position=pos)
+                speech_ms = sum(len(rendered[idx]) for idx, _ in placements)
+                print(f"full_voice track: {n} voice(s), {len(placements)} lines spread music-aware over "
+                      f"{len(track)/1000:.0f}s ({speech_ms/1000:.0f}s speech + section pauses)")
+                intro_ms = 0
+            else:
+                cap_ms = max(0, window_ms - 5500)   # reserve room for the 2.5s intro + 3s tail
+                track = AudioSegment.silent(duration=0)
+                prev = None
+                for idx, seg_len, vi in items:
+                    seg = rendered[idx]
+                    if cap_ms and len(track) > 1000 and len(track) + len(seg) > cap_ms:
+                        print(f"  output cap (~{window_ms/1000:.0f}s) reached at line {idx}/{len(lines)}")
+                        break
+                    gap = 650 if (prev is not None and vi != prev) else 300   # longer breath on a voice change
+                    track += AudioSegment.silent(duration=gap) + seg
+                    prev = vi
+                tag = "constant bed (dry source/template)" if use_constant_bed else "no source timeline"
+                print(f"full_voice track: {n} voice(s), {len(track)/1000:.1f}s speech (sequential fallback — {tag})")
+                intro_ms = 2500
         if track.dBFS == float("-inf"):
             raise RuntimeError("full_voice: no audible speech produced")
         track = self._voice_polish(track, work, speed=1.0)   # Stimmenklang only — speed already per line
@@ -500,6 +520,37 @@ class Predictor(BasePredictor):
         except Exception as e:
             print("[self-check] correction failed, keeping original:", e)
         return out
+
+    def _place_music_aware(self, items, music_map, window_ms, intro_ms=1200, tail_ms=1500):
+        """MUSIC-AWARE full_voice placement (Constitution §2.8/§2.9). Spread the lines across the WHOLE bed
+        with section-weighted PAUSES — the voice breathes (longer gaps) in quiet sections and drives in loud
+        ones — so it never rambles back-to-back AND never runs out early leaving a voiceless tail (the ~70 %
+        bug). items: [(idx, len_ms, voice)] in script order -> [(idx, start_ms)]. The music is READ-ONLY.
+        Distributes the SLACK (window minus total speech) as pauses weighted toward the quiet sections."""
+        secs = music_map.get("sections") or []
+        n = len(items)
+        if n == 0:
+            return []
+        lo = intro_ms
+        hi = max(lo + 1000, window_ms - tail_ms)
+        span = hi - lo
+        total_speech = sum(seg for _, seg, _ in items)
+
+        def energy_at(ms):
+            for s in secs:
+                if s["start_s"] * 1000 <= ms <= s["end_s"] * 1000:
+                    return float(s["energy"])
+            return 0.5
+        even = [lo + span * (i + 0.5) / n for i in range(n)]            # rough center to read the section
+        pw = [max(0.25, 1.5 - energy_at(c)) for c in even]             # quiet(e~.2)->1.3, loud(e~.9)->.6
+        slack = max(0, span - total_speech)                            # total pause budget to spread
+        tot_pw = sum(pw) or 1.0
+        placements, cursor = [], lo
+        for (idx, seg_len, vi), w in zip(items, pw):
+            start = int(min(cursor, max(0, window_ms - seg_len - 50)))  # keep the line inside the window
+            placements.append((idx, max(0, start)))
+            cursor = start + seg_len + max(120, int(slack * w / tot_pw))  # advance by line + its weighted pause
+        return placements
 
     def _place_on_timeline(self, items, windows_ms, window_ms, gap_same=150, gap_switch=650):
         """items: [(line_idx, len_ms, voice_idx)] in script order -> [(line_idx, start_ms)].
@@ -634,6 +685,22 @@ class Predictor(BasePredictor):
                 audio_path).get("text", "")[:1200]
         except Exception as e:
             print("style transcribe skipped:", e)
+        # MUSIC-AWARE SCRIPT (Constitution §2.8): analyze the BED so the script fits its tempo + dynamics and
+        # FILLS the whole length (§2.9) — not a music-blind wall of words. READ-ONLY: the music is NEVER touched.
+        music_note = ""
+        try:
+            from music_analyzer import analyze_music
+            mm = analyze_music(audio_path)
+            secs = " | ".join(f"{s['start_s']:.0f}-{s['end_s']:.0f}s {s['label']}: {s['delivery']['tone']}, {s['delivery']['pace']}"
+                              + ("  <<< LAND THE NAME/VOW LINE HERE" if s["land_big_line"] else "")
+                              for s in mm["sections"])
+            music_note = (f"\n\nMUSIC MAP — the script MUST ride THIS bed (the music is never changed, you only "
+                          f"fit your words to it). {mm['script_brief']}\nSECTION TIMELINE:\n{secs}\n"
+                          "Write the lines IN THIS ORDER so each lands in its section; the voice must reach the "
+                          "outro (never run out early and leave the music playing alone).")
+            print(f"music-aware script: {mm['bpm']}bpm, climax ~{mm['climax_s']}s, {len(mm['sections'])} sections")
+        except Exception as e:
+            print("music analysis skipped:", e)
         model = os.environ.get("WRITER_MODEL", "claude-sonnet-4-6")
         lang = (language or "English").strip()
         # When the target language isn't English, force native (not translated) output — ElevenLabs
@@ -654,7 +721,7 @@ class Predictor(BasePredictor):
                       "No prose, no markdown." + lang_note)
             usr = (f"STYLE (echo delivery, do NOT reuse words):\n\"\"\"\n{style}\n\"\"\"\n\nLISTENER:\n{user_context}\n\n"
                    f"Write ~{target_words} words total, broken into natural spoken lines, building to one "
-                   f"decisive final line. JSON only.")
+                   f"decisive final line. JSON only." + music_note)
         else:
             win_s = max(20, int(window_ms / 1000))
             target_lines = max(10, int(win_s / 3.8))    # ~3.8s per line -> fewer, more spaced (less rushed)
@@ -670,7 +737,7 @@ class Predictor(BasePredictor):
             usr = (f"STYLE/cadence to echo (do NOT reuse words):\n\"\"\"\n{style}\n\"\"\"\n\nLISTENER:\n{user_context}\n\n"
                    f"Write about {target_lines} short lines total — roughly {win_s} seconds of speech — across "
                    f"{n_voices} voices as a seamless, building epic. Do NOT exceed {target_lines + 5} lines. "
-                   f"End on one decisive final line. JSON only.")
+                   f"End on one decisive final line. JSON only." + music_note)
         # Big token budget: a full-length translation can be 100+ lines; a small cap truncated the JSON,
         # which then failed to parse and got read aloud as raw structure ("voice 0 text ...").
         raw = llm_chat(sysmsg, usr, max_tokens=8000, temperature=0.75, model=model).strip()

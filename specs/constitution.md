@@ -48,6 +48,20 @@ acceptance criteria back to named checks in that gate.
 6. **Output = full source length** unless the >6 min cap trims it. **Never cut a track short.**
 7. Free tier: 45 s preview → register to download → subscribe. 3 tiers €9.99 / 19.99 / 39.99. Billing is
    MINUTES/month per tier, **charge-on-delivery** (a failed run costs nothing).
+8. **MUSIC-AWARE SCRIPT & DELIVERY (set in stone, founder 2026-06-17).** The script AND the voice delivery
+   MUST be driven by an analysis of the MUSIC — its **genre, style, tempo/BPM, beat grid, and the dynamic
+   highs & lows (energy envelope over time)**. From that analysis: (a) the WRITER composes lines that *fit*
+   the music — punchy/short on a fast beat, reflective/longer in a quiet passage, the climax line landing on
+   the swell; (b) the DELIVERY sets the speaking **RATE** to the tempo, inserts **PAUSES** at musical phrase
+   boundaries (**NEVER a wall of speech "ohne Punkt und Komma"**), and matches the voice **TONE / Stimmenklang**
+   to each passage's energy (calm in the quiet, intense at the peak). This applies to BOTH the
+   **instrumental / library-voice** path AND **voice-personalization over a music bed**. A script written
+   blind to the music (the old behaviour) is a defect, not a style choice.
+9. **FULL-LENGTH VOICE COVERAGE (set in stone, founder 2026-06-17).** The voice/script must span the **whole
+   audio** — it may NOT run out partway and leave a long voiceless tail (the founder heard the voice stop at
+   ~70 % and then only bare music play = a no-go). For full_voice / instrumental, lines + deliberate pauses
+   are sized to fill the bed to the end (within the ≤6 min cap). Distinct from §2.6 (don't *trim* the track):
+   this forbids a *voiceless* tail even when the track length is correct.
 
 ---
 
