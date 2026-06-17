@@ -508,7 +508,20 @@ def synthesize_omnivoice(text: str, ref_path: Path, ref_text: str, slot_ms: int,
 # Provider: ElevenLabs (premium voice cloning — far better timbre + clarity than F5)
 # ──────────────────────────────────────────────────────────────────────────
 ELEVENLABS_API = "https://api.elevenlabs.io/v1"
-EL_MODEL = "eleven_multilingual_v2"
+# EL model is env-configurable so eleven_v3 (emotion via inline audio-tags) can be A/B-toggled per
+# prediction WITHOUT another rebuild. Default stays the proven v2 (the golden-quality model). Read at
+# CALL time (not import) so a per-prediction env set in predict() is honored.
+_EL_MODEL_DEFAULT = "eleven_multilingual_v2"
+def _el_model() -> str:
+    return (os.environ.get("EL_MODEL") or _EL_MODEL_DEFAULT).strip() or _EL_MODEL_DEFAULT
+def _el_is_v3(model: str | None = None) -> bool:
+    return "v3" in (model or _el_model()).lower()
+
+import re as _re_tags
+def _strip_audio_tags(text: str) -> str:
+    """Remove inline emotion audio-tags like [determined] / [calm] from a line. V3 CONSUMES them; v2 +
+    OmniVoice would SPEAK them ('determined, you will rise.'), so strip before any non-V3 engine."""
+    return _re_tags.sub(r"\s*\[[^\]\n]{1,40}\]\s*", " ", text).replace("  ", " ").strip()
 
 def _el_headers():
     key = os.environ.get("ELEVENLABS_API_KEY")
@@ -531,16 +544,25 @@ def elevenlabs_clone(ref_wav: Path, name: str = "rb_clone") -> str:
     return r.json()["voice_id"]
 
 def elevenlabs_tts(text: str, voice_id: str) -> AudioSegment:
-    # Founder verdict: low stability + style introduced "ähhs/ohs/cut-offs" — too much instability.
-    # Back to the CLEAN v1 basis. The only kept Stimmenklang lever is the SAFE one: speaker_boost +
-    # standard similarity add fullness WITHOUT destabilising. Emphasis comes from the writer's sentence
-    # structure (key word last, short lines) and pacing (voice_speed 0.93), never from low stability.
+    model = _el_model()
+    if _el_is_v3(model):
+        # V3 = emotion via inline audio-tags (the writer embeds [calm]/[determined]/[powerful] per music
+        # section). Keep the tags in the text. stability="natural" (0.5) is V3's balanced expressive-yet-
+        # stable setting — it does NOT reintroduce the v2 "ähhs/cut-offs" (those came from v2 low stability
+        # + style); V3 carries emotion through the tags, not through destabilising the voice.
+        settings = {"stability": 0.5, "similarity_boost": 0.8, "use_speaker_boost": True}
+        payload_text = text
+    else:
+        # Founder verdict (v2): low stability + style introduced "ähhs/ohs/cut-offs" — too much instability.
+        # CLEAN v1 basis. speaker_boost + standard similarity add fullness WITHOUT destabilising. Emphasis
+        # comes from the writer's sentence structure + pacing, never from low stability. Strip any stray
+        # audio-tags defensively so v2 never speaks them.
+        settings = {"stability": 0.5, "similarity_boost": 0.8, "style": 0.0, "use_speaker_boost": True}
+        payload_text = _strip_audio_tags(text)
     r = _request_with_retry(
         "POST", f"{ELEVENLABS_API}/text-to-speech/{voice_id}?output_format=mp3_44100_128",
         headers={**_el_headers(), "Content-Type": "application/json"},
-        json={"text": text, "model_id": EL_MODEL,
-              "voice_settings": {"stability": 0.5, "similarity_boost": 0.8,
-                                  "style": 0.0, "use_speaker_boost": True}},
+        json={"text": payload_text, "model_id": model, "voice_settings": settings},
         timeout=180,
     )
     r.raise_for_status()
