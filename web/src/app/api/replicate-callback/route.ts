@@ -90,12 +90,14 @@ export async function POST(request: Request) {
     // but FAILED the quality gate is treated as a NON-delivery: refunded + sent the "retry" email, never
     // shipped. Fail-open — a missing scorecard never blocks delivery (we only block on an explicit `false`).
     const scorecard = parseScorecard(payload.logs || "");
-    // BLOCK CORSET (founder, 2026-06-18): the cog's scorecard.passed blocks on ANY signal-check fail
-    // (clipping/loudness/dropouts) — far too strict. A constrained-ffmpeg measurement artifact already
-    // false-blocked a perfectly good file, and an over-tight gate kills the experience → churn. Block ONLY
-    // on a real deal-breaker: empty audio or total dead-air. Signal cosmetics + accent SHIP (logged, not blocked).
+    // BLOCK CORSET (founder, 2026-06-18): we accept ANY input mp3 — a poor result from a poor SOURCE is a
+    // FAQ topic, not our block. Block ONLY on real OUTPUT catastrophes (DEAL-BREAKERS): empty/dead audio,
+    // GIBBERISH speech, the loudness ROLLERCOASTER, degenerate/untranslated text. Cosmetic signal numbers
+    // (clipping/0-dBFS peak, loudness, dropouts, hiss) are ADVISORY — they SHIP (logged, never blocked).
+    const DEAL_BREAKERS = new Set(["content_present", "no_dead_air", "intelligibility", "no_swallowed_line",
+      "music_stability", "music_continuity", "no_repetition", "full_replacement"]);
     const scFailures: string[] = Array.isArray(scorecard?.failures) ? (scorecard!.failures as string[]) : [];
-    const qualityFailed = scFailures.some((f) => f === "content_present" || f === "no_dead_air");
+    const qualityFailed = scFailures.some((f) => DEAL_BREAKERS.has(f));
     const delivered = status === "succeeded" && produced && !qualityFailed;
     if (qualityFailed) {
       console.warn(
