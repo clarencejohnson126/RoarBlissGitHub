@@ -1,29 +1,11 @@
-// ─────────────────────────────────────────────────────────────────────────────
-// LIBRARY VOICES — the single swap-point for the Instrumental / Library-Voice path.
-//
-// When a user uploads an INSTRUMENTAL (no voice to clone), they pick one of these
-// voices; its `referenceUrl` clip becomes the OmniVoice clone reference and the
-// voice is laid OVER the original bed (RULE #1: the bed is never ducked/pumped).
-//
-// ⚠️ LEGAL — INTERNAL TEST ONLY, NOT FOR PUBLIC MARKETING ⚠️
-// ─────────────────────────────────────────────────────────────────────────────
-// The audio behind `previewUrl` / `referenceUrl` below is DERIVED FROM ELEVENLABS
-// SAMPLES. ElevenLabs' Prohibited Use Policy FORBIDS using EL output as a clone
-// reference in production. These exist purely to wire + test the path end-to-end.
-//
-// BEFORE this feature is exposed to real/paying users or any marketing:
-//   • Swap every `referenceUrl` (and the matching `previewUrl`) for a legally-clean
-//     source — LibriTTS-R (CC-BY-4.0) and/or commissioned voice actors WITH an
-//     explicit AI-cloning buyout in the contract.
-//   • Keep the same { id } values so saved selections + the cog wiring keep working.
-//   • This file is the ONE place to change — nothing else references the raw URLs.
-//     (Open to extension, closed to modification: add/replace entries here only.)
-//
-// Reference-clip spec (so a swapped-in source clones cleanly on OmniVoice):
-//   6–10 s, mono, 24 kHz WAV, HPF80 + LPF14k + loudnorm I=-18, NO FFT denoise
-//   (afftdn corrupts the reference → OmniVoice clones gibberish — Constitution §4).
-// ─────────────────────────────────────────────────────────────────────────────
-
+/**
+ * Library voices — the single swap-point for the instrumental + translation paths.
+ * The 10 personas keep their names/taglines; each is now backed by an ElevenLabs voice_id (the
+ * instrumental/translation engine per the differentiated-engine plan). `el_voice_id` is a PLACEHOLDER
+ * mapping (2026-06-17) — the founder curates the real voices in the EL Voice Library; swapping one is a
+ * single DB/array edit, no rebuild. `previewUrl` is the static EL CDN sample (0-cost audition). The
+ * legacy `referenceUrl` (OmniVoice clone clip) is kept as a fallback but unused on the EL path.
+ */
 export type VoiceGender = "male" | "female";
 export type VoiceAccent = "american" | "british" | "southern" | "scottish";
 export type VoiceStyle = "standard" | "cinematic";
@@ -36,26 +18,29 @@ export interface LibraryVoice {
   gender: VoiceGender;
   accent: VoiceAccent;
   style: VoiceStyle;
+  /** BCP-ish language tag of the voice (en, de, pt-BR, fr, es, it, tr, zh). */
+  language: string;
+  /** The ElevenLabs voice_id spoken at TTS time (instrumental + translation engine). */
+  el_voice_id: string;
   /** One-line character description shown on the card. */
   tagline: string;
-  /** Public URL the user hears when they tap "play" (a short MP3 sample). */
+  /** Public URL the user hears on "play" — the static EL CDN sample (0-cost audition). */
   previewUrl: string;
-  /** Public URL of the 6–10 s mono clip used as the OmniVoice clone reference. */
-  referenceUrl: string;
+  /** Legacy: public URL of the OmniVoice clone reference clip. Unused on the EL path. */
+  referenceUrl?: string;
 }
 
-// Deep MALE voices lead (the founder's priority), then FEMALE — spread across
-// american / british / southern / scottish, with cinematic/film options in each.
 export const LIBRARY_VOICES: LibraryVoice[] = [
-  // ── Male ───────────────────────────────────────────────────────────────────
   {
     id: "atlas",
     name: "Atlas",
     gender: "male",
     accent: "american",
     style: "cinematic",
+    language: "en",
+    el_voice_id: "GOfBfv0luIdTaaO7RdJh",
     tagline: "Deep, resonant, cinematic — the voice that grounds you.",
-    previewUrl: "https://5w5yp925pv6eecn7.public.blob.vercel-storage.com/voices/library/atlas_preview-mJrVNu99YjTT1tNWbSsTOnPfZHFhTK.mp3",
+    previewUrl: "https://storage.googleapis.com/eleven-public-prod/database/workspace/b377842a3aee4de989b584d770ec9d76/voices/GOfBfv0luIdTaaO7RdJh/13aaf010-bb59-421d-8f2d-a15b5800edf6.mp3",
     referenceUrl: "https://5w5yp925pv6eecn7.public.blob.vercel-storage.com/voices/library/atlas_reference-h0cEeZm3otqZx1mbxgMlukrzL9FbXj.wav",
   },
   {
@@ -64,8 +49,10 @@ export const LIBRARY_VOICES: LibraryVoice[] = [
     gender: "male",
     accent: "american",
     style: "standard",
+    language: "en",
+    el_voice_id: "8BNZXqdnYLBqxWWAuQYn",
     tagline: "Rich, wise and steady — a mentor in your corner.",
-    previewUrl: "https://5w5yp925pv6eecn7.public.blob.vercel-storage.com/voices/library/magnus_preview-lmbbZdBXsKyQL2TwVb1h2O3jWeXC7P.mp3",
+    previewUrl: "https://storage.googleapis.com/eleven-public-prod/database/workspace/20064080b53d4ed3abb129b750e8be15/voices/8BNZXqdnYLBqxWWAuQYn/KIz0IU8g1QXQJ2tLk7ET.mp3",
     referenceUrl: "https://5w5yp925pv6eecn7.public.blob.vercel-storage.com/voices/library/magnus_reference-ULVHqef8Jl3Wk7OLWw96srUVpdbKI3.wav",
   },
   {
@@ -74,8 +61,10 @@ export const LIBRARY_VOICES: LibraryVoice[] = [
     gender: "male",
     accent: "british",
     style: "cinematic",
+    language: "en",
+    el_voice_id: "JWlKsAOcyfylxVyKfOQW",
     tagline: "A commanding British baritone — epic, theatrical, regal.",
-    previewUrl: "https://5w5yp925pv6eecn7.public.blob.vercel-storage.com/voices/library/crown_preview-zwCXuhBQX0dApMzbR7d5JxSUAGgNKF.mp3",
+    previewUrl: "https://api.us.elevenlabs.io/v1/voices/JWlKsAOcyfylxVyKfOQW/previews/audio?payload=eyJ2b2ljZV9zb3VyY2UiOiJjdXN0b20iLCJ3b3Jrc3BhY2VfaWQiOiIwMzY5ZGZkZWUxOWY0YWFlYjNlMGZlZDYyNjNjMWYxZSIsImZpbGVuYW1lIjoiMk9OcFI0OEdweXJKT3VZNG1vMTMubXAzIiwidGltZXN0YW1wIjoxNzgxNzMwMDAwMDAwMDAwfQ%3D%3D",
     referenceUrl: "https://5w5yp925pv6eecn7.public.blob.vercel-storage.com/voices/library/crown_reference-1UDTaf8W3QWVNM4uJKh0oBK2g5Rp5n.wav",
   },
   {
@@ -84,8 +73,10 @@ export const LIBRARY_VOICES: LibraryVoice[] = [
     gender: "male",
     accent: "southern",
     style: "standard",
+    language: "en",
+    el_voice_id: "SEOpGCKN7er9UhGUUgDR",
     tagline: "Deep, smooth Southern grit — calm, unhurried, certain.",
-    previewUrl: "https://5w5yp925pv6eecn7.public.blob.vercel-storage.com/voices/library/ridge_preview-jL45pvOZyat5e9OYLSLsIQd0Ib7s04.mp3",
+    previewUrl: "https://api.us.elevenlabs.io/v1/voices/SEOpGCKN7er9UhGUUgDR/previews/audio?payload=eyJ2b2ljZV9zb3VyY2UiOiJjdXN0b20iLCJ3b3Jrc3BhY2VfaWQiOiIwMWE2ZmRiOWNiZWI0M2FmOTE4ODk2ZWUzZWViMWYwNyIsImZpbGVuYW1lIjoiU0d2S3hqbDhhWEVxNUpyd3ZtZEUubXAzIiwidGltZXN0YW1wIjoxNzgxNzMwMDAwMDAwMDAwfQ%3D%3D",
     referenceUrl: "https://5w5yp925pv6eecn7.public.blob.vercel-storage.com/voices/library/ridge_reference-3ND6kdni8Orw7s8y451BoHa1TaKF9K.wav",
   },
   {
@@ -94,19 +85,22 @@ export const LIBRARY_VOICES: LibraryVoice[] = [
     gender: "male",
     accent: "scottish",
     style: "cinematic",
+    language: "en",
+    el_voice_id: "7IcEoybCSRDZ0tsNBX6Y",
     tagline: "A classic Scottish storyteller — weathered, mythic, warm.",
-    previewUrl: "https://5w5yp925pv6eecn7.public.blob.vercel-storage.com/voices/library/stone_preview-T2rpf3C7csOIDh78qdOi1kPbPi7YbM.mp3",
+    previewUrl: "https://api.us.elevenlabs.io/v1/voices/7IcEoybCSRDZ0tsNBX6Y/previews/audio?payload=eyJ2b2ljZV9zb3VyY2UiOiJjdXN0b20iLCJ3b3Jrc3BhY2VfaWQiOiJmOWMzNzIzYzM1NTQ0M2EzOWVlMWNlZDJmNTFjYTY4ZiIsImZpbGVuYW1lIjoieklWWUVVYkhYYWczdVY5bXowanMubXAzIiwidGltZXN0YW1wIjoxNzgxNzMwMDAwMDAwMDAwfQ%3D%3D",
     referenceUrl: "https://5w5yp925pv6eecn7.public.blob.vercel-storage.com/voices/library/stone_reference-GqpMWnaDHHoI9PGpb7xZVnCDo3ggTb.wav",
   },
-  // ── Female ───────────────────────────────────────────────────────────────────
   {
     id: "aria",
     name: "Aria",
     gender: "female",
     accent: "american",
     style: "standard",
+    language: "en",
+    el_voice_id: "tSFrmifcoKA2lXImR5MW",
     tagline: "Bright, warm and motivating — momentum in a voice.",
-    previewUrl: "https://5w5yp925pv6eecn7.public.blob.vercel-storage.com/voices/library/aria_preview-4mkPMDaXmViGdeRgond9Xu4wObHsBK.mp3",
+    previewUrl: "https://storage.googleapis.com/eleven-public-prod/database/workspace/6b677d3ad2b342009a3bc3d428cebfc3/voices/tSFrmifcoKA2lXImR5MW/RpgPIEt1sX2fm1NI0u1F.mp3",
     referenceUrl: "https://5w5yp925pv6eecn7.public.blob.vercel-storage.com/voices/library/aria_reference-uenpV7O9CtT91wKXizAoTxgQ6l3xxb.wav",
   },
   {
@@ -115,8 +109,10 @@ export const LIBRARY_VOICES: LibraryVoice[] = [
     gender: "female",
     accent: "british",
     style: "cinematic",
+    language: "en",
+    el_voice_id: "49S3tHf0uTVzQN5pADIu",
     tagline: "Intense, velvet British delivery — high-end and dramatic.",
-    previewUrl: "https://5w5yp925pv6eecn7.public.blob.vercel-storage.com/voices/library/noir_preview-uBVvWDzO3MjmdPdIgq0EHxcrKlsaad.mp3",
+    previewUrl: "https://storage.googleapis.com/eleven-public-prod/database/workspace/f0e1d78d04c544bda0c83167c8630a02/voices/49S3tHf0uTVzQN5pADIu/822d790c-c8ae-47ee-a9f3-df3b5ed89ebd.mp3",
     referenceUrl: "https://5w5yp925pv6eecn7.public.blob.vercel-storage.com/voices/library/noir_reference-erNq8HkCKahLjOsnyh5qQFG2buta7e.wav",
   },
   {
@@ -125,8 +121,10 @@ export const LIBRARY_VOICES: LibraryVoice[] = [
     gender: "female",
     accent: "american",
     style: "standard",
+    language: "en",
+    el_voice_id: "5i6nb2OuGBhcSFuXLsnR",
     tagline: "Tough, stern and direct — no excuses, only the next step.",
-    previewUrl: "https://5w5yp925pv6eecn7.public.blob.vercel-storage.com/voices/library/vesper_preview-8n104GAuR6egXHaA4qAlHVXKMown6E.mp3",
+    previewUrl: "https://storage.googleapis.com/eleven-public-prod/database/workspace/b887fe235abf4913bbe48844f3338e5c/voices/5i6nb2OuGBhcSFuXLsnR/2emQaGmCF4hu1qyklK3s.mp3",
     referenceUrl: "https://5w5yp925pv6eecn7.public.blob.vercel-storage.com/voices/library/vesper_reference-XcUt24AJSbXA7ckOOkbPcUHjB54aOO.wav",
   },
   {
@@ -135,8 +133,10 @@ export const LIBRARY_VOICES: LibraryVoice[] = [
     gender: "female",
     accent: "american",
     style: "standard",
+    language: "en",
+    el_voice_id: "Jkr7fpJ2L0EgonJBZKRn",
     tagline: "Warm Midwest confidence — like a hand on your shoulder.",
-    previewUrl: "https://5w5yp925pv6eecn7.public.blob.vercel-storage.com/voices/library/dawn_preview-ESoTMhb1Bd43Mm14NaWQEz6ocjqKR8.mp3",
+    previewUrl: "https://api.us.elevenlabs.io/v1/voices/Jkr7fpJ2L0EgonJBZKRn/previews/audio?payload=eyJ2b2ljZV9zb3VyY2UiOiJjdXN0b20iLCJ3b3Jrc3BhY2VfaWQiOiI3MzQwNGU1MjMyNTQ0YmMyYWFhNDkyZTNhZGIyZTA0ZCIsImZpbGVuYW1lIjoibGJ5MXVOVWdzc2FNS21RODdNcEUubXAzIiwidGltZXN0YW1wIjoxNzgxNzMwMDAwMDAwMDAwfQ%3D%3D",
     referenceUrl: "https://5w5yp925pv6eecn7.public.blob.vercel-storage.com/voices/library/dawn_reference-j94eL4y007HoQoj4S4CVohcsQMqfFJ.wav",
   },
   {
@@ -145,13 +145,15 @@ export const LIBRARY_VOICES: LibraryVoice[] = [
     gender: "female",
     accent: "british",
     style: "standard",
+    language: "en",
+    el_voice_id: "lVpo6IOLjDX4LxkYRZyj",
     tagline: "Warm, clear British instruction — composed and reassuring.",
-    previewUrl: "https://5w5yp925pv6eecn7.public.blob.vercel-storage.com/voices/library/sage_preview-unkYPED0DHob3MtsgKClyPtr4HUUL4.mp3",
+    previewUrl: "https://storage.googleapis.com/eleven-public-prod/database/workspace/9ef82927ee58462fa9429ef93abe605d/voices/lVpo6IOLjDX4LxkYRZyj/zG2ffkeUUTVPvZwhhr2o.mp3",
     referenceUrl: "https://5w5yp925pv6eecn7.public.blob.vercel-storage.com/voices/library/sage_reference-CYCbciaPWb8bkaaQlh3fzfRvF4f9rt.wav",
   },
 ];
 
-/** Look up a voice by id (used to resolve the chosen voice's referenceUrl for the cog request). */
+/** Look up a voice by id (resolves the chosen voice's el_voice_id for the cog request). */
 export function getVoiceById(id: string | undefined | null): LibraryVoice | undefined {
   if (!id) return undefined;
   return LIBRARY_VOICES.find((v) => v.id === id);

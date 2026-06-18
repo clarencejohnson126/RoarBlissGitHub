@@ -92,7 +92,7 @@ export const TONES: { title: string; desc: string }[] = [
 // (CUDA) — OmniVoice cross-lingual is clean on local MPS but garbles on every cloud config tested
 // (torch 2.5.1/2.6, fp16/bf16/fp32, num_step 80/48). Restore the full list once translation works in
 // prod (v2 path: native-voice translation). Single-element list = no language picker reaches users.
-export const LANGUAGES = ["English"];
+export const LANGUAGES = ["English", "German", "Spanish", "French", "Italian", "Portuguese", "Dutch", "Polish", "Chinese"];
 // export const LANGUAGES = ["English", "German", "Spanish", "French", "Italian", "Portuguese", "Dutch", "Polish", "Chinese"];
 
 export const DEPTHS: { value: Depth; label: string; hint: string }[] = [
@@ -147,6 +147,12 @@ export function composePayload(d: CreateFlowData) {
   // the original bed (RULE #1: bed untouched) instead of trying to diarize a non-existent speaker. A
   // chosen library voice forces the full (100%) script — there is no original speech to keep.
   const lib = d.sourceMode === "instrumental" ? getVoiceById(d.libraryVoiceId) : undefined;
+  // Translation (non-English target) is spoken by an EL library voice in that language (differentiated-
+  // engine plan): the chosen instrumental voice if there is one, else a default deep persona. There is NO
+  // cross-lingual clone of the source voice (that's the deferred "keep the source voice" v2). Like the
+  // instrumental path, translation forces the full (100%) script — no source-language line survives.
+  const isTranslation = (d.language || "English").trim().toLowerCase() !== "english";
+  const elVoice = lib ?? (isTranslation ? getVoiceById("atlas") : undefined);
 
   return {
     name: d.userName.trim() || "Warrior",
@@ -158,13 +164,13 @@ export function composePayload(d: CreateFlowData) {
     tone: [d.primaryTone, d.secondaryTone].filter(Boolean).join(" + "),
     // An instrumental + chosen voice has nothing to keep → speak the whole bed (full_voice). Otherwise
     // honor the user's tier exactly.
-    personalization: lib ? (100 as Depth) : d.personalizationDepth,
+    personalization: elVoice ? (100 as Depth) : d.personalizationDepth,
     language: d.language || "English",
     prompt: parts.join(" "),
     paid: false,
-    // Library-voice-over-bed wiring (only set when an instrumental voice was actually chosen).
-    ...(lib
-      ? { voiceReferenceUrl: lib.referenceUrl, libraryVoiceId: lib.id, cloneSourceVoices: false }
+    // EL-voice-over-bed wiring — set for an instrumental pick OR a translation (both speak an EL library voice).
+    ...(elVoice
+      ? { ttsProvider: "elevenlabs", extraVoiceIds: elVoice.el_voice_id, elModel: "eleven_multilingual_v2", libraryVoiceId: elVoice.id, cloneSourceVoices: false }
       : {}),
   };
 }

@@ -106,7 +106,8 @@ export interface PredictionInput {
   tone?: string; // one-click mood/template tag, e.g. "fighter", "reflective", "grief", "confident"
   // Advanced voice/mix knobs (optional; the cog defaults are correct for the standard upload+clone flow).
   clone_source_voices?: boolean; // false = only use extra_voice_ids over the upload-as-bed (instrumental + chosen voice)
-  extra_voice_ids?: string; // comma-separated permanent voice IDs (instrumental-template path; not sent by the web yet)
+  extra_voice_ids?: string; // comma-separated permanent voice IDs (instrumental/translation EL path)
+  el_model?: string; // ElevenLabs model: eleven_multilingual_v2 (validated) | eleven_v3
   // Instrumental / library-voice path: a public URL to the chosen library voice's clone reference clip.
   // When set, the cog clones THIS voice (OmniVoice) and lays it over the uploaded bed (RULE #1: bed
   // untouched). It is also the backend authority's fallback when the source has no clonable speaker.

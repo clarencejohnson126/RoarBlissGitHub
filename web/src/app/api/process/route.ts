@@ -56,6 +56,9 @@ export async function POST(request: Request) {
       deviceId,
       voiceReferenceUrl,
       cloneSourceVoices,
+      extraVoiceIds,
+      ttsProvider,
+      elModel,
     } = (data ?? {}) as Record<string, unknown>;
 
     // Device + IP identity for the free-tier abuse gate (1 free track per device/IP). Sanitize both
@@ -89,6 +92,12 @@ export async function POST(request: Request) {
       typeof u === "string" && /^https:\/\/[a-z0-9]+\.public\.blob\.vercel-storage\.com\//i.test(u);
     const libraryVoiceReference = isBlobUrl(voiceReferenceUrl) ? voiceReferenceUrl : "";
     const useLibraryVoice = cloneSourceVoices === false && !!libraryVoiceReference;
+    // Differentiated engine: instrumental + translation speak a permanent ElevenLabs voice_id (the client
+    // sends ttsProvider=elevenlabs + extraVoiceIds). Validate the id charset — it flows straight to the cog
+    // as extra_voice_ids — and pin el_model to a known value. The cog lays this voice over the upload bed.
+    const elVoiceId = typeof extraVoiceIds === "string" && /^[A-Za-z0-9,]{1,200}$/.test(extraVoiceIds) ? extraVoiceIds : "";
+    const useElVoice = ttsProvider === "elevenlabs" && !!elVoiceId;
+    const elModelSafe = elModel === "eleven_v3" ? "eleven_v3" : "eleven_multilingual_v2";
 
     const base = baseUrl(request);
     const audio =
@@ -213,8 +222,9 @@ export async function POST(request: Request) {
       location: (location as string) || "",
       champion: (champion as string) || "",
       paid: paidGranted,
-      // THE engine — always explicit. OmniVoice runs in-cog on GPU; it is the only engine we ship.
-      tts_provider: "omnivoice",
+      // Engine per the differentiated-engine plan: personalization = OmniVoice (in-cog GPU); instrumental +
+      // translation = ElevenLabs (a fixed library voice_id). Always explicit so a bare cog call can't drift.
+      tts_provider: useElVoice ? "elevenlabs" : "omnivoice",
       // Honor the chosen tier on BOTH free + paid so the preview reflects exactly what was picked
       // (25/50/75 = that share of the timeline; 100 = full rewrite). Free stays bounded by the 45s cap
       // + the 1-free-per-device gate — not by a forced tier.
@@ -227,7 +237,10 @@ export async function POST(request: Request) {
       // Setting clone_source_voices=false makes it the explicit instrumental path; passing the reference
       // also arms the cog's backend-authority fallback (used if the source has no clonable speaker).
       voice_reference_url: libraryVoiceReference,
-      ...(useLibraryVoice ? { clone_source_voices: false } : {}),
+      // Instrumental/translation EL voice (differentiated engine): the cog speaks this permanent EL voice
+      // over the upload bed (RULE #1). el_model = v2 (validated) or eleven_v3.
+      ...(useElVoice ? { extra_voice_ids: elVoiceId, el_model: elModelSafe } : {}),
+      ...((useLibraryVoice || useElVoice) ? { clone_source_voices: false } : {}),
       // Secrets travel as Cog Secret inputs (Replicate has no model-level env). Server-side env only.
       anthropic_api_key: process.env.ANTHROPIC_API_KEY || "",
       hf_token: process.env.HF_TOKEN || "",
