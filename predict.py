@@ -463,6 +463,20 @@ class Predictor(BasePredictor):
         track = self._voice_polish(track, work, speed=1.0)   # Stimmenklang only — speed already per line
         mixed = self._lay_over_music(track, bed_for_mix, work, duck_db=duck_db, music_gain_db=music_gain_db,
                                      bed_len_ms=window_ms, intro_ms=intro_ms)
+        # Trim a trailing DEAD-AIR tail. When a translated / dry speech is re-voiced, its SEPARATED accomp
+        # runs empty after the last spoken line (the original voice used to fill that tail; now correctly
+        # stripped), leaving silence the no_dead_air guard rightly rejects. Cut to the last line + a short
+        # breath — but ONLY when the bed there is genuinely silent. A real-music track keeps its tail (the
+        # bed never goes quiet), so it is NEVER cut short (founder rule).
+        try:
+            from pydub.silence import detect_leading_silence
+            last_voice_ms = len(track) - detect_leading_silence(track.reverse(), silence_threshold=-50.0, chunk_size=20)
+            tail_after = mixed[last_voice_ms + 500:]
+            if len(mixed) - last_voice_ms > 2500 and len(tail_after) > 0 and tail_after.dBFS < -40:
+                mixed = mixed[: last_voice_ms + 1500]   # keep last line + a 1.5s musical breath
+                print(f"trimmed dead-air tail after last line -> {len(mixed)/1000:.1f}s (empty bed; not a music track)")
+        except Exception as e:
+            print("tail-trim skipped:", e)
         out = _P(work) / "fullvoice.mp3"
         mixed.export(str(out), format="mp3", bitrate="192k")
 
