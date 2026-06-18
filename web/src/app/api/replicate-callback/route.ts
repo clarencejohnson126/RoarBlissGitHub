@@ -7,7 +7,7 @@ import { baseUrl } from "@/lib/base-url";
 import { markJobTerminal, setJobOutputUrl, setJobScorecard } from "@/lib/scale-guard";
 import { chargeReservation, releaseReservation, clearFreeUsageForPrediction } from "@/lib/supabase-admin";
 import { drainQueue, reconcileStuckRunning } from "@/lib/drain";
-import { parseScorecard } from "@/lib/scorecard";
+import { parseScorecard, isQualityFailed } from "@/lib/scorecard";
 
 /**
  * POST /api/replicate-callback?email=<addr>
@@ -90,14 +90,11 @@ export async function POST(request: Request) {
     // but FAILED the quality gate is treated as a NON-delivery: refunded + sent the "retry" email, never
     // shipped. Fail-open — a missing scorecard never blocks delivery (we only block on an explicit `false`).
     const scorecard = parseScorecard(payload.logs || "");
-    // BLOCK CORSET (founder, 2026-06-18): we accept ANY input mp3 — a poor result from a poor SOURCE is a
-    // FAQ topic, not our block. Block ONLY on real OUTPUT catastrophes (DEAL-BREAKERS): empty/dead audio,
-    // GIBBERISH speech, the loudness ROLLERCOASTER, degenerate/untranslated text. Cosmetic signal numbers
-    // (clipping/0-dBFS peak, loudness, dropouts, hiss) are ADVISORY — they SHIP (logged, never blocked).
-    const DEAL_BREAKERS = new Set(["content_present", "no_dead_air", "intelligibility", "no_swallowed_line",
-      "music_stability", "music_continuity", "no_repetition", "full_replacement"]);
-    const scFailures: string[] = Array.isArray(scorecard?.failures) ? (scorecard!.failures as string[]) : [];
-    const qualityFailed = scFailures.some((f) => DEAL_BREAKERS.has(f));
+    // BLOCK CORSET (founder, 2026-06-18): block ONLY on real OUTPUT catastrophes (the shared DEAL_BREAKERS
+    // set in @/lib/scorecard — gibberish, loudness rollercoaster, empty/dead, degenerate text). Cosmetic
+    // signal numbers (clipping/0-dBFS peak, loudness, dropouts, hiss) ship. ONE source of truth for the
+    // gate + every serve path (this webhook AND /api/process/status), so the UI verdict can never drift.
+    const qualityFailed = isQualityFailed(scorecard, payload.logs || "");
     const delivered = status === "succeeded" && produced && !qualityFailed;
     if (qualityFailed) {
       console.warn(

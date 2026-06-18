@@ -38,9 +38,22 @@ export function parseScorecard(logs: string | null | undefined): Scorecard | nul
  * webhook-vs-poll race, where a fast status poll can see Replicate `succeeded` before the webhook has
  * persisted the verdict. A missing/garbled scorecard on BOTH sources never blocks a good run.
  */
+// BLOCK CORSET (founder, 2026-06-18): we accept ANY input mp3 — a poor result from a poor SOURCE is a FAQ
+// topic, not our block. The ONLY failures that block delivery are real OUTPUT catastrophes. Everything else
+// (clipping/0-dBFS peak, loudness, dropouts, hiss, true-peak, language accent) is ADVISORY — it ships.
+// Keep this in sync with predict.py's deliver-gate DEAL_BREAKERS. ONE source of truth for all serve paths.
+export const DEAL_BREAKERS = new Set<string>([
+  "content_present", "no_dead_air",        // empty / total-silence audio
+  "intelligibility", "no_swallowed_line",  // gibberish speech
+  "music_stability", "music_continuity",   // the loudness rollercoaster
+  "no_repetition", "full_replacement",     // degenerate / untranslated text
+]);
+
 export function isQualityFailed(jobScorecard: unknown, liveLogs: string | null | undefined): boolean {
   const stored = jobScorecard as Scorecard | null | undefined;
-  // An explicit stored verdict wins. If it's absent (not yet written), read the live logs.
-  if (stored && typeof stored.passed === "boolean") return stored.passed === false;
-  return parseScorecard(liveLogs)?.passed === false;
+  // Prefer the stored verdict's failures (authoritative, written by the webhook); fall back to the live
+  // log's scorecard (closes the webhook-vs-poll race). No scorecard on either side → fail OPEN (never block).
+  const sc = stored && Array.isArray(stored.failures) ? stored : parseScorecard(liveLogs);
+  if (!sc || !Array.isArray(sc.failures)) return false;
+  return sc.failures.some((f) => DEAL_BREAKERS.has(f));
 }
