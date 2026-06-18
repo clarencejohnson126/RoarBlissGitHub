@@ -224,15 +224,13 @@ def validate_output(audio_path: str, source_audio: str, *, tier: int = 100,
                 v.detail["music_continuity"] = (f"out σ={mb_out['sigma']:.1f} vs src σ={mb_src['sigma']:.1f}; "
                                                 f"out {mb_out['mean']:.1f}dB vs src {mb_src['mean']:.1f}dB")
 
-        # 4) NO DEAD AIR — reuse the source-aware dead-air gate (a real cut, not a mirrored quiet passage).
-        s = metrics.ebur128_summary(audio_path)
-        if s["integrated_lufs"] is not None:
-            holes = metrics.dropouts(audio_path, s["integrated_lufs"])
-            real = metrics.source_explained_holes(holes, metrics.momentary_curve(source_audio),
-                                                  metrics.momentary_curve(audio_path))
-            longest = max((h["dur_ms"] for h in real), default=0)
-            v.checks["no_dead_air"] = longest <= 2500
-            v.detail["no_dead_air"] = f"longest real hole {longest}ms"
+        # 4) NO DEAD AIR — robust silencedetect (an absolute-RMS gate), NOT the ebur128/dropout battery the
+        # constrained cog build mis-parses to integrated=0.0 (which flags the speaking voice as a 30s hole
+        # and FALSE-blocks clean translations). Source-aware: a window where the source is ALSO silent is a
+        # mirrored quiet passage, not a cut — only output silence over AUDIBLE source counts as dead air.
+        longest, _real_holes = metrics.real_dead_air_ms(audio_path, source_audio, noise_db=-35.0, min_ms=2500)
+        v.checks["no_dead_air"] = longest <= 2500
+        v.detail["no_dead_air"] = f"longest real hole {longest}ms (silencedetect)"
 
     return v
 

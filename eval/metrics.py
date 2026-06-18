@@ -178,6 +178,43 @@ def source_explained_holes(out_holes: list, src_curve: list, out_curve: list, ga
     return real
 
 
+def silence_windows(path: str, *, noise_db: float = -35.0, min_ms: int = 2500) -> list[dict]:
+    """Real silence windows via ffmpeg `silencedetect` — an ABSOLUTE-RMS gate, INDEPENDENT of the ebur128
+    integrated/momentary battery that the constrained cog build mis-parses to integrated=0.0 (which makes
+    `dropouts()` set its floor ~10 LU below 0.0 and flag the *speaking* voice, sitting at ~-22 LUFS, as a
+    30-second hole). `silencedetect` is reliable in BOTH the cog and the offline gate, so it is the
+    trustworthy basis for the no_dead_air deal-breaker. Returns every window >= min_ms."""
+    txt = _run(["ffmpeg", "-hide_banner", "-i", str(path), "-af",
+                f"silencedetect=noise={noise_db}dB:d={min_ms/1000.0}", "-f", "null", "-"])
+    starts = [float(m) for m in re.findall(r"silence_start:\s*(-?\d+(?:\.\d+)?)", txt)]
+    ends = [float(m) for m in re.findall(r"silence_end:\s*(-?\d+(?:\.\d+)?)", txt)]
+    dur = duration_s(path) or (ends[-1] if ends else 0.0)
+    out = []
+    for i, s in enumerate(starts):
+        e = ends[i] if i < len(ends) else dur   # file ended mid-silence -> close the window at the tail
+        if (e - s) * 1000 >= min_ms:
+            out.append({"start_s": round(s, 2), "end_s": round(e, 2), "dur_ms": round((e - s) * 1000)})
+    return out
+
+
+def real_dead_air_ms(out_path: str, source_path: str, *, noise_db: float = -35.0,
+                     min_ms: int = 2500) -> tuple[int, list]:
+    """Longest REAL dead-air hole (ms) + the offending windows, via robust silencedetect. Source-aware:
+    a window where the SOURCE is ALSO silent is a mirrored quiet passage (a song's soft outro), NOT a cut,
+    so it is excused. Only an output silence laid over AUDIBLE source counts as dead air."""
+    out_sil = silence_windows(out_path, noise_db=noise_db, min_ms=min_ms)
+    src_sil = silence_windows(source_path, noise_db=noise_db, min_ms=1500)
+
+    def src_silent_at(a: float, b: float) -> bool:
+        for w in src_sil:
+            if min(b, w["end_s"]) - max(a, w["start_s"]) > (b - a) * 0.5:
+                return True
+        return False
+
+    real = [h for h in out_sil if not src_silent_at(h["start_s"], h["end_s"])]
+    return max((h["dur_ms"] for h in real), default=0), real
+
+
 def music_band_stats(path: str) -> Optional[dict]:
     """THE founder metric ('MESSE!'): the MUSIC measured in ISOLATION from the voice. The <200Hz band
     belongs to the music bed (speech carries ~nothing there), so its momentary curve over time exposes
