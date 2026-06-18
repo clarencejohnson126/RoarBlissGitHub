@@ -1011,7 +1011,13 @@ class Predictor(BasePredictor):
         # voices talking over your track) sets clone_source_voices=False -> the upload is used directly
         # as the music/SFX bed: no Demucs, no pyannote, no cloning, NO surprise voices, and far faster.
         # Personalize tiers (25/50/75) and full_voice-with-cloning still separate exactly as before.
-        bed_only = use_full_voice and not clone_source_voices
+        # A TRANSLATION of a VOICED upload must NEVER use the raw upload as the bed — the original spoken voice
+        # would survive in the bed and play UNDER the new translated voice (two voices at once, the Al-Pacino
+        # bug). Only a TRUE instrumental (no voice) may skip separation. So exclude translations from bed_only:
+        # they take the _separate branch (source vocal stripped → voice-free accomp as the bed), then the EL
+        # voice rides ALONE. (Separating a genuine instrumental here is harmless — its accomp ≈ itself.)
+        is_translation = (language or "").strip().lower() not in ("", "english", "en")
+        bed_only = use_full_voice and not clone_source_voices and not is_translation
         if bed_only:
             # The voice over the bed comes from EITHER a chosen library voice (library_ref) OR permanent
             # voice ids (extra_voice_ids). At least one must be present.

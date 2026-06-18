@@ -577,7 +577,14 @@ def auto_synthesize(audio_path: str, user_context: str,
         # distortion. Apply the match, then pull the PEAK back just under full scale.
         slot_db = measure_slot_dbfs(vocals, s_ms, e_ms)
         if fitted.dBFS != float('-inf') and slot_db is not None:
-            gain = slot_db - fitted.dBFS   # match the ORIGINAL slot loudness (seamless)
+            # FLOOR the clone at a clear speech-lead level. Matching the LOCAL slot level keeps the seam
+            # natural where the original was at a normal level — but when a slot lands on a quiet pause /
+            # low passage, the raw local level is far too low and the clone vanishes under the music bed
+            # (the "whisper" bug). Never target below CLONE_FLOOR_DBFS, so the personalized line is ALWAYS
+            # the audible lead (the full_voice path proves an absolute target is correct: VOICE_TARGET=-16).
+            CLONE_FLOOR_DBFS = -23.0
+            target_db = max(slot_db, CLONE_FLOOR_DBFS)
+            gain = target_db - fitted.dBFS   # match the ORIGINAL slot loudness, but never below the floor
             # Clamp the gain BEFORE applying it. pydub's `+` hard-clips internally, so a clone already near
             # 0 dBFS that needs a big +gain would be DESTROYED at the apply step (the old post-check measured
             # an already-clipped signal and couldn't undo it → distortion that the mix bus then sums into the
@@ -585,10 +592,10 @@ def auto_synthesize(audio_path: str, user_context: str,
             if fitted.max_dBFS + gain > -1.0:
                 safe = -1.0 - fitted.max_dBFS
                 fitted = fitted + safe
-                log(f"  loudness: clamped near {slot_db:.2f}dBFS (safe gain {safe:+.2f}dB, anti-clip)")
+                log(f"  loudness: clamped near {target_db:.2f}dBFS (safe gain {safe:+.2f}dB, anti-clip)")
             else:
                 fitted = fitted + gain
-                log(f"  loudness: matched original {slot_db:.2f}dBFS (gain {gain:+.2f}dB)")
+                log(f"  loudness: target {target_db:.2f}dBFS (slot {slot_db:.2f}, floor {CLONE_FLOOR_DBFS}, gain {gain:+.2f}dB)")
 
         # Breath sized to the ORIGINAL's own rhythm, and it sits INSIDE the slot so the clone never extends
         # past e_ms (that extension was the "drag": content shifts right + the next original resumes late).
