@@ -1129,7 +1129,12 @@ class Predictor(BasePredictor):
         # SOFT warnings (langdetect can't tell accented target-language from a mishmash; accent = v2 polish).
         # The real source-language guard is full_replacement (plan-side). Block only on empty/dead-air.
         critical = [c for c in ("content_present", "no_dead_air") if c in out_chk.get("failures", [])]
-        combined = (signal.get("passed") is not False) and not critical
+        # BLOCK CORSET (founder, 2026-06-18): block ONLY on a real deal-breaker (empty audio / total dead-air).
+        # Signal-check fails (clipping/loudness/dropouts) are ADVISORY — kept in the scorecard for the learning
+        # loop, but they NEVER block delivery. An over-tight gate that false-blocks good audio (e.g. a
+        # constrained-ffmpeg 0.0 measurement artifact reading as "clipping") kills the experience → churn.
+        # The web callback mirrors this; this keeps the cog's own scorecard self-consistent.
+        combined = not critical
         verdict = {"passed": combined, "failures": list(signal.get("failures", [])) + critical,
                    "signal": signal, "output_check": out_chk}
         print("[[SCORECARD]] " + _json.dumps(verdict, default=str))

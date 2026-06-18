@@ -90,7 +90,12 @@ export async function POST(request: Request) {
     // but FAILED the quality gate is treated as a NON-delivery: refunded + sent the "retry" email, never
     // shipped. Fail-open — a missing scorecard never blocks delivery (we only block on an explicit `false`).
     const scorecard = parseScorecard(payload.logs || "");
-    const qualityFailed = scorecard?.passed === false;
+    // BLOCK CORSET (founder, 2026-06-18): the cog's scorecard.passed blocks on ANY signal-check fail
+    // (clipping/loudness/dropouts) — far too strict. A constrained-ffmpeg measurement artifact already
+    // false-blocked a perfectly good file, and an over-tight gate kills the experience → churn. Block ONLY
+    // on a real deal-breaker: empty audio or total dead-air. Signal cosmetics + accent SHIP (logged, not blocked).
+    const scFailures: string[] = Array.isArray(scorecard?.failures) ? (scorecard!.failures as string[]) : [];
+    const qualityFailed = scFailures.some((f) => f === "content_present" || f === "no_dead_air");
     const delivered = status === "succeeded" && produced && !qualityFailed;
     if (qualityFailed) {
       console.warn(

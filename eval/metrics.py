@@ -464,8 +464,13 @@ def score(path: str, *, context: Optional[dict] = None, gates: Gates = DEFAULT_G
         if s["lra"] is not None:
             ck["loudness_range"] = gates.lra_min <= s["lra"] <= gates.lra_max   # two-sided absolute
         ck["no_dropouts"] = len(drops) <= gates.dropout_max_count
-    if m["clip_peak_dbfs"] is not None:
-        ck["no_clipping"] = m["clip_peak_dbfs"] < gates.clip_ceiling_dbfs
+    # clip_peak_dbfs == 0.0 alongside a zero/null ebur128 battery is a constrained-ffmpeg MEASUREMENT
+    # artifact (volumedetect returned no usable max_volume), NOT real 0 dBFS clipping. Never block on an
+    # unmeasurable signal (fail-open) — only fail on a REAL measured clip.
+    _cp = m["clip_peak_dbfs"]
+    _meas_dead = (_cp == 0.0 and s.get("integrated_lufs") in (0.0, None) and s.get("true_peak_dbtp") is None)
+    if _cp is not None and not _meas_dead:
+        ck["no_clipping"] = _cp < gates.clip_ceiling_dbfs
     if m["hf_sizzle_ratio"] is not None and m["hf_sizzle_ratio"] > gates.hf_sizzle_ratio_max:
         warn.append(f"HF sizzle ratio {m['hf_sizzle_ratio']} > {gates.hf_sizzle_ratio_max} (possible hiss)")
     if m["lead_silence_s"] and m["lead_silence_s"] > gates.lead_silence_max_s:
