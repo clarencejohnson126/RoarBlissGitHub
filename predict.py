@@ -461,6 +461,15 @@ class Predictor(BasePredictor):
         if track.dBFS == float("-inf"):
             raise RuntimeError("full_voice: no audible speech produced")
         track = self._voice_polish(track, work, speed=1.0)   # Stimmenklang only — speed already per line
+        # RULE #1 refinement (founder 2026-06-19): restore the SEPARATED bed's music presence. A translation /
+        # voiced upload mixes over the accomp STEM (~8-10 dB below the source's real music level after vocal
+        # removal); leaving it 'untouched' makes the music too quiet and kills the drama. Lift the stem back to
+        # the source's <200 Hz music level with ONE constant gain. The instrumental path (raw-upload bed ==
+        # audio_path) and constant/template beds are already at original level → skip (RULE #1 untouched).
+        is_separated_bed = (os.path.abspath(str(bed_for_mix)) != os.path.abspath(str(audio_path))
+                            and not use_constant_bed)
+        if is_separated_bed:
+            bed_for_mix = self._restore_bed_presence(bed_for_mix, audio_path, work)
         mixed = self._lay_over_music(track, bed_for_mix, work, duck_db=duck_db, music_gain_db=music_gain_db,
                                      bed_len_ms=window_ms, intro_ms=intro_ms)
         # Trim a trailing DEAD-AIR tail. When a translated / dry speech is re-voiced, its SEPARATED accomp
@@ -859,8 +868,12 @@ class Predictor(BasePredictor):
             chain = (f"[0:a]{mg}aresample=44100,aformat=channel_layouts=stereo[m];"
                      f"[1:a]aresample=44100,aformat=channel_layouts=stereo[v];"
                      f"[m][v]amix=inputs=2:duration=longest:normalize=0[out]")
+            # Write the mix as FLOAT (pcm_f32le), NOT the default s16: amix is a straight linear sum
+            # (normalize=0), so a hot bed (bed-presence lift) + lifted voice can sum >0 dBFS. In s16 that
+            # would HARD-CLIP at write time, BEFORE the -1.5 dBFS trim below ever measures it. Float keeps
+            # the true overshoot so the trim can remove it. RULE #1-safe: still a constant linear trim.
             subprocess.run(["ffmpeg", "-y", "-i", str(mpath), "-i", str(vpath),
-                            "-filter_complex", chain, "-map", "[out]", str(opath)],
+                            "-filter_complex", chain, "-map", "[out]", "-c:a", "pcm_f32le", str(opath)],
                            capture_output=True, check=True)
             mixed = AudioSegment.from_wav(str(opath))
             # -1.5 dBFS sample-peak headroom (not -1.0): on lossy MP3 encode the inter-sample (true)
@@ -874,6 +887,43 @@ class Predictor(BasePredictor):
         except Exception as e:
             print("flat mix failed -> simple overlay:", e)
             return music.overlay(vfull)
+
+    def _restore_bed_presence(self, bed_path, source_path, work, cap_db=12.0):
+        """Lift a SEPARATED accomp stem back to the SOURCE's real music level with ONE constant gain.
+        RULE #1 refinement (founder 2026-06-19, Al-Pacino translation): a translation / voiced upload mixes
+        over the separated accomp, which sits ~8-10 dB BELOW the source's real music level (vocal removal +
+        RoFormer strip energy). Leaving it 'untouched' keeps the music far too quiet — founder: 'die Musik
+        ist sehr leise und nimmt dem ganzen die schöne Dramatik' (measured: music 12.9 dB below the mix vs
+        6.9-10.6 dB in good tracks). The <200 Hz band is MOSTLY music; a deep male fundamental (~80-150 Hz)
+        does leak into it, so matching the stem to the SOURCE's <200 Hz can OVER-lift a few dB on voice-heavy
+        sources — which is acceptable (even desirable) here: the founder asked for MORE music presence, and
+        the cap bounds the lift. POSITIVE-ONLY (never duck below original) + capped (don't blow up separation
+        artifacts). Still ONE constant level, NO dynamic ducking — just the CORRECT constant level. The
+        instrumental path (raw-upload bed == audio_path) and constant/template beds never reach here.
+        If the founder ever reports the music is too LOUD, de-bias by subtracting the separated VOCAL stem's
+        <200 Hz power from the source band (apples-to-apples vocal-stripped reference)."""
+        try:
+            sys.path.insert(0, str(_P(__file__).parent / "eval"))
+            from metrics import music_band_stats
+            src_mb = music_band_stats(str(source_path))
+            bed_mb = music_band_stats(str(bed_path))
+            if not src_mb or not bed_mb:
+                print("bed presence: music-band unmeasurable, skip"); return bed_path
+            delta = src_mb["mean"] - bed_mb["mean"]
+            gain = max(0.0, min(delta, cap_db))   # positive-only, capped
+            if gain < 0.5:
+                print(f"bed presence: stem already at source music level (Δ{delta:.1f}dB, skip)")
+                return bed_path
+            from pydub import AudioSegment
+            bed = AudioSegment.from_file(str(bed_path)).apply_gain(gain)
+            out = _P(work) / "bed_presence.wav"
+            bed.export(str(out), format="wav")
+            print(f"bed presence: lifted separated stem +{gain:.1f}dB to source music level "
+                  f"(src<200={src_mb['mean']:.1f}dB stem<200={bed_mb['mean']:.1f}dB Δ{delta:.1f}; "
+                  f"RULE#1 constant gain, cap {cap_db})")
+            return out
+        except Exception as e:
+            print("bed presence restore skipped:", e); return bed_path
 
     def predict(
         self,
