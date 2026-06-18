@@ -868,21 +868,40 @@ class Predictor(BasePredictor):
             chain = (f"[0:a]{mg}aresample=44100,aformat=channel_layouts=stereo[m];"
                      f"[1:a]aresample=44100,aformat=channel_layouts=stereo[v];"
                      f"[m][v]amix=inputs=2:duration=longest:normalize=0[out]")
-            # Write the mix as FLOAT (pcm_f32le), NOT the default s16: amix is a straight linear sum
-            # (normalize=0), so a hot bed (bed-presence lift) + lifted voice can sum >0 dBFS. In s16 that
-            # would HARD-CLIP at write time, BEFORE the -1.5 dBFS trim below ever measures it. Float keeps
-            # the true overshoot so the trim can remove it. RULE #1-safe: still a constant linear trim.
+            # Pass 1: FLOAT mix (pcm_f32le): amix is a straight linear sum (normalize=0), so a hot bed
+            # (bed-presence lift) + lifted voice can exceed 0 dBFS. Float keeps the true >0 dBFS overshoot.
             subprocess.run(["ffmpeg", "-y", "-i", str(mpath), "-i", str(vpath),
                             "-filter_complex", chain, "-map", "[out]", "-c:a", "pcm_f32le", str(opath)],
                            capture_output=True, check=True)
-            mixed = AudioSegment.from_wav(str(opath))
-            # -1.5 dBFS sample-peak headroom (not -1.0): on lossy MP3 encode the inter-sample (true)
-            # peaks overshoot the sample peak by up to ~1 dB, so a -1.0 sample ceiling can still clip
-            # >0 dBTP on some decoders. This is a constant LINEAR trim — never a limiter/compressor
-            # (RULE #1: the dynamics stay untouched), just a touch more headroom against true-peak clipping.
-            if mixed.max_dBFS > -1.5:   # constant trim only if the sum would clip — never dynamic
+            # Trim to -1.5 dBFS IN THE FLOAT DOMAIN, THEN write s16. CRITICAL: pydub represents audio as
+            # integers, so AudioSegment.from_wav would CLIP any >0 dBFS float sample to 0 dBFS on read,
+            # baking in a flat-top the later trim can't undo. So measure the float peak with ffmpeg and apply
+            # ONE constant linear gain before pydub ever sees it. -1.5 (not -1.0) leaves headroom for lossy
+            # MP3 inter-sample overshoot. RULE #1-safe: a single constant trim, never a limiter/compressor.
+            import re as _re
+            # Measure the float peak with astats (NOT volumedetect — volumedetect caps the float peak at
+            # 0 dBFS via an internal integer conversion; astats reports the true >0 dBFS peak).
+            det = subprocess.run(["ffmpeg", "-hide_banner", "-i", str(opath),
+                                  "-af", "astats=measure_overall=Peak_level:measure_perchannel=0",
+                                  "-f", "null", "-"], capture_output=True, text=True).stderr
+            peaks = [float(m) for m in _re.findall(r"Peak level dB:\s*(-?\d+(?:\.\d+)?)", det)]
+            peak_db = max(peaks) if peaks else 0.0
+            trim_db = -1.5 - peak_db
+            opath2 = _P(work) / "mix_trim.wav"
+            if trim_db < -0.01:   # sum would clip → one constant trim down to -1.5 dBFS (float domain)
+                subprocess.run(["ffmpeg", "-y", "-i", str(opath), "-af", f"volume={trim_db:.2f}dB",
+                                "-c:a", "pcm_s16le", str(opath2)], capture_output=True, check=True)
+            else:                 # already below -1.5 dBFS → just down-convert to s16, no gain change
+                subprocess.run(["ffmpeg", "-y", "-i", str(opath), "-c:a", "pcm_s16le", str(opath2)],
+                               capture_output=True, check=True)
+            mixed = AudioSegment.from_wav(str(opath2))
+            # Safety net: after the float-domain trim the s16 file is < -1.5 dBFS, so pydub reads it WITHOUT
+            # clipping and this is a no-op; it only catches a measurement miss (no astats match → peak_db=0).
+            if mixed.max_dBFS > -1.5:
                 mixed = mixed.apply_gain(-(mixed.max_dBFS + 1.5))
-            print(f"flat mix (RULE #1): music at original level, no limiter, -1.5dBFS true-peak headroom, music_gain_db={music_gain_db} (manual only)")
+            print(f"flat mix (RULE #1): music at original level, no limiter, float-domain constant trim "
+                  f"{trim_db:.2f}dB (peak was {peak_db:.2f}dBFS) -> -1.5dBFS headroom, "
+                  f"music_gain_db={music_gain_db} (manual only)")
             return mixed
         except Exception as e:
             print("flat mix failed -> simple overlay:", e)
