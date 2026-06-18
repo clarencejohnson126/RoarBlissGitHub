@@ -243,6 +243,8 @@ export async function POST(request: Request) {
       ...((useLibraryVoice || useElVoice) ? { clone_source_voices: false } : {}),
       // Secrets travel as Cog Secret inputs (Replicate has no model-level env). Server-side env only.
       anthropic_api_key: process.env.ANTHROPIC_API_KEY || "",
+      // EL key for the instrumental/translation EL path — without it the cog can't reach ElevenLabs.
+      elevenlabs_api_key: process.env.ELEVENLABS_API_KEY || "",
       hf_token: process.env.HF_TOKEN || "",
       replicate_api_token: process.env.REPLICATE_API_TOKEN || "",
       blob_token: process.env.BLOB_READ_WRITE_TOKEN || "",

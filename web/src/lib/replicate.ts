@@ -92,6 +92,7 @@ export interface PredictionInput {
   // Per-prediction secrets (Replicate has no model-level env vars). Server-side only; the model
   // declares these as Cog Secret inputs, so Replicate masks them in logs.
   anthropic_api_key?: string;
+  elevenlabs_api_key?: string; // ElevenLabs key for the instrumental/translation EL path
   hf_token?: string;
   replicate_api_token?: string;
   blob_token?: string;
