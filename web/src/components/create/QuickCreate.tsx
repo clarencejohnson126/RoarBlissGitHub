@@ -250,12 +250,28 @@ export default function QuickCreate({ onFullSetup }: { onFullSetup?: () => void 
               <input ref={inputRef} type="file" accept="audio/*,.mp3,.wav,.m4a,.aac,.ogg" hidden onChange={(e) => pick(e.target.files?.[0])} />
             </div>
             )}
-            {isInstrumental && (
-              <>
-                <p className={styles.qcLabel} style={{ marginTop: "1rem" }}>Choose your voice</p>
-                <VoicePicker selectedId={data.libraryVoiceId} onSelect={(id) => update({ libraryVoiceId: id })} />
-              </>
-            )}
+            {/* Library voice — selectable only at 100% (Full) or for an instrumental. At 25/50/75 the cards
+                are greyed out (RoarBliss clones your own voice). No pick at 100% → your own cloned voice. */}
+            {!presetAudioUrl && (() => {
+              const full = isInstrumental || data.personalizationDepth >= 100;
+              return (
+                <>
+                  <p className={styles.qcLabel} style={{ marginTop: "1rem" }}>
+                    {isInstrumental ? "Choose your voice" : "Speak it in another voice?"}
+                  </p>
+                  <p className={styles.qcHint} style={{ marginTop: 0, marginBottom: "0.5rem", display: "block" }}>
+                    {isInstrumental
+                      ? "This voice speaks your story over your instrumental."
+                      : full
+                        ? "Optional — pick a voice to fully re-speak it. No pick → your own cloned voice."
+                        : "Unlocks at 100% (Full). At 25–75% we always clone your own voice."}
+                  </p>
+                  <div style={full ? undefined : { opacity: 0.45, pointerEvents: "none", filter: "grayscale(1)" }} aria-disabled={!full}>
+                    <VoicePicker selectedId={full ? data.libraryVoiceId : ""} onSelect={(id) => { if (full) update({ libraryVoiceId: id }); }} />
+                  </div>
+                </>
+              );
+            })()}
             {!presetAudioUrl && (
               <p style={{ fontSize: "0.8rem", color: "var(--color-smoke)", marginTop: "0.6rem", lineHeight: 1.5 }}>
                 Max 100 MB. Audio over <strong style={{ color: "var(--color-ivory)" }}>6 minutes</strong> is trimmed to the first 6 min. We process it and <strong style={{ color: "var(--color-ivory)" }}>keep only the finished result</strong> — your upload is deleted right after.

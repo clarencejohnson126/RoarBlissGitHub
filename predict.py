@@ -184,6 +184,20 @@ class Predictor(BasePredictor):
             return bed.dBFS < -26
         return (sp - pa) > 12 or pa < -34   # bed collapses in pauses OR is very quiet there
 
+    def _source_has_voice(self, vocals_path, thresh_db=-50.0):
+        """True if the separated VOCAL stem carries real speech (not the near-silent residue a true
+        instrumental leaves). Decides whether a 'chosen voice over a bed' run must STRIP the source
+        voice: a VOICED upload (a speech) + a chosen library/EL voice would otherwise play BOTH the
+        original speaker AND the chosen voice (the double-voice / Al-Pacino bug). We bias toward
+        'has voice' (strip): stripping a genuine instrumental is harmless (its accomp ≈ itself),
+        while NOT stripping a voiced source is the catastrophe — so any doubt = strip."""
+        try:
+            from pydub import AudioSegment
+            v = AudioSegment.from_file(str(vocals_path))
+        except Exception:
+            return True   # can't measure -> safest is to STRIP (never risk a double voice)
+        return v.dBFS != float("-inf") and v.dBFS > thresh_db
+
     def _full_voice(self, vocals, accomp, audio_path, user_context, window_ms, work,
                     min_voices=0, extra_voice_ids="", language="English", clone_source_voices=True,
                     music_gain_db=0.0, duck_db=8.0, voice_speed=1.0, bed_audio=None, library_ref=None):
@@ -1089,25 +1103,35 @@ class Predictor(BasePredictor):
                 use_full_voice = True
                 print(f"translation {src}->{tgt}: full_voice, whole track re-spoken in {tgt} (OmniVoice — scalable; residual accent is a v2 polish)")
 
-        # DETERMINISTIC voice sourcing. Only separate (and later clone) the source's speakers when the
-        # job actually needs it. "Chosen voices over a pure bed" (instrumental + your voice, or N picked
-        # voices talking over your track) sets clone_source_voices=False -> the upload is used directly
-        # as the music/SFX bed: no Demucs, no pyannote, no cloning, NO surprise voices, and far faster.
-        # Personalize tiers (25/50/75) and full_voice-with-cloning still separate exactly as before.
-        # A TRANSLATION of a VOICED upload must NEVER use the raw upload as the bed — the original spoken voice
-        # would survive in the bed and play UNDER the new translated voice (two voices at once, the Al-Pacino
-        # bug). Only a TRUE instrumental (no voice) may skip separation. So exclude translations from bed_only:
-        # they take the _separate branch (source vocal stripped → voice-free accomp as the bed), then the EL
-        # voice rides ALONE. (Separating a genuine instrumental here is harmless — its accomp ≈ itself.)
+        # DETERMINISTIC voice sourcing. A "chosen voice over a bed" run (clone_source_voices=False: an
+        # instrumental + your library voice, N picked voices, or a translation) lays the chosen voice over
+        # a bed. That bed MUST be VOICE-FREE — otherwise the source's own speaker survives in it and plays
+        # UNDER the chosen voice = two voices at once (the double-voice / Al-Pacino bug).
+        #
+        # We must NOT trust clone_source_voices=False to mean "the upload is a true instrumental": the web
+        # UI sends the SAME flag for a VOICED speech + a chosen library voice (and for every translation).
+        # So we ALWAYS separate here, then STRIP the source voice whenever the upload actually contains
+        # speech (a translation is always voiced; otherwise probe the separated vocal stem with
+        # _source_has_voice). Only a genuinely voice-free instrumental keeps the raw upload as the bed —
+        # separating a true instrumental is harmless (its accomp ≈ itself), so the safety net costs only a
+        # few seconds there. Personalize tiers (25/50/75) and full_voice-WITH-cloning take the plain branch.
         is_translation = (language or "").strip().lower() not in ("", "english", "en")
-        bed_only = use_full_voice and not clone_source_voices and not is_translation
-        if bed_only:
+        chosen_voice_only = use_full_voice and not clone_source_voices
+        if chosen_voice_only:
             # The voice over the bed comes from EITHER a chosen library voice (library_ref) OR permanent
             # voice ids (extra_voice_ids). At least one must be present.
             if not library_ref and not (extra_voice_ids or "").strip():
                 raise RuntimeError("clone_source_voices=False requires a voice_reference_url or extra_voice_ids")
-            vocals, accomp = None, _P(str(audio))
-            print("voice sourcing: chosen voice(s) only (no clone) -> upload used directly as the bed")
+            sep_vocals, sep_accomp = self._separate(_P(str(audio)), work)
+            if is_translation or self._source_has_voice(sep_vocals):
+                # VOICED source -> ride the chosen voice over the VOICE-FREE accomp (source voice removed).
+                # vocals stays None so the source speaker is never cloned — only the chosen voice speaks.
+                vocals, accomp = None, sep_accomp
+                print("voice sourcing: chosen voice(s) over a VOICE-FREE bed — source voice STRIPPED (no double-voice)")
+            else:
+                # TRUE instrumental (no voice to strip) -> raw upload is the bed, full fidelity.
+                vocals, accomp = None, _P(str(audio))
+                print("voice sourcing: chosen voice(s) only, true instrumental -> upload used directly as the bed")
         else:
             vocals, accomp = self._separate(_P(str(audio)), work)
 

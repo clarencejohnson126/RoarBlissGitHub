@@ -78,7 +78,12 @@ export default function CreateFlowProvider({ children }: { children: ReactNode }
   useEffect(() => {
     try {
       const raw = localStorage.getItem(KEY);
-      if (raw) setData({ ...EMPTY_FLOW, ...JSON.parse(raw) });
+      // The source-mode + library-voice choice is PER-UPLOAD and must NEVER carry over from a prior
+      // session: the File can't be restored anyway (the user must re-upload), and a stale
+      // sourceMode="instrumental" + libraryVoiceId silently hijacks a fresh VOICED run into the
+      // EL "voice over a bed" path — dropping the chosen tier to 100% and (pre-cog-fix) producing a
+      // double voice. Always start a restored session in the default "has a voice" mode.
+      if (raw) setData({ ...EMPTY_FLOW, ...JSON.parse(raw), sourceMode: "voice", libraryVoiceId: "" });
     } catch {
       /* ignore */
     }

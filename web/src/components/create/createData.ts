@@ -142,16 +142,24 @@ export function composePayload(d: CreateFlowData) {
   if (d.wordsToAvoid.trim()) parts.push(`Avoid these words: ${d.wordsToAvoid.trim()}.`);
   parts.push(`Delivery intensity: ${d.intensity}.`);
 
-  // Instrumental / library-voice path: the upload has NO voice to clone, so the user picked a library
-  // voice. We send its clone-reference URL + clone_source_voices=false so the cog lays THAT voice over
-  // the original bed (RULE #1: bed untouched) instead of trying to diarize a non-existent speaker. A
-  // chosen library voice forces the full (100%) script — there is no original speech to keep.
-  const lib = d.sourceMode === "instrumental" ? getVoiceById(d.libraryVoiceId) : undefined;
-  // Translation (non-English target) is spoken by an EL library voice in that language (differentiated-
-  // engine plan): the chosen instrumental voice if there is one, else a default deep persona. There is NO
-  // cross-lingual clone of the source voice (that's the deferred "keep the source voice" v2). Like the
-  // instrumental path, translation forces the full (100%) script — no source-language line survives.
+  // VOICE SOURCING — the hard product rule (founder 2026-06-19):
+  //   • A PARTIAL tier (25/50/75) is ALWAYS an OmniVoice clone of the source's OWN voice. The user can
+  //     NOT pick a library/EL voice there — there is no "partial tier + chosen voice" use case.
+  //   • At 100% (Full): NO voice picked → OmniVoice clones the source's own voice (full new script);
+  //     a picked library voice → that EL voice fully re-speaks it.
+  //   • A genuine INSTRUMENTAL upload has no voice to clone → always full (100%), a voice IS required.
+  //   • A TRANSLATION (non-English) is spoken by a native EL library voice in that language, forced full.
+  // This is the SERVER-TRUTH chokepoint: even if the UI ever lets the modes cross (e.g. stale state), a
+  // partial tier can NEVER emit an EL voice here → the double-voice / wrong-voice bug is structurally
+  // impossible, not just hidden in the UI.
+  const isInstrumental = d.sourceMode === "instrumental";
   const isTranslation = (d.language || "English").trim().toLowerCase() !== "english";
+  // Instrumental has no source to keep → its effective tier is always full, regardless of any stale depth.
+  const tier: Depth = isInstrumental ? 100 : d.personalizationDepth;
+  // A chosen library voice is honored ONLY when the effective intent is a FULL re-voice (100% / instrumental
+  // / translation). At 25/50/75 a chosen voice is IGNORED — the source's own voice is cloned at that tier.
+  const elAllowed = isInstrumental || isTranslation || tier >= 100;
+  const lib = elAllowed && d.libraryVoiceId ? getVoiceById(d.libraryVoiceId) : undefined;
   const elVoice = lib ?? (isTranslation ? getVoiceById("atlas") : undefined);
 
   return {
@@ -162,13 +170,13 @@ export function composePayload(d: CreateFlowData) {
     location: "",
     champion: deriveChampion(d.primaryTone, d.intensity),
     tone: [d.primaryTone, d.secondaryTone].filter(Boolean).join(" + "),
-    // An instrumental + chosen voice has nothing to keep → speak the whole bed (full_voice). Otherwise
-    // honor the user's tier exactly.
-    personalization: elVoice ? (100 as Depth) : d.personalizationDepth,
+    // A chosen EL voice (or translation / instrumental) is a full re-voice → 100%. Otherwise honor the
+    // user's tier exactly (a partial tier is always an OmniVoice clone of the source's own voice).
+    personalization: elVoice ? 100 : tier,
     language: d.language || "English",
     prompt: parts.join(" "),
     paid: false,
-    // EL-voice-over-bed wiring — set for an instrumental pick OR a translation (both speak an EL library voice).
+    // EL-voice-over-bed wiring — set ONLY for a chosen voice at FULL / an instrumental pick / a translation.
     ...(elVoice
       ? { ttsProvider: "elevenlabs", extraVoiceIds: elVoice.el_voice_id, elModel: "eleven_multilingual_v2", libraryVoiceId: elVoice.id, cloneSourceVoices: false }
       : {}),

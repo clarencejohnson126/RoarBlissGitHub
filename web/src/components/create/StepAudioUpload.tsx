@@ -125,18 +125,34 @@ export default function StepAudioUpload() {
 
       {error && <p className={styles.errorMsg}>{error}</p>}
 
-      {isInstrumental && (
-        <>
-          <p className={styles.blockLabel}>Choose your voice</p>
-          <p className={styles.sub} style={{ marginBlockStart: 0 }}>
-            This voice speaks your story over your instrumental. Tap a card to hear a preview.
-          </p>
-          <VoicePicker
-            selectedId={data.libraryVoiceId}
-            onSelect={(id) => update({ libraryVoiceId: id })}
-          />
-        </>
-      )}
+      {/* Library voice. PRODUCT RULE: a chosen voice = a FULL re-voice, so it is only selectable at 100%
+          (Full) — or for an instrumental, which has no voice to clone. At 25/50/75 the cards are GREYED
+          OUT: RoarBliss always clones your OWN voice there. An instrumental REQUIRES a pick; a voiced
+          100% upload may OPTIONALLY pick one (no pick → your own cloned voice). */}
+      {(() => {
+        const full = isInstrumental || data.personalizationDepth >= 100;
+        return (
+          <>
+            <p className={styles.blockLabel}>{isInstrumental ? "Choose your voice" : "Speak it in another voice?"}</p>
+            <p className={styles.sub} style={{ marginBlockStart: 0 }}>
+              {isInstrumental
+                ? "This voice speaks your story over your instrumental. Tap a card to hear a preview."
+                : full
+                  ? "Optional — pick a voice to fully re-speak your script. Leave it unselected and we clone your own voice."
+                  : "Unlocks at 100% (Full). At 25–75% RoarBliss always clones your own voice — so these stay locked."}
+            </p>
+            <div
+              style={full ? undefined : { opacity: 0.45, pointerEvents: "none", filter: "grayscale(1)" }}
+              aria-disabled={!full}
+            >
+              <VoicePicker
+                selectedId={full ? data.libraryVoiceId : ""}
+                onSelect={(id) => { if (full) update({ libraryVoiceId: id }); }}
+              />
+            </div>
+          </>
+        );
+      })()}
 
       <p className={styles.disclaimer}>
         Maximum file size <strong>100 MB</strong>. Audio longer than <strong>6 minutes</strong> will be trimmed to the
