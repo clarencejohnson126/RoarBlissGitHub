@@ -65,39 +65,51 @@ acceptance criteria back to named checks in that gate.
 
 ---
 
-## 3. Engine rules (which TTS, when, and WHY) — FULL OmniVoice
+## 3. Engine rules (which TTS, when, and WHY) — DIFFERENTIATED (OmniVoice + ElevenLabs)
 
-- **THE RULE IS TO CLONE, and CLONING = OmniVoice. Always.** For everything — same-language AND
-  cross-lingual (translation). OmniVoice (Higgs Audio v2) is local/in-cog on GPU with **no per-op
-  clone-slot limit → it scales.** This is the founder's hard directive: a complete switch to OmniVoice,
-  **no ElevenLabs cloning.**
-- **NO ElevenLabs for cloning, ever — the deciding reason is SCALE.** A per-clone slot cap cannot serve
-  e.g. 100 simultaneous translations (= 100 simultaneous EL slots = impossible on any tier). The
-  create→delete trick only bounds concurrency, it doesn't remove the cap. (We also hit a scoped-key `403`
-  on `/voices/add`.) OmniVoice is local with no slot cap → it is the only path that scales.
-- **Cross-lingual / translation = OmniVoice cross-lingual. Settings: `num_step=80, guidance=3.0`, `ref_text`
-  KEPT.** The founder approved the LOCAL German render (`OMNIVOICE_REFERENCE/02_DE_*`, MPS): *"hervorragend …
-  leichter Akzent, klingt einzigartig, können wir so übernehmen."* The light accent is acceptable.
-  - **⛔ BLOCKER (2026-06-14): the CLOUD cog does NOT reproduce that quality — it garbles German.** Two cloud
-    runs (cog `370162ac36d7…`, ref_text ON and OFF) both came out heavily garbled ("Sturmgeschremen",
-    "trägsteten", "hitterlässt"), while the LOCAL render of the same source is clean. The pipeline ran
-    correctly (3 speakers diarized, good German script, gate PASSED) → the fault is OmniVoice's cross-lingual
-    RENDERING on CUDA/fp16 vs MPS, not structure/script/refs. **Translation cannot ship on prod until the
-    cloud-vs-local German gap is closed** (same-language/English cloud is fine — this is cross-lingual only).
-    Prime suspect: OmniVoice numerics on CUDA (try bf16/fp32 or verify attn_implementation). See
-    [[project_translation_cloud_gap]].
-  - **The gate is GARBLE-BLIND for cross-lingual.** `output_language` runs langdetect on the SCRIPT TEXT, not
-    the rendered audio → it falsely PASSED garbled German. Numeric green ≠ good audio; the founder's ear is
-    the only real check here (Constitution meta-rule). TODO: an audio-intelligibility scorer.
-  - **DEAD LEVER — do NOT retry: dropping `ref_text` for cross-lingual.** Tested 2026-06-14, it made German
-    WORSE. The dormant Cog toggle `xlingual_drop_reftext` stays OFF. See [[project_translation_reftext_experiment]].
-- **Translation is intended as a Warrior-tier feature** (founder, 2026-06-14) — but gated behind the cloud-German
-  fix above; do not un-hide it in the UI until cloud quality matches the approved local render.
-- **ElevenLabs is FULLY OUT (founder, 2026-06-14): every feature runs 100%% on OmniVoice.** No EL for cloning,
-  translation, OR library voices. The one remaining EL use — the instrumental flow's library voice id (e.g.
-  `instrumental_jon`) — MUST migrate to a stored OmniVoice reference (now a FIRM task, no longer "not urgent").
-  Library voices stay a concept (a permanent/shared voice for instrumentals, where there's nothing to clone),
-  but they are OmniVoice references, not EL ids. **The RULE, everywhere, is clone → OmniVoice.**
+> Reconciled to LIVE reality on 2026-06-19, verified by a real prod E2E on roarbliss.com (both English
+> personalization AND German translation founder-approved — "hört sich gut an"). The earlier
+> **"100% OmniVoice / ElevenLabs FULLY OUT" directive (2026-06-14) is SUPERSEDED** by the
+> differentiated-engine decision (2026-06-17, [[project_engine_decision_final]]). **The split is by JOB,
+> not by vendor preference.** See [[project_e2e_verified_20260619]].
+
+- **CLONING = OmniVoice. Always.** Reproducing the SOURCE's OWN voice — same-language personalization at every
+  tier (25/50/75/100) — runs on OmniVoice (Higgs Audio v2), local/in-cog on GPU. The deciding reason is
+  **SCALE: OmniVoice has no per-op clone-slot limit**, so it can serve e.g. 100 simultaneous personalizations.
+  ElevenLabs cloning cannot (a per-clone slot cap; the create→delete trick only bounds concurrency, and we hit
+  a scoped-key `403` on `/voices/add`). **No ElevenLabs cloning, ever.**
+
+- **NON-cloned voices = ElevenLabs.** When there is nothing to clone — a CHOSEN voice rather than the source's
+  own — the engine is ElevenLabs:
+  - **Instrumental / library-voice flow:** a permanent library voice laid over a music bed (e.g.
+    `instrumental_jon`) → an ElevenLabs voice id. (A music-only upload has no voice to clone.)
+  - **Translation:** the personalized speech is rendered in the TARGET language by a NATIVE ElevenLabs voice in
+    that language — NOT an OmniVoice cross-lingual clone of the source. Forced to **tier=100 / full_voice** (a
+    complete re-voicing; matches §2 "translation = always full, never a partial mix"). Trade-off accepted: it
+    does NOT preserve the source's own timbre (it uses a chosen native voice).
+
+- **WHY translation uses a native EL voice, not OmniVoice cross-lingual (hard-won, do not relitigate):**
+  OmniVoice cross-lingual RENDERING garbles on the CLOUD cog (CUDA/fp16) even though the LOCAL render (MPS) is
+  clean — two 2026-06-14 cloud runs came out "Sturmgeschremen / trägsteten" with `ref_text` ON and OFF; dropping
+  `ref_text` made it WORSE (**DEAD LEVER**, `xlingual_drop_reftext` stays OFF; [[project_translation_reftext_experiment]]).
+  Rather than chase the CUDA-numerics fix, translation now **SIDESTEPS the OmniVoice cross-lingual path entirely**
+  by speaking a native EL voice in the target language. **VERIFIED on prod (2026-06-19, cog `d3ec1595`):** a live
+  German run routed `provider=elevenlabs`, and a Whisper transcript of the ACTUAL audio = clean, grammatical,
+  personalized German. The old **⛔ "translation cannot ship" blocker is therefore RESOLVED** for the shipped
+  path. ([[project_translation_cloud_gap]].) The local OmniVoice cross-lingual render remains a known-good
+  research artifact (`OMNIVOICE_REFERENCE/02_DE_*`) but is NOT the production path.
+
+- **The gate is still GARBLE-BLIND for cross-lingual** — `output_language` runs langdetect on the SCRIPT TEXT,
+  not the rendered audio. With EL native rendering this is low-risk (EL speaks the target language natively), but
+  numeric green ≠ verified audio; **the founder's ear remains the real check** (meta-rule). TODO: an
+  audio-intelligibility scorer.
+
+- **Language scope is MULTI-LANGUAGE and SHIPPED (NOT English-only).** The `/create` picker offers **9 languages**
+  (English, German, Spanish, French, Italian, Portuguese, Dutch, Polish, Chinese — `createData.ts:LANGUAGES`).
+  The default is **English** (`EMPTY_FLOW.language`); any non-English choice is an explicit opt-in that triggers
+  the EL translation path above. **DACH (German) is a deliberately supported market and is verified working**
+  (founder decision 2026-06-19 to KEEP it; [[project_language_picker_live]]). `/story` Chapter VI already
+  positions multi-language publicly (note: it lists 8 — Chinese is offered in the picker but omitted there).
 
 ---
 
